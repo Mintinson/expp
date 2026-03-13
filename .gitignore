@@ -1,0 +1,14 @@
+build/
+
+.vscode/
+
+.cache/ 
+
+
+.idea/
+
+.vs/
+
+buildLinux/
+
+compile_commands.json
