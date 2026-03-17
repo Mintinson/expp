@@ -210,6 +210,9 @@ public:
      */
     void onRefresh(RefreshCallback callback);
 
+    // ========== View ==========
+    void toggleShowHidden();
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

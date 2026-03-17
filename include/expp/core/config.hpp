@@ -7,8 +7,31 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <unordered_map>
 
 namespace expp::core {
+using namespace std::literals;
+const std::unordered_map<std::string, std::string> kIConMap = {
+    {"default", "\uf15b"},
+    {    "exe", "\ue760"},
+    {  ".bash", "\ue795"},
+    {     ".c", "\ue61e"},
+    { ".cmake", "\ue706"},
+    {   ".cpp", "\ue61d"},
+    {    ".cs", "\ue737"},
+    {    ".go", "\ue627"},
+    {     ".h", "\ue615"},
+    {   ".hpp", "\uf0fd"},
+    {  ".html", "\ue736"},
+    {    ".js", "\ue74e"},
+    {  ".json", "\ue60b"},
+    {   ".lua", "\ue620"},
+    {    ".md", "\uf48a"},
+    {    ".py", "\ue73c"},
+    {    ".rs", "\ue7a8"},
+    {    ".ts", "\ue628"},
+    { "folder", "\uf07b"},
+};
 
 /**
  * @brief Color theme configuration
@@ -17,7 +40,7 @@ struct ColorTheme {
     std::string name{"default"};
 
     // File type colors (hex RGB values)
-    uint32_t directory{0x5555FF};    // Blue
+    uint32_t directory{0x0F9ED5};    // Blue
     uint32_t regularFile{0xFFFFFF};  // White
     uint32_t executable{0x55FF55};   // Green
     uint32_t symlink{0x55FFFF};      // Cyan

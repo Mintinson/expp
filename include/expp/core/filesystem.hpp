@@ -77,7 +77,7 @@ struct FileEntry {
  * @param entry Directory entry to classify
  * @return FileType classification
  */
-[[nodiscard]]  FileType classify_file(const fs::directory_entry& entry) noexcept;
+[[nodiscard]] FileType classify_file(const fs::directory_entry& entry) noexcept;
 
 /**
  * @brief Checks if a file can be previewed as text

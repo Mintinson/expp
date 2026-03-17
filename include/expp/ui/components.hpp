@@ -36,10 +36,10 @@ namespace expp::ui {
  */
 struct FileListConfig {
     const Theme* theme{&globalTheme()};
-    bool showIcons{false};
+    bool showIcons{true};
     bool boldDirectories{true};
     bool enableHighlight{true};
-    std::string selectionPrefix{"> "};  // support unicode icons or custom markers
+    std::string selectionPrefix{"➤ "};  // support unicode icons or custom markers
     std::string normalPrefix{"  "};
 };
 

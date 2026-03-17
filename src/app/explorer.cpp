@@ -26,7 +26,7 @@ struct Explorer::Impl {
 
     ExplorerState state;
     RefreshCallback refreshCallback;
-    bool showHidden = false;
+    bool showHidden = true;
 
     void refresh() {
         state.entries.clear();
@@ -423,5 +423,11 @@ void Explorer::refresh() {
 
 void Explorer::onRefresh(RefreshCallback callback) {
     impl_->refreshCallback = std::move(callback);
+}
+
+void Explorer::toggleShowHidden()
+{
+    impl_->showHidden = !impl_->showHidden;
+    refresh();
 }
 }  // namespace expp::app

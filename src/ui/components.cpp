@@ -3,6 +3,7 @@
 #include <ftxui/dom/elements.hpp>
 
 #include <algorithm>
+#include <format>
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -42,7 +43,10 @@ struct FileListComponent::Impl {
             auto base_color = config.theme->getFileEntryColor(entry);
 
             // Create basic element
-            auto element = text(prefix + entry.filename()) | color(base_color);
+            auto element =
+                text(std::format("{}{} {}", prefix, config.showIcons ? config.theme->getFileTypeIcon(entry) : "",
+                                 entry.filename())) |
+                color(base_color);
 
             // Apply directory bold styling
             if (config.boldDirectories && entry.isDirectory()) {

@@ -34,7 +34,6 @@
 #include <string>
 #include <utility>
 
-
 namespace expp::app {
 
 class ExplorerView::Impl {
@@ -195,6 +194,11 @@ private:
             "clear_search", [this]([[maybe_unused]] const ui::ActionContext& ctx) { explorer_->clearSearch(); },
             "Clear search highlighting", "Search", false);
 
+        // View actions
+        actions.registerAction(
+            "toggle_hidden", [this]([[maybe_unused]] const ui::ActionContext& ctx) { explorer_->toggleShowHidden(); },
+            "Toggle the visibility of hidden files", "View", false);
+
         // Application control
         actions.registerAction(
             "quit", [this]([[maybe_unused]] const ui::ActionContext& ctx) { screen_.Exit(); }, "Quit application",
@@ -230,6 +234,9 @@ private:
         (void)keymap.bind("n", "next_match", ui::Mode::Normal, "Next match");
         (void)keymap.bind("N", "prev_match", ui::Mode::Normal, "Prev match");
         (void)keymap.bind("\\", "clear_search", ui::Mode::Normal, "Clear search");
+
+        // View
+        (void)keymap.bind(".", "toggle_hidden", ui::Mode::Normal, "Toggle the visibility of hidden files");
 
         // Quit
         (void)keymap.bind("q", "quit", ui::Mode::Normal, "Quit");

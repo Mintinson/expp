@@ -38,6 +38,8 @@ public:
      */
     [[nodiscard]] ftxui::Color getFileTypeColor(core::filesystem::FileType type) const noexcept;
 
+    [[nodiscard]] std::string_view getFileTypeIcon(const core::filesystem::FileEntry& entry) const noexcept;
+
     /**
      * @brief Gets color for a file entry (considers hidden status)
      * @param entry File entry to get color for
