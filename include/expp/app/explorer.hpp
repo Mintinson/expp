@@ -19,6 +19,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -28,6 +29,12 @@ namespace expp::app {
  * @brief Explorer state for UI rendering
  */
 struct ExplorerState {
+    enum class ClipboardOperation : std::uint8_t {
+        None,
+        Copy,
+        Cut,
+    };
+
     std::filesystem::path currentDir;
     std::vector<core::filesystem::FileEntry> entries;
     std::vector<core::filesystem::FileEntry> parentEntries;
@@ -51,7 +58,11 @@ struct ExplorerState {
     bool showSearchDialog{false};
 
     std::string inputBuffer;           // For dialogs
-    std::filesystem::path targetPath;  // For delete/trash operations
+    std::filesystem::path trashDeletePath;  // For delete/trash operations
+
+    std::filesystem::path clipboardPath;
+    ClipboardOperation clipboardOperation{ClipboardOperation::None};
+
 };
 
 class Explorer {
@@ -158,6 +169,31 @@ public:
      * @return Success or Error
      */
     [[nodiscard]] core::VoidResult openSelected();
+
+    /**
+     * @brief Yanks (copies) the currently selected text or content.
+     * @return A result object indicating whether the yank operation succeeded or failed.
+     */
+    [[nodiscard]] core::VoidResult yankSelected();
+
+    /**
+     * @brief Cuts the currently selected content.
+     * @return A result indicating whether the operation succeeded or failed.
+     */
+    [[nodiscard]] core::VoidResult cutSelected();
+
+    /**
+     * @brief Discards the current yank operation.
+     * @return A result indicating whether the operation succeeded or failed.
+     */
+    [[nodiscard]] core::VoidResult discardYank();
+
+    /**
+     * @brief Pastes previously yanked (copied) content.
+     * @param overwrite If true, overwrites existing content; if false, skip the existing destination.
+     * @return A result indicating whether the paste operation succeeded or failed.
+     */
+    [[nodiscard]] core::VoidResult pasteYanked(bool overwrite = false);
 
     // ========== Search ==========
 

@@ -154,6 +154,41 @@ private:
                 }
             },
             "Rename current item", "File Operations", false);
+        actions.registerAction(
+            "yank",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx)
+            {
+                (void)explorer_->yankSelected();
+            },
+            "Yank current item", "File Operations", false
+        );
+
+        actions.registerAction(
+            "cut",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx)
+            {
+                (void)explorer_->cutSelected();
+            },
+            "Cut current item", "File Operations", false
+        );
+        
+        actions.registerAction(
+            "discard_yank",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx)
+            {
+                (void)explorer_->discardYank();
+            },
+            "Clear clipboard", "File Operations", false
+        );
+
+        actions.registerAction(
+            "paste", [this]([[maybe_unused]] const ui::ActionContext& ctx) { (void)explorer_->pasteYanked(false); },
+            "Paste yanked item into current directory", "File Operations", false);
+
+        actions.registerAction(
+            "paste_overwrite",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) { (void)explorer_->pasteYanked(true); },
+            "Paste into current directory with overwrite", "File Operations", false);
 
         actions.registerAction(
             "trash", [this]([[maybe_unused]] const ui::ActionContext& ctx) { explorer_->showTrashDialog(); },
@@ -228,6 +263,12 @@ private:
         (void)keymap.bind("r", "rename", ui::Mode::Normal, "Rename");
         (void)keymap.bind("d", "trash", ui::Mode::Normal, "Trash");
         (void)keymap.bind("D", "delete", ui::Mode::Normal, "Delete");
+        (void)keymap.bind("y", "yank", ui::Mode::Normal, "Yank (copy)");
+        (void)keymap.bind("x", "cut", ui::Mode::Normal, "Cut");
+        (void)keymap.bind("Y", "discard_yank", ui::Mode::Normal, "Discard Yank (copy)");
+        (void)keymap.bind("X", "discard_yank", ui::Mode::Normal, "Discard cut/copy");
+        (void)keymap.bind("p", "paste", ui::Mode::Normal, "Paste yanked item");
+        (void)keymap.bind("P", "paste_overwrite", ui::Mode::Normal, "Paste with overwrite");
 
         // Search
         (void)keymap.bind("/", "search", ui::Mode::Normal, "Search");
@@ -346,7 +387,7 @@ private:
         status_info.keyBuffer = keyHandler_.buffer();
         status_info.searchStatus = std::move(search_status);
         // TODO: Dynamic help text based on mode and available actions
-        status_info.helpText = "j/k to move down/up, h/l to navigate, q to exit";
+        status_info.helpText = "j/k move, h/l nav, y/x copy-cut, p/P paste, Y/X cancel, q quit";
 
         auto status_bar_elem = statusBar_->render(status_info);
 
@@ -369,7 +410,7 @@ private:
         // Show delete confirmation dialog
         if (state.showDeleteDialog) {
             auto dialog_elem = dialog_->renderConfirmation("Delete Confirmation", "Are you sure you want to delete:",
-                                                           state.targetPath.filename().string(), Color::Red);
+                                                           state.trashDeletePath.filename().string(), Color::Red);
 
             return dbox({
                 std::move(base_content) | dim,
@@ -380,7 +421,7 @@ private:
         // Show trash confirmation dialog
         if (state.showTrashDialog) {
             auto dialog_elem = dialog_->renderConfirmation(
-                "Trash Confirmation", "Are you sure you want to move to trash:", state.targetPath.filename().string(),
+                "Trash Confirmation", "Are you sure you want to move to trash:", state.trashDeletePath.filename().string(),
                 Color::Red);
 
             return dbox({
