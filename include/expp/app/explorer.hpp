@@ -195,6 +195,32 @@ public:
      */
     [[nodiscard]] core::VoidResult pasteYanked(bool overwrite = false);
 
+    /**
+     * @brief Copies the selected entry path to the system clipboard.
+     * @param absolute If true, copy as absolute path; otherwise copy relative to explorer start directory.
+     * @return A result indicating whether the operation succeeded or failed.
+     */
+    [[nodiscard]] core::VoidResult copySelectedPathToSystemClipboard(bool absolute = false);
+
+    /**
+     * @brief Copies the current directory path to the system clipboard.
+     * @param absolute If true, copy as absolute path; otherwise copy relative to explorer start directory.
+     * @return A result indicating whether the operation succeeded or failed.
+     */
+    [[nodiscard]] core::VoidResult copyCurrentDirectoryPathToSystemClipboard(bool absolute = false);
+
+    /**
+     * @brief Copies the selected entry file name (with extension) to the system clipboard.
+     * @return A result indicating whether the operation succeeded or failed.
+     */
+    [[nodiscard]] core::VoidResult copySelectedFileNameToSystemClipboard();
+
+    /**
+     * @brief Copies the selected entry file name without extension to the system clipboard.
+     * @return A result indicating whether the operation succeeded or failed.
+     */
+    [[nodiscard]] core::VoidResult copySelectedNameWithoutExtensionToSystemClipboard();
+
     // ========== Search ==========
 
     /**

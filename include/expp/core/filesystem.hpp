@@ -104,6 +104,13 @@ struct FileEntry {
 [[nodiscard]] Result<fs::path> canonicalize(const fs::path& path);
 
 /**
+ * @brief Normalizes a filesystem path by resolving symlinks, removing redundant components, and converting to preferred format
+ * @param path The filesystem path to normalize
+ * @return The normalized filesystem path (if canonicalization fails, returns best effort normalized path)
+ */
+[[nodiscard]] fs::path normalize(const fs::path& path); 
+
+/**
  * @brief Creates a directory (and parents if needed)
  * @param path Directory path to create
  * @return Success or Error

@@ -219,6 +219,21 @@ bool is_previewable(const fs::path& path) noexcept {
     return result;
 }
 
+[[nodiscard]] fs::path normalize(const fs::path& path) {
+    std::error_code ec;
+    fs::path normalized = fs::weakly_canonical(path, ec);
+    if (ec || normalized.empty()) {
+        ec.clear();
+        normalized = fs::absolute(path, ec);
+        if (ec || normalized.empty()) {
+            normalized = path;
+        }
+    }
+    normalized = normalized.lexically_normal(); // Remove redundant components
+    normalized.make_preferred(); // \\ on Windows and / on Unix
+    return normalized;
+}
+
 [[nodiscard]] VoidResult create_directory(const fs::path& path) {
     std::error_code ec;
     fs::create_directories(path, ec);

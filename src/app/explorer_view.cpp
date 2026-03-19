@@ -191,6 +191,60 @@ private:
             "Paste into current directory with overwrite", "File Operations", false);
 
         actions.registerAction(
+            "copy_entry_path_relative",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx)
+            {
+                (void)explorer_->copySelectedPathToSystemClipboard(false);
+            },
+            "Copy selected entry relative path to system clipboard", "File Operations", false
+        );
+
+        actions.registerAction(
+            "copy_current_dir_relative",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx)
+            {
+                (void)explorer_->copyCurrentDirectoryPathToSystemClipboard(false);
+            },
+            "Copy current directory relative path to system clipboard", "File Operations", false
+        );
+
+        actions.registerAction(
+            "copy_entry_path_absolute",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx)
+            {
+                (void)explorer_->copySelectedPathToSystemClipboard(true);
+            },
+            "Copy selected entry absolute path to system clipboard", "File Operations", false
+        );
+
+        actions.registerAction(
+            "copy_current_dir_absolute",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx)
+            {
+                (void)explorer_->copyCurrentDirectoryPathToSystemClipboard(true);
+            },
+            "Copy current directory absolute path to system clipboard", "File Operations", false
+        );
+
+        actions.registerAction(
+            "copy_file_name",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx)
+            {
+                (void)explorer_->copySelectedFileNameToSystemClipboard();
+            },
+            "Copy selected file name to system clipboard", "File Operations", false
+        );
+
+        actions.registerAction(
+            "copy_name_without_extension",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx)
+            {
+                (void)explorer_->copySelectedNameWithoutExtensionToSystemClipboard();
+            },
+            "Copy selected name without extension to system clipboard", "File Operations", false
+        );
+
+        actions.registerAction(
             "trash", [this]([[maybe_unused]] const ui::ActionContext& ctx) { explorer_->showTrashDialog(); },
             "Move to trash", "File Operations", false);
 
@@ -269,6 +323,12 @@ private:
         (void)keymap.bind("X", "discard_yank", ui::Mode::Normal, "Discard cut/copy");
         (void)keymap.bind("p", "paste", ui::Mode::Normal, "Paste yanked item");
         (void)keymap.bind("P", "paste_overwrite", ui::Mode::Normal, "Paste with overwrite");
+        (void)keymap.bind("cc", "copy_entry_path_relative", ui::Mode::Normal, "Copy entry path (relative)");
+        (void)keymap.bind("cd", "copy_current_dir_relative", ui::Mode::Normal, "Copy current path (relative)");
+        (void)keymap.bind("cC", "copy_entry_path_absolute", ui::Mode::Normal, "Copy entry path (absolute)");
+        (void)keymap.bind("cD", "copy_current_dir_absolute", ui::Mode::Normal, "Copy current path (absolute)");
+        (void)keymap.bind("cf", "copy_file_name", ui::Mode::Normal, "Copy file name");
+        (void)keymap.bind("cn", "copy_name_without_extension", ui::Mode::Normal, "Copy name without extension");
 
         // Search
         (void)keymap.bind("/", "search", ui::Mode::Normal, "Search");
@@ -387,7 +447,7 @@ private:
         status_info.keyBuffer = keyHandler_.buffer();
         status_info.searchStatus = std::move(search_status);
         // TODO: Dynamic help text based on mode and available actions
-        status_info.helpText = "j/k move, h/l nav, y/x copy-cut, p/P paste, Y/X cancel, q quit";
+        status_info.helpText = "j/k move, h/l nav, y/x copy-cut, p/P paste, cc/cd/cC/cD/cf/cn clip, q quit";
 
         auto status_bar_elem = statusBar_->render(status_info);
 

@@ -5,6 +5,9 @@
 #include "expp/core/filesystem.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cstring>
+#include <cstdio>
 #include <expected>
 #include <filesystem>
 #include <format>
@@ -12,23 +15,134 @@
 #include <memory>
 #include <ranges>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <system_error>
+
+#ifdef _WIN32
+#include <windows.h>
+#undef max
+#undef min
+#endif
 
 namespace expp::app {
 
 namespace fs = std::filesystem;
 namespace rng = std::ranges;
 
+namespace {
+
+// TODO: move this to a utils file
+/**
+ * @brief Converts a filesystem path to a UTF-8 string
+ * @param path The filesystem path to convert
+ * @return a UTF-8 encoded string representation of the path
+ */
+[[nodiscard]] std::string to_utf8_string(const fs::path& path) {
+    const auto utf8 = path.u8string();
+    return {reinterpret_cast<const char*>(utf8.data()), utf8.size()};
+}
+
+// TODO: Is this should be part of this file?
+/**
+ * @brief Copies text to the system clipboard
+ * @param text The text to copy
+ * @return A result indicating success or failure
+ */
+[[nodiscard]] core::VoidResult copy_text_to_sys_clipboard(const std::string& text) {
+#ifdef _WIN32
+    const int wide_length = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
+    if (wide_length <= 0) {
+        return core::make_error(core::ErrorCategory::System, "Failed to prepare clipboard text");
+    }
+
+    std::wstring wide_text(static_cast<size_t>(wide_length), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, wide_text.data(), wide_length) == 0) {
+        return core::make_error(core::ErrorCategory::System, "Failed to convert clipboard text");
+    }
+
+    if (OpenClipboard(nullptr) == 0) {
+        return core::make_error(core::ErrorCategory::System, "Failed to open system clipboard");
+    }
+
+    if (EmptyClipboard() == 0) {
+        CloseClipboard();
+        return core::make_error(core::ErrorCategory::System, "Failed to clear system clipboard");
+    }
+
+    const SIZE_T byte_count = static_cast<SIZE_T>(wide_text.size() * sizeof(wchar_t));
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, byte_count);
+    if (memory == nullptr) {
+        CloseClipboard();
+        return core::make_error(core::ErrorCategory::System, "Failed to allocate clipboard memory");
+    }
+
+    void* destination = GlobalLock(memory);
+    if (destination == nullptr) {
+        GlobalFree(memory);
+        CloseClipboard();
+        return core::make_error(core::ErrorCategory::System, "Failed to lock clipboard memory");
+    }
+
+    std::memcpy(destination, wide_text.data(), byte_count);
+    GlobalUnlock(memory);
+
+    if (SetClipboardData(CF_UNICODETEXT, memory) == nullptr) {
+        GlobalFree(memory);
+        CloseClipboard();
+        return core::make_error(core::ErrorCategory::System, "Failed to set clipboard data");
+    }
+
+    CloseClipboard();
+    return {};
+#elif defined(__APPLE__)
+    FILE* pipe = popen("pbcopy", "w");
+    if (pipe == nullptr) {
+        return core::make_error(core::ErrorCategory::System, "Failed to access system clipboard");
+    }
+
+    const size_t written = std::fwrite(text.data(), 1, text.size(), pipe);
+    const int close_result = pclose(pipe);
+    if (written != text.size() || close_result != 0) {
+        return core::make_error(core::ErrorCategory::System, "Failed to write to system clipboard");
+    }
+
+    return {};
+#else
+    constexpr std::array<std::string_view, 3> commands = {"wl-copy", "xclip -selection clipboard",
+                                                           "xsel --clipboard --input"};
+
+    for (std::string_view command : commands) {
+        FILE* pipe = popen(std::string{command}.c_str(), "w");
+        if (pipe == nullptr) {
+            continue;
+        }
+
+        const size_t written = std::fwrite(text.data(), 1, text.size(), pipe);
+        const int close_result = pclose(pipe);
+        if (written == text.size() && close_result == 0) {
+            return {};
+        }
+    }
+
+    return core::make_error(core::ErrorCategory::System,
+                            "Failed to write to system clipboard (install wl-copy, xclip, or xsel)");
+#endif
+}
+
+}  // namespace
+
 struct Explorer::Impl {
     explicit Impl(fs::path start_path) {
         state.currentDir = std::move(start_path);
+        baseDirectory = core::filesystem::normalize(state.currentDir);
         refresh();
     }
 
     ExplorerState state;
     RefreshCallback refreshCallback;
     bool showHidden = true;
+    fs::path baseDirectory;
 
     void refresh() {
         state.entries.clear();
@@ -301,6 +415,46 @@ struct Explorer::Impl {
         return {};
     }
 
+    core::VoidResult copySelectedPathToSystemClipboard(bool absolute) const {
+        if (state.entries.empty()) {
+            return core::make_error(core::ErrorCategory::FileSystem, "No entry selected");
+        }
+
+        const fs::path selected = state.entries[static_cast<size_t>(state.currentSelected)].path;
+        return copy_text_to_sys_clipboard(formatPathForClipboard(selected, absolute));
+    }
+
+    core::VoidResult copyCurrentDirectoryPathToSystemClipboard(bool absolute) const {
+        return copy_text_to_sys_clipboard(formatPathForClipboard(state.currentDir, absolute));
+    }
+
+    core::VoidResult copySelectedFileNameToSystemClipboard() const {
+        if (state.entries.empty()) {
+            return core::make_error(core::ErrorCategory::FileSystem, "No entry selected");
+        }
+
+        const fs::path name = state.entries[static_cast<size_t>(state.currentSelected)].path.filename();
+        if (name.empty()) {
+            return core::make_error(core::ErrorCategory::InvalidArgument, "Selected entry has no file name");
+        }
+
+        return copy_text_to_sys_clipboard(to_utf8_string(name));
+    }
+
+    core::VoidResult copySelectedNameWithoutExtensionToSystemClipboard() const {
+        if (state.entries.empty()) {
+            return core::make_error(core::ErrorCategory::FileSystem, "No entry selected");
+        }
+
+        const fs::path stem = state.entries[static_cast<size_t>(state.currentSelected)].path.stem();
+        if (stem.empty()) {
+            return core::make_error(core::ErrorCategory::InvalidArgument,
+                                    "Selected entry has no name without extension");
+        }
+
+        return copy_text_to_sys_clipboard(to_utf8_string(stem));
+    }
+
     core::VoidResult setClipboardFromSelection(ExplorerState::ClipboardOperation operation) {
         if (state.entries.empty()) {
             return core::make_error(core::ErrorCategory::FileSystem, "No entry selected");
@@ -337,6 +491,28 @@ struct Explorer::Impl {
         }
 
         return destination_it != destination_normalized.end();
+    }
+
+    [[nodiscard]] std::string formatPathForClipboard(const fs::path& path, bool absolute) const {
+        const fs::path normalized = core::filesystem::normalize(path);
+
+        if (absolute) {
+            return to_utf8_string(normalized);
+        }
+
+        const fs::path normalized_base = core::filesystem::normalize(baseDirectory);
+        fs::path relative = normalized.lexically_relative(normalized_base);
+        relative.make_preferred();
+
+        if (!relative.empty()) {
+            return to_utf8_string(relative);
+        }
+
+        if (normalized == normalized_base) {
+            return ".";
+        }
+
+        return to_utf8_string(normalized);
     }
 
     core::VoidResult copyClipboardSourceTo(const fs::path& destination, bool overwrite) const {
@@ -524,6 +700,22 @@ core::VoidResult Explorer::discardYank() {
 }
 core::VoidResult Explorer::pasteYanked(bool overwrite) {
     return impl_->pasteYanked(overwrite);
+}
+
+core::VoidResult Explorer::copySelectedPathToSystemClipboard(bool absolute) {
+    return impl_->copySelectedPathToSystemClipboard(absolute);
+}
+
+core::VoidResult Explorer::copyCurrentDirectoryPathToSystemClipboard(bool absolute) {
+    return impl_->copyCurrentDirectoryPathToSystemClipboard(absolute);
+}
+
+core::VoidResult Explorer::copySelectedFileNameToSystemClipboard() {
+    return impl_->copySelectedFileNameToSystemClipboard();
+}
+
+core::VoidResult Explorer::copySelectedNameWithoutExtensionToSystemClipboard() {
+    return impl_->copySelectedNameWithoutExtensionToSystemClipboard();
 }
 
 void Explorer::search(const std::string& pattern) {
