@@ -108,6 +108,17 @@ TEST_CASE("classifyFile", "[core][filesystem]") {
         auto entry = fs::directory_entry(file);
         CHECK(filesystem::classify_file(entry) == filesystem::FileType::RegularFile);
     }
+
+#ifndef _WIN32
+    SECTION("symlink is classified correctly") {
+        auto target = tmpDir.createFile("target.txt", "hello");
+        auto link = tmpDir.path() / "target_link";
+        fs::create_symlink(target, link);
+
+        auto entry = fs::directory_entry(link);
+        CHECK(filesystem::classify_file(entry) == filesystem::FileType::Symlink);
+    }
+#endif
 }
 
 
@@ -169,6 +180,25 @@ TEST_CASE("listDirectory", "[core][filesystem]") {
         CHECK_FALSE(result.has_value());
         CHECK(result.error().is_category(ErrorCategory::NotFound));
     }
+
+#ifndef _WIN32
+    SECTION("symlink metadata is populated") {
+        auto target = tmpDir.createFile("real.txt", "content");
+        auto link = tmpDir.path() / "real_link";
+        fs::create_symlink(target, link);
+
+        auto result = filesystem::list_directory(tmpDir.path(), true);
+        REQUIRE(result.has_value());
+
+        const auto it = std::find_if(result->begin(), result->end(), [](const filesystem::FileEntry& entry) {
+            return entry.filename() == "real_link";
+        });
+        REQUIRE(it != result->end());
+        CHECK(it->isSymlink());
+        CHECK_FALSE(it->isBrokenSymlink);
+        CHECK_FALSE(it->isRecursiveSymlink);
+    }
+#endif
 }
 
 TEST_CASE("createFile and createDirectory", "[core][filesystem]") {
@@ -284,6 +314,36 @@ TEST_CASE("readPreview", "[core][filesystem]") {
         REQUIRE(result.has_value());
         CHECK((*result)[0] == "[Binary or unsupported file]");
     }
+
+#ifndef _WIN32
+    SECTION("recursive symlink preview is reported safely") {
+        auto loop_link = tmpDir.path() / "loop";
+        fs::create_symlink(loop_link, loop_link);
+
+        auto result = filesystem::read_preview(loop_link, 10);
+        REQUIRE(result.has_value());
+
+        const bool found_recursive_msg =
+            std::any_of(result->begin(), result->end(), [](const std::string& line) {
+                return line == "[Recursive symlink detected]";
+            });
+        CHECK(found_recursive_msg);
+    }
+
+    SECTION("broken symlink preview is reported safely") {
+        auto broken_link = tmpDir.path() / "missing_link";
+        fs::create_symlink(tmpDir.path() / "does_not_exist.txt", broken_link);
+
+        auto result = filesystem::read_preview(broken_link, 10);
+        REQUIRE(result.has_value());
+
+        const bool found_broken_msg =
+            std::any_of(result->begin(), result->end(), [](const std::string& line) {
+                return line == "[Broken symlink]";
+            });
+        CHECK(found_broken_msg);
+    }
+#endif
 }
 
 TEST_CASE("formatFileSize", "[core][filesystem]") {

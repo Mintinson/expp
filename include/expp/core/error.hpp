@@ -121,7 +121,7 @@ public:
      * @param cat Category to check
      * @return True if categories match
      */
-    [[nodiscard]] bool is_category(ErrorCategory cat) const noexcept { return category_ == cat; }
+    [[nodiscard]] bool isCategory(ErrorCategory cat) const noexcept { return category_ == cat; }
 
 private:
     ErrorCategory category_;

@@ -7,5 +7,5 @@ namespace fs = std::filesystem;
 
 int main()
 {
-    fs::copy()
+    return 0;
 }

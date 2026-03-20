@@ -165,7 +165,7 @@ bool is_previewable(const fs::path& path) noexcept {
     std::vector<FileEntry> entries;
 
     std::error_code ec;
-    auto iter = fs::directory_iterator(dir, ec);
+    auto iter = fs::directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
     if (ec) {
         if (ec == std::errc::permission_denied) {
             return make_error(ErrorCategory::Permission, std::format("Cannot access directory: {}", dir.string()));
@@ -185,11 +185,29 @@ bool is_previewable(const fs::path& path) noexcept {
 
         FileEntry fe;
         fe.path = entry.path();
+
         fe.type = classify_file(entry);
+        if (fe.isSymlink()) {
+            std::error_code readlink_ec;
+            fe.symlinkTarget = fs::read_symlink(fe.path, readlink_ec);
+            if (readlink_ec) {
+                fe.symlinkTarget.clear();
+            }
+
+            std::error_code status_ec;
+            const auto symlink_status = fs::status(fe.path, status_ec);
+            if (status_ec == std::errc::too_many_symbolic_link_levels) {
+                fe.isRecursiveSymlink = true;
+            } else if (status_ec || symlink_status.type() == fs::file_type::not_found) {
+                fe.isBrokenSymlink = true;
+            }
+        }
+
         fe.isHidden = !filename.empty() && filename[0] == '.';
 
         // Cache size (only for regular files)
-        if (entry.is_regular_file()) {
+
+        if (fe.type == FileType::RegularFile) {
             std::error_code size_ec;
             fe.size = entry.file_size(size_ec);
         }
@@ -197,6 +215,10 @@ bool is_previewable(const fs::path& path) noexcept {
         // Cache last modified time
         std::error_code time_ec;
         fe.lastModified = entry.last_write_time(time_ec);
+        if (time_ec) {
+            // if we can't get the last modified time, set it to epoch (or some sentinel value)
+            fe.lastModified = fs::file_time_type::min();
+        }
 
         entries.push_back(std::move(fe));
     }
@@ -229,8 +251,8 @@ bool is_previewable(const fs::path& path) noexcept {
             normalized = path;
         }
     }
-    normalized = normalized.lexically_normal(); // Remove redundant components
-    normalized.make_preferred(); // \\ on Windows and / on Unix
+    normalized = normalized.lexically_normal();  // Remove redundant components
+    normalized.make_preferred();                 // \\ on Windows and / on Unix
     return normalized;
 }
 
@@ -337,11 +359,62 @@ VoidResult open_with_default(const fs::path& path) {
     }
     return {};
 }
+// [[nodiscard]] Result<std::vector<std::string>> read_preview(const FileEntry& entry, int max_lines)
+// {
+//     if (entry.isDirectory())
+//     {
+//         std::vector<std::string> lines;
+//         lines.emplace_back("[Directory Contents]");
+//         lines.emplace_back("");
 
+//         auto entries_result = list_directory(entry.path);
+//         if (!entries_result) {
+//             lines.push_back("[" + entries_result.error().message() + "]");
+//             return lines;
+//         }
+
+//         for (const auto& e : *entries_result) {
+//             if (static_cast<int>(lines.size()) >= max_lines) {
+//                 break;
+//             }
+//             std::string prefix = e.isDirectory() ? "[D] " : "[F] ";
+//             lines.push_back(prefix + e.filename());
+//         }
+//         return lines;
+//     }
+
+
+
+// } 
 [[nodiscard]] Result<std::vector<std::string>> read_preview(const fs::path& path, int max_lines) {
     std::vector<std::string> lines;
 
-    if (fs::is_directory(path)) {
+    std::error_code symlink_ec;
+    if (fs::is_symlink(path, symlink_ec)) {
+        lines.emplace_back("[Symbolic Link]");
+
+        std::error_code target_ec;
+        const auto target = fs::read_symlink(path, target_ec);
+        if (!target_ec) {
+            lines.push_back("Target: " + target.string());
+        }
+
+        std::error_code status_ec;
+        const auto link_status = fs::status(path, status_ec);
+        if (status_ec == std::errc::too_many_symbolic_link_levels) {
+            lines.emplace_back("[Recursive symlink detected]");
+            return lines;
+        }
+        if (status_ec || link_status.type() == fs::file_type::not_found) {
+            lines.emplace_back("[Broken symlink]");
+            return lines;
+        }
+
+        lines.emplace_back("");
+    }
+
+    std::error_code directory_ec;
+    if (fs::is_directory(path, directory_ec)) {
         lines.emplace_back("[Directory Contents]");
         lines.emplace_back("");
 
@@ -360,8 +433,17 @@ VoidResult open_with_default(const fs::path& path) {
         }
         return lines;
     }
+    if (directory_ec == std::errc::too_many_symbolic_link_levels) {
+        lines.emplace_back("[Recursive symlink detected]");
+        return lines;
+    }
 
-    if (!fs::is_regular_file(path)) {
+    std::error_code regular_file_ec;
+    if (!fs::is_regular_file(path, regular_file_ec)) {
+        if (regular_file_ec == std::errc::too_many_symbolic_link_levels) {
+            lines.emplace_back("[Recursive symlink detected]");
+            return lines;
+        }
         lines.emplace_back("[Not a regular file]");
         return lines;
     }

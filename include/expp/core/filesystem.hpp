@@ -18,6 +18,7 @@
 
 #include "expp/core/error.hpp"
 
+#include <bitset>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -52,17 +53,21 @@ enum class FileType : std::uint8_t {
  */
 struct FileEntry {
     fs::path path;
-    FileType type{FileType::Unknown};
-    std::uintmax_t size{0};
-    std::chrono::file_clock::time_point lastModified;
-    bool isHidden{false};
-    bool isReadable{false};
-    bool isWritable{false};
+    [[no_unique_address]] FileType type{FileType::Unknown};
+    [[no_unique_address]] std::uintmax_t size{0};
+    [[no_unique_address]] std::chrono::file_clock::time_point lastModified;
+    fs::path symlinkTarget;
+    [[no_unique_address]] bool isHidden{false};
+    [[no_unique_address]] bool isReadable{false};
+    [[no_unique_address]] bool isWritable{false};
+    [[no_unique_address]] bool isBrokenSymlink{false};
+    [[no_unique_address]] bool isRecursiveSymlink{false};
 
     [[nodiscard]] std::string filename() const { return path.filename().string(); }
     [[nodiscard]] std::string extension() const { return path.extension().string(); }
 
     [[nodiscard]] bool isDirectory() const noexcept { return type == FileType::Directory; }
+    [[nodiscard]] bool isSymlink() const noexcept { return type == FileType::Symlink; }
 };
 
 /**
@@ -104,11 +109,12 @@ struct FileEntry {
 [[nodiscard]] Result<fs::path> canonicalize(const fs::path& path);
 
 /**
- * @brief Normalizes a filesystem path by resolving symlinks, removing redundant components, and converting to preferred format
+ * @brief Normalizes a filesystem path by resolving symlinks, removing redundant components, and converting to preferred
+ * format
  * @param path The filesystem path to normalize
  * @return The normalized filesystem path (if canonicalization fails, returns best effort normalized path)
  */
-[[nodiscard]] fs::path normalize(const fs::path& path); 
+[[nodiscard]] fs::path normalize(const fs::path& path);
 
 /**
  * @brief Creates a directory (and parents if needed)

@@ -40,7 +40,7 @@ namespace {
  */
 [[nodiscard]] std::string to_utf8_string(const fs::path& path) {
     const auto utf8 = path.u8string();
-    return {reinterpret_cast<const char*>(utf8.data()), utf8.size()};
+    return {reinterpret_cast<const char*>(utf8.data()), utf8.size()};  // NOLINT
 }
 
 // TODO: Is this should be part of this file?
@@ -109,10 +109,10 @@ namespace {
 
     return {};
 #else
-    constexpr std::array<std::string_view, 3> commands = {"wl-copy", "xclip -selection clipboard",
+    constexpr std::array<std::string_view, 3> kCommands = {"wl-copy", "xclip -selection clipboard",
                                                            "xsel --clipboard --input"};
 
-    for (std::string_view command : commands) {
+    for (std::string_view command : kCommands) {
         FILE* pipe = popen(std::string{command}.c_str(), "w");
         if (pipe == nullptr) {
             continue;
@@ -129,7 +129,6 @@ namespace {
                             "Failed to write to system clipboard (install wl-copy, xclip, or xsel)");
 #endif
 }
-
 }  // namespace
 
 struct Explorer::Impl {
@@ -415,7 +414,7 @@ struct Explorer::Impl {
         return {};
     }
 
-    core::VoidResult copySelectedPathToSystemClipboard(bool absolute) const {
+    [[nodiscard]] core::VoidResult copySelectedPathToSystemClipboard(bool absolute) const {
         if (state.entries.empty()) {
             return core::make_error(core::ErrorCategory::FileSystem, "No entry selected");
         }
@@ -424,11 +423,11 @@ struct Explorer::Impl {
         return copy_text_to_sys_clipboard(formatPathForClipboard(selected, absolute));
     }
 
-    core::VoidResult copyCurrentDirectoryPathToSystemClipboard(bool absolute) const {
+    [[nodiscard]] core::VoidResult copyCurrentDirectoryPathToSystemClipboard(bool absolute) const {
         return copy_text_to_sys_clipboard(formatPathForClipboard(state.currentDir, absolute));
     }
 
-    core::VoidResult copySelectedFileNameToSystemClipboard() const {
+    [[nodiscard]] core::VoidResult copySelectedFileNameToSystemClipboard() const {
         if (state.entries.empty()) {
             return core::make_error(core::ErrorCategory::FileSystem, "No entry selected");
         }
@@ -441,7 +440,7 @@ struct Explorer::Impl {
         return copy_text_to_sys_clipboard(to_utf8_string(name));
     }
 
-    core::VoidResult copySelectedNameWithoutExtensionToSystemClipboard() const {
+    [[nodiscard]] core::VoidResult copySelectedNameWithoutExtensionToSystemClipboard() const {
         if (state.entries.empty()) {
             return core::make_error(core::ErrorCategory::FileSystem, "No entry selected");
         }
@@ -515,7 +514,7 @@ struct Explorer::Impl {
         return to_utf8_string(normalized);
     }
 
-    core::VoidResult copyClipboardSourceTo(const fs::path& destination, bool overwrite) const {
+    [[nodiscard]] core::VoidResult copyClipboardSourceTo(const fs::path& destination, bool overwrite) const {
         const bool is_directory = fs::is_directory(state.clipboardPath);
 
         std::error_code copy_ec;
@@ -535,7 +534,7 @@ struct Explorer::Impl {
         return {};
     }
 
-    core::VoidResult moveClipboardSourceTo(const fs::path& destination, bool overwrite) {
+    [[nodiscard]] core::VoidResult moveClipboardSourceTo(const fs::path& destination, bool overwrite) const {
         auto rename_result = core::filesystem::rename(state.clipboardPath, destination);
         if (rename_result) {
             return {};

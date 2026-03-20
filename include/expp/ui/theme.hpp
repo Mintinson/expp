@@ -16,9 +16,10 @@ namespace expp::ui {
  */
 [[nodiscard]] inline ftxui::Color hex_to_color(std::uint32_t hex) noexcept {
     return {
-        static_cast<std::uint8_t>((hex >> 16) & 0xFF),  // Red
-        static_cast<std::uint8_t>((hex >> 8) & 0xFF),   // Green
-        static_cast<std::uint8_t>(hex & 0xFF)           // Blue
+        
+        static_cast<std::uint8_t>((hex >> 16) & 0xFF),  // Red // NOLINT
+        static_cast<std::uint8_t>((hex >> 8) & 0xFF),   // Green // NOLINT
+        static_cast<std::uint8_t>(hex & 0xFF)           // Blue // NOLINT
     };
 }
 
@@ -29,7 +30,7 @@ namespace expp::ui {
  */
 class Theme {
 public:
-    explicit Theme(const core::ColorTheme& configTheme = {});
+    explicit Theme(const core::ColorTheme& config_theme = {});
 
     /**
      * @brief Gets color for a file type
@@ -86,7 +87,7 @@ private:
  * @brief Gets the global theme instance
  * @return Reference to global Theme
  */
-[[nodiscard]] Theme& globalTheme();
+[[nodiscard]] Theme& global_theme();
 
 }  // namespace expp::ui
 

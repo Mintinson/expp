@@ -2,8 +2,8 @@
 
 namespace expp::ui {
 
-expp::ui::Theme::Theme(const core::ColorTheme& configTheme) {
-    reload(configTheme);
+expp::ui::Theme::Theme(const core::ColorTheme& config_theme) {
+    reload(config_theme);
 }
 
 ftxui::Color expp::ui::Theme::getFileEntryColor(core::filesystem::FileEntry entry) const noexcept {
@@ -42,16 +42,22 @@ ftxui::Color expp::ui::Theme::getFileTypeColor(core::filesystem::FileType type) 
 
 std::string_view Theme::getFileTypeIcon(const core::filesystem::FileEntry& entry) const noexcept {
     if (entry.type == core::filesystem::FileType::Directory) {
-        return core::kIConMap.find("folder")->second;
+        auto it = core::kIConMap.find("folder");
+        return it != core::kIConMap.end() ? it->second : core::kDefaultDirectIcon;
     }
     if (entry.type == core::filesystem::FileType::Executable) {
-        return core::kIConMap.find("exe")->second;
+        auto it = core::kIConMap.find("exe");
+        return it != core::kIConMap.end() ? it->second : core::kDefaultFileIcon;
+    }
+    if (entry.type == core::filesystem::FileType::Symlink) {
+        auto it = core::kIConMap.find("link");
+        return it != core::kIConMap.end() ? it->second : core::kDefaultFileIcon;
     }
     if (auto it = core::kIConMap.find(entry.extension()); it != core::kIConMap.end()) {
         return it->second;
-    } else {
-        return core::kIConMap.find("default")->second;
     }
+    auto it2 = core::kIConMap.find("default");
+    return it2 != core::kIConMap.end() ? it2->second : core::kDefaultFileIcon;
 }
 
 void expp::ui::Theme::reload(const core::ColorTheme& config) {
@@ -75,7 +81,7 @@ void expp::ui::Theme::reload(const core::ColorTheme& config) {
     searchHighlightColor_ = hex_to_color(config.searchHighlight);
 }
 // Global theme instance
-Theme& globalTheme() {
+Theme& global_theme() {
     static Theme instance;
     return instance;
 }

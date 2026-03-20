@@ -11,9 +11,12 @@
 
 namespace expp::core {
 using namespace std::literals;
+constexpr std::string_view kDefaultDirectIcon = "\uf07b"sv;
+constexpr std::string_view kDefaultFileIcon = "\uf15b"sv;
 const std::unordered_map<std::string, std::string> kIConMap = {
     {"default", "\uf15b"},
-    {    "exe", "\ue760"},
+    {    "exe", "\ue795"},
+    {   "link", "\uf481"},
     {  ".bash", "\ue795"},
     {     ".c", "\ue61e"},
     { ".cmake", "\ue706"},
@@ -30,6 +33,7 @@ const std::unordered_map<std::string, std::string> kIConMap = {
     {    ".py", "\ue73c"},
     {    ".rs", "\ue7a8"},
     {    ".ts", "\ue628"},
+    {  ".toml", "\ue6b2"},
     { "folder", "\uf07b"},
 };
 

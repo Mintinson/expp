@@ -22,30 +22,44 @@ struct FileListComponent::Impl {
 
     [[nodiscard]] ftxui::Element render(const std::vector<core::filesystem::FileEntry>& entries,
                                         int selected,
-                                        const std::vector<int>& searchMatches,
-                                        int currentMatchIndex) const {
+                                        const std::vector<int>& search_matches,
+                                        int current_match_index) const {
         using namespace ftxui;
 
         Elements elements;
 
-        std::unordered_set<int> searchMatchSet(searchMatches.begin(), searchMatches.end());
+        std::unordered_set<int> search_match_set(search_matches.begin(), search_matches.end());
 
         for (std::size_t i = 0; i < entries.size(); ++i) {
             const auto& entry = entries[i];
-            bool isSelected = static_cast<int>(i) == selected;
-            bool isSearchMatch = !searchMatches.empty() && searchMatchSet.contains(static_cast<int>(i));
-            bool isCurrentMatch = isSearchMatch && (currentMatchIndex != -1) &&
-                                  (searchMatches[static_cast<size_t>(currentMatchIndex)] == static_cast<int>(i));
+            bool is_selected = static_cast<int>(i) == selected;
+            bool is_search_match = !search_matches.empty() && search_match_set.contains(static_cast<int>(i));
+            bool is_current_match = is_search_match && (current_match_index != -1) &&
+                                    (search_matches[static_cast<size_t>(current_match_index)] == static_cast<int>(i));
+
+            auto base_color = config.theme->getFileEntryColor(entry);
+
 
             // Build display text with prefix
             std::string prefix = (static_cast<int>(i) == selected) ? config.selectionPrefix : config.normalPrefix;
-
-            auto base_color = config.theme->getFileEntryColor(entry);
+            std::string display_name = entry.filename();
+            if (entry.isSymlink()) {
+                if (!entry.symlinkTarget.empty()) {
+                    display_name += " -> " + entry.symlinkTarget.string();
+                }
+                if (entry.isRecursiveSymlink) {
+                    display_name += " [loop]";
+                    base_color = ftxui::Color::Red;
+                } else if (entry.isBrokenSymlink) {
+                    display_name += " [broken]";
+                    base_color = ftxui::Color::Red;
+                }
+            }
 
             // Create basic element
             auto element =
                 text(std::format("{}{} {}", prefix, config.showIcons ? config.theme->getFileTypeIcon(entry) : "",
-                                 entry.filename())) |
+                                 display_name)) |
                 color(base_color);
 
             // Apply directory bold styling
@@ -54,12 +68,12 @@ struct FileListComponent::Impl {
             }
 
             // Highlight search matches
-            if (config.enableHighlight && isCurrentMatch) {
+            if (config.enableHighlight && is_current_match) {
                 element |= bgcolor(config.theme->getSearchHighlightColor()) | color(Color::Black);
             }
 
             // Apply selection inversion
-            if (isSelected) {
+            if (is_selected) {
                 element |= inverted;
             }
             elements.push_back(std::move(element));
@@ -79,9 +93,9 @@ FileListComponent& FileListComponent::operator=(FileListComponent&&) noexcept = 
 
 ftxui::Element FileListComponent::render(const std::vector<core::filesystem::FileEntry>& entries,
                                          int selected,
-                                         const std::vector<int>& searchMatches,
-                                         int currentMatchIndex) const {
-    return impl_->render(entries, selected, searchMatches, currentMatchIndex);
+                                         const std::vector<int>& search_matches,
+                                         int current_match_index) const {
+    return impl_->render(entries, selected, search_matches, current_match_index);
 }
 
 void FileListComponent::setConfig(FileListConfig config) {
@@ -93,7 +107,7 @@ void FileListComponent::setConfig(FileListConfig config) {
 // ============================================================================
 struct StatusBarComponent::Impl {
 public:
-    explicit Impl(const Theme* theme) : theme(theme) {}
+    explicit Impl(const Theme* in_theme) : theme(in_theme) {}
     const Theme* theme;
 
     [[nodiscard]] ftxui::Element render(const StatusBarInfo& info) const {
@@ -158,12 +172,12 @@ void StatusBarComponent::setTheme(const Theme* theme) {
 // ============================================================================
 struct DialogComponent::Impl {
 public:
-    const Theme* theme = &globalTheme();
+    const Theme* theme = &global_theme();
 
-    [[nodiscard]] ftxui::Element renderConfirmation(const std::string& title,
-                                                    const std::string& message,
-                                                    const std::string& target_name,
-                                                    ftxui::Color target_color) const {
+    [[nodiscard]] static ftxui::Element renderConfirmation(const std::string& title,
+                                                           const std::string& message,
+                                                           const std::string& target_name,
+                                                           ftxui::Color target_color) {
         using namespace ftxui;
         return vbox({
                    text(title) | bold | center,
@@ -176,9 +190,9 @@ public:
                border | size(WIDTH, EQUAL, 50) | center;
     }
 
-    [[nodiscard]] ftxui::Element renderInput(const std::string& title,
-                                             const std::string& message,
-                                             ftxui::Element inputComponent) const {
+    [[nodiscard]] static ftxui::Element renderInput(const std::string& title,
+                                                    const std::string& message,
+                                                    ftxui::Element input_component) {
         using namespace ftxui;
         Elements elements;
         elements.push_back(text(title) | bold | center);
@@ -191,7 +205,7 @@ public:
         // Add input field
         elements.push_back(hbox({
                                text(" > "),
-                               std::move(inputComponent) | flex,
+                               std::move(input_component) | flex,
                            }) |
                            border);
 
@@ -222,15 +236,15 @@ DialogComponent& DialogComponent::operator=(DialogComponent&&) noexcept = defaul
 
 ftxui::Element DialogComponent::renderConfirmation(const std::string& title,
                                                    const std::string& message,
-                                                   const std::string& targetName,
-                                                   ftxui::Color targetColor) const {
-    return impl_->renderConfirmation(title, message, targetName, targetColor);
+                                                   const std::string& target_name,
+                                                   ftxui::Color target_color) const {
+    return expp::ui::DialogComponent::Impl::renderConfirmation(title, message, target_name, target_color);
 }
 
 ftxui::Element DialogComponent::renderInput(const std::string& title,
                                             const std::string& message,
-                                            ftxui::Element inputComponent) const {
-    return impl_->renderInput(title, message, std::move(inputComponent));
+                                            ftxui::Element input_component) const {
+    return impl_->renderInput(title, message, std::move(input_component));
 }
 
 ftxui::Element DialogComponent::renderMessage(const std::string& title, const std::string& message) const {
@@ -246,7 +260,7 @@ void DialogComponent::setTheme(const Theme* theme) {
 // ============================================================================
 struct PanelComponent::Impl {
 public:
-    explicit Impl(const PanelConfig& config) : config(config) {}
+    explicit Impl(const PanelConfig& in_config) : config(in_config) {}
     PanelConfig config;
 
     [[nodiscard]] ftxui::Element render(const std::string& parent_title,
@@ -308,21 +322,20 @@ void PanelComponent::setConfig(const PanelConfig& config) {
 // ============================================================================
 struct PreviewComponent::Impl {
 public:
-    explicit Impl(PreviewConfig config) : config(std::move(config)) {}
+    explicit Impl(PreviewConfig in_config) : config(std::move(in_config)) {}
 
     PreviewConfig config;
 
     [[nodiscard]] ftxui::Element render(const core::filesystem::FileEntry& entry) const {
         using namespace ftxui;
-        auto previewResult = core::filesystem::read_preview(entry.path);
+        auto preview_result = core::filesystem::read_preview(entry.path);
 
-        if (previewResult) {
-            return renderLines(*previewResult);
-        } else {
-            // Show error message
-            std::string errMsg = config.errorPrefix + previewResult.error().message() + "]";
-            return text(errMsg) | color(Color::Red) | dim;
+        if (preview_result) {
+            return renderLines(*preview_result);
         }
+        // Show error message
+        std::string err_msg = config.errorPrefix + preview_result.error().message() + "]";
+        return text(err_msg) | color(Color::Red) | dim;
     }
 
     [[nodiscard]] ftxui::Element renderLines(const std::vector<std::string>& lines) const {
@@ -332,9 +345,9 @@ public:
         }
 
         ftxui::Elements elements;
-        int lineCount = std::min(static_cast<int>(lines.size()), config.maxLines);
+        int line_count = std::min(static_cast<int>(lines.size()), config.maxLines);
 
-        for (int i = 0; i < lineCount; ++i) {
+        for (int i = 0; i < line_count; ++i) {
             elements.push_back(text(lines[static_cast<size_t>(i)]));
         }
 

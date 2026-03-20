@@ -35,7 +35,7 @@ namespace expp::ui {
  * @brief Configuration for FileListComponent
  */
 struct FileListConfig {
-    const Theme* theme{&globalTheme()};
+    const Theme* theme{&global_theme()};
     bool showIcons{true};
     bool boldDirectories{true};
     bool enableHighlight{true};
@@ -64,8 +64,8 @@ public:
      */
     [[nodiscard]] ftxui::Element render(const std::vector<core::filesystem::FileEntry>& entries,
                                         int selected,
-                                        const std::vector<int>& searchMatches = {},
-                                        int currentMatchIndex = -1) const;
+                                        const std::vector<int>& search_matches = {},
+                                        int current_match_index = -1) const;
 
     /**
      * @brief Updates configuration
@@ -99,7 +99,7 @@ struct StatusBarInfo {
  */
 class StatusBarComponent {
 public:
-    explicit StatusBarComponent(const Theme* theme = &globalTheme());
+    explicit StatusBarComponent(const Theme* theme = &global_theme());
     ~StatusBarComponent();
 
     // Non-copyable, movable
@@ -138,7 +138,7 @@ struct DialogButton {
 /**
  * @brief Dialog types
  */
-enum class DialogType {
+enum class DialogType: std::uint8_t {
     Confirmation,
     Input,
     Message
@@ -153,7 +153,7 @@ struct DialogConfig {
     std::string message;
     std::vector<DialogButton> buttons;
     int width{50};
-    const Theme* theme{&globalTheme()};
+    const Theme* theme{&global_theme()};
 };
 
 /**
@@ -191,12 +191,12 @@ public:
      * @brief Renders an input dialog with a text input component
      * @param title Dialog title
      * @param message Prompt message
-     * @param inputComponent FTXUI input component
+     * @param input_component FTXUI input component
      * @return FTXUI Element
      */
     [[nodiscard]] ftxui::Element renderInput(const std::string& title,
                                              const std::string& message,
-                                             ftxui::Element inputComponent) const;
+                                             ftxui::Element input_component) const;
 
     /**
      * @brief Renders a message dialog
@@ -225,7 +225,7 @@ struct PanelConfig {
     bool showPreview{true};
     int parentWidth{25};
     int previewWidth{40};
-    const Theme* theme{&globalTheme()};
+    const Theme* theme{&global_theme()};
 };
 
 /**
@@ -275,7 +275,7 @@ private:
  * @brief Configuration for PreviewComponent
  */
 struct PreviewConfig {
-    const Theme* theme{&globalTheme()};
+    const Theme* theme{&global_theme()};
     int maxLines{50};
     std::string emptyMessage{"[Empty]"};
     std::string errorPrefix{"[Error: "};

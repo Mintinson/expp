@@ -41,7 +41,7 @@ public:
     explicit Impl(std::shared_ptr<Explorer> explorer)
         : explorer_{std::move(explorer)}
         , screen_{ftxui::ScreenInteractive::Fullscreen()}
-        , theme_{&ui::globalTheme()}
+        , theme_{&ui::global_theme()}
         , keyHandler_{1000}  // 1000 ms timeout for key sequences
     {
         setupComponents();

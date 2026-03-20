@@ -28,10 +28,6 @@
 #include <functional>
 #include <optional>
 
-namespace ftxui {
-static const Event Enter = Event::Return;
-}  // namespace ftxui
-
 namespace expp::ui {
 namespace rng = std::ranges;
 
@@ -152,7 +148,7 @@ std::string key_to_string(const Key& key) {
     return result;
 }
 
-std::optional<Key> expp::ui::event_to_key(const ftxui::Event& event) {
+std::optional<Key> event_to_key(const ftxui::Event& event) {
     // Handle special keys first
 #define X(name, str)                               \
     if (event == ftxui::Event::name) {             \
@@ -524,9 +520,9 @@ struct KeyHandler::Impl {
     }
 
     [[nodiscard]] std::string bufferToString() const {
-        return std::reduce(buffer.begin(), buffer.end(),
+        return std::accumulate(buffer.begin(), buffer.end(),
                            hasNumericPrefix ? std::to_string(numericPrefix) : std::string{},
-                           [](std::string acc, const Key& key) { return acc + key_to_string(key); });
+                           [](const std::string& acc, const Key& key) { return acc + key_to_string(key); });
     }
 
     bool tryLegacyBindings() {
