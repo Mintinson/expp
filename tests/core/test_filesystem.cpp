@@ -178,7 +178,7 @@ TEST_CASE("listDirectory", "[core][filesystem]") {
     SECTION("non-existent directory returns error") {
         auto result = filesystem::list_directory(tmpDir.path() / "nonexistent");
         CHECK_FALSE(result.has_value());
-        CHECK(result.error().is_category(ErrorCategory::NotFound));
+        CHECK(result.error().isCategory(ErrorCategory::NotFound));
     }
 
 #ifndef _WIN32

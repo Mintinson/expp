@@ -39,6 +39,8 @@ struct ExplorerState {
     std::vector<core::filesystem::FileEntry> entries;
     std::vector<core::filesystem::FileEntry> parentEntries;
     int currentSelected{0};
+    int currentScrollOffset{0};
+    int currentViewportRows{1000};
     int parentSelected{0};
 
     // Search state
@@ -135,6 +137,12 @@ public:
      * @param line Line number
      */
     void goToLine(int line);
+
+    /**
+     * @brief Updates the visible row capacity for threshold-based scrolling
+     * @param rows Number of visible rows in the current file list panel
+     */
+    void setViewportRows(int rows);
 
     // ========== File Operations ==========
 

@@ -17,8 +17,8 @@ TEST_CASE("Error construction", "[core][error]") {
 
         CHECK(err.category() == ErrorCategory::FileSystem);
         CHECK(err.message() == "test error");
-        CHECK(err.is_category(ErrorCategory::FileSystem));
-        CHECK_FALSE(err.is_category(ErrorCategory::IO));
+        CHECK(err.isCategory(ErrorCategory::FileSystem));
+        CHECK_FALSE(err.isCategory(ErrorCategory::IO));
     }
 
     SECTION("with message only (Unknown category)") {
@@ -26,7 +26,7 @@ TEST_CASE("Error construction", "[core][error]") {
 
         CHECK(err.category() == ErrorCategory::Unknown);
         CHECK(err.message() == "just a message");
-        CHECK(err.is_category(ErrorCategory::Unknown));
+        CHECK(err.isCategory(ErrorCategory::Unknown));
     }
 
     SECTION("format() includes all info") {

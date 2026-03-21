@@ -20,7 +20,7 @@ struct FileListComponent::Impl {
 
     FileListConfig config;
 
-    [[nodiscard]] ftxui::Element render(const std::vector<core::filesystem::FileEntry>& entries,
+    [[nodiscard]] ftxui::Element render(std::span<const core::filesystem::FileEntry> entries,
                                         int selected,
                                         const std::vector<int>& search_matches,
                                         int current_match_index) const {
@@ -38,7 +38,6 @@ struct FileListComponent::Impl {
                                     (search_matches[static_cast<size_t>(current_match_index)] == static_cast<int>(i));
 
             auto base_color = config.theme->getFileEntryColor(entry);
-
 
             // Build display text with prefix
             std::string prefix = (static_cast<int>(i) == selected) ? config.selectionPrefix : config.normalPrefix;
@@ -78,6 +77,7 @@ struct FileListComponent::Impl {
             }
             elements.push_back(std::move(element));
         }
+
         if (elements.empty()) {
             elements.push_back(text("[Empty]") | dim | center);
         }
@@ -91,7 +91,7 @@ FileListComponent::~FileListComponent() = default;
 FileListComponent::FileListComponent(FileListComponent&&) noexcept = default;
 FileListComponent& FileListComponent::operator=(FileListComponent&&) noexcept = default;
 
-ftxui::Element FileListComponent::render(const std::vector<core::filesystem::FileEntry>& entries,
+ftxui::Element FileListComponent::render(std::span<const core::filesystem::FileEntry> entries,
                                          int selected,
                                          const std::vector<int>& search_matches,
                                          int current_match_index) const {

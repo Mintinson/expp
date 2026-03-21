@@ -29,21 +29,34 @@
 #include <ftxui/dom/elements.hpp>
 // clang-format on
 
+#include <algorithm>
+#include <chrono>
 #include <format>
+#include <iterator>
 #include <memory>
+#include <ranges>
+#include <span>
+#include <stop_token>
 #include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 namespace expp::app {
 
 class ExplorerView::Impl {
 public:
+    static constexpr int kPageStep = 10;
+    static constexpr int kRootLayoutRows = 2;  // Main separator + status bar
+    static constexpr int kPanelDecorRows = 4;  // Border(top/bottom) + title + separator
+    static constexpr auto kRefreshInterval = std::chrono::milliseconds(120);
+    constexpr static int kKeyTimeoutMs = 1000;
+
     explicit Impl(std::shared_ptr<Explorer> explorer)
         : explorer_{std::move(explorer)}
         , screen_{ftxui::ScreenInteractive::Fullscreen()}
         , theme_{&ui::global_theme()}
-        , keyHandler_{1000}  // 1000 ms timeout for key sequences
-    {
+        , keyHandler_{kKeyTimeoutMs} {
         setupComponents();
         setupActions();
         setupKeyBindings();
@@ -55,15 +68,41 @@ public:
 
         auto component = Renderer([this] { return render(); });
 
-        component = CatchEvent(component, [this](Event event) { return handleEvent(event); });
+        component = CatchEvent(component, [this](const Event& event) { return handleEvent(event); });
+        running_.store(true);
+        refreshTicker_ = std::jthread([this](std::stop_token stop_token) {
+            while (!stop_token.stop_requested()) {
+                std::this_thread::sleep_for(kRefreshInterval);
+                if (!running_.load()) {
+                    break;
+                }
 
+                screen_.PostEvent(Event::Custom);
+            }
+        });
         screen_.Loop(component);
+        running_.store(false);
+        if (refreshTicker_.joinable()) {
+            refreshTicker_.request_stop();
+        }
         return 0;
     }
 
-    void requestExit() { screen_.Exit(); }
+    void requestExit() {
+        running_.store(false);
+        if (refreshTicker_.joinable()) {
+            refreshTicker_.request_stop();
+        }
+        screen_.Exit();
+    }
 
 private:
+    static void consumeResult(core::VoidResult result) {
+        if (!result) {
+            // TODO: route action errors to status bar / notification toast.
+        }
+    }
+
     /**
      * @brief Setup reusable UI components
      */
@@ -102,11 +141,12 @@ private:
             "move_up", [this](const ui::ActionContext& ctx) { explorer_->moveUp(ctx.count); }, "Move cursor up",
             "Navigation", true);
         actions.registerAction(
-            "go_parent", [this]([[maybe_unused]] const ui::ActionContext& ctx) { (void)explorer_->goParent(); },
+            "go_parent",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->goParent()); },
             "Move cursor up", "Navigation", false);
         actions.registerAction(
             "enter_selected",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) { (void)explorer_->enterSelected(true); },
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->enterSelected(true)); },
             "Enter directory or open file", "Navigation", false);
         actions.registerAction(
             "go_top", [this]([[maybe_unused]] const ui::ActionContext& ctx) { explorer_->goToTop(); },
@@ -125,15 +165,16 @@ private:
             },
             "Go to last item or line N", "Navigation", true);
         actions.registerAction(
-            "page_down", [this](const ui::ActionContext& ctx) { explorer_->moveDown(10 * ctx.count); },
+            "page_down", [this](const ui::ActionContext& ctx) { explorer_->moveDown(kPageStep * ctx.count); },
             "Scroll down half page", "Navigation", true);
         actions.registerAction(
-            "page_up", [this](const ui::ActionContext& ctx) { explorer_->moveUp(10 * ctx.count); },
+            "page_up", [this](const ui::ActionContext& ctx) { explorer_->moveUp(kPageStep * ctx.count); },
             "Scroll up half page", "Navigation", true);
 
         // File operations
         actions.registerAction(
-            "open_file", [this]([[maybe_unused]] const ui::ActionContext& ctx) { (void)explorer_->openSelected(); },
+            "open_file",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->openSelected()); },
             "Open file with default application", "File Operations", false);
 
         actions.registerAction(
@@ -155,94 +196,69 @@ private:
             },
             "Rename current item", "File Operations", false);
         actions.registerAction(
-            "yank",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx)
-            {
-                (void)explorer_->yankSelected();
-            },
-            "Yank current item", "File Operations", false
-        );
+            "yank", [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->yankSelected()); },
+            "Yank current item", "File Operations", false);
 
         actions.registerAction(
-            "cut",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx)
-            {
-                (void)explorer_->cutSelected();
-            },
-            "Cut current item", "File Operations", false
-        );
-        
+            "cut", [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->cutSelected()); },
+            "Cut current item", "File Operations", false);
+
         actions.registerAction(
             "discard_yank",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx)
-            {
-                (void)explorer_->discardYank();
-            },
-            "Clear clipboard", "File Operations", false
-        );
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->discardYank()); },
+            "Clear clipboard", "File Operations", false);
 
         actions.registerAction(
-            "paste", [this]([[maybe_unused]] const ui::ActionContext& ctx) { (void)explorer_->pasteYanked(false); },
+            "paste",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->pasteYanked(false)); },
             "Paste yanked item into current directory", "File Operations", false);
 
         actions.registerAction(
             "paste_overwrite",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) { (void)explorer_->pasteYanked(true); },
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->pasteYanked(true)); },
             "Paste into current directory with overwrite", "File Operations", false);
 
         actions.registerAction(
             "copy_entry_path_relative",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx)
-            {
-                (void)explorer_->copySelectedPathToSystemClipboard(false);
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                consumeResult(explorer_->copySelectedPathToSystemClipboard(false));
             },
-            "Copy selected entry relative path to system clipboard", "File Operations", false
-        );
+            "Copy selected entry relative path to system clipboard", "File Operations", false);
 
         actions.registerAction(
             "copy_current_dir_relative",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx)
-            {
-                (void)explorer_->copyCurrentDirectoryPathToSystemClipboard(false);
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                consumeResult(explorer_->copyCurrentDirectoryPathToSystemClipboard(false));
             },
-            "Copy current directory relative path to system clipboard", "File Operations", false
-        );
+            "Copy current directory relative path to system clipboard", "File Operations", false);
 
         actions.registerAction(
             "copy_entry_path_absolute",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx)
-            {
-                (void)explorer_->copySelectedPathToSystemClipboard(true);
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                consumeResult(explorer_->copySelectedPathToSystemClipboard(true));
             },
-            "Copy selected entry absolute path to system clipboard", "File Operations", false
-        );
+            "Copy selected entry absolute path to system clipboard", "File Operations", false);
 
         actions.registerAction(
             "copy_current_dir_absolute",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx)
-            {
-                (void)explorer_->copyCurrentDirectoryPathToSystemClipboard(true);
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                consumeResult(explorer_->copyCurrentDirectoryPathToSystemClipboard(true));
             },
-            "Copy current directory absolute path to system clipboard", "File Operations", false
-        );
+            "Copy current directory absolute path to system clipboard", "File Operations", false);
 
         actions.registerAction(
             "copy_file_name",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx)
-            {
-                (void)explorer_->copySelectedFileNameToSystemClipboard();
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                consumeResult(explorer_->copySelectedFileNameToSystemClipboard());
             },
-            "Copy selected file name to system clipboard", "File Operations", false
-        );
+            "Copy selected file name to system clipboard", "File Operations", false);
 
         actions.registerAction(
             "copy_name_without_extension",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx)
-            {
-                (void)explorer_->copySelectedNameWithoutExtensionToSystemClipboard();
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                consumeResult(explorer_->copySelectedNameWithoutExtensionToSystemClipboard());
             },
-            "Copy selected name without extension to system clipboard", "File Operations", false
-        );
+            "Copy selected name without extension to system clipboard", "File Operations", false);
 
         actions.registerAction(
             "trash", [this]([[maybe_unused]] const ui::ActionContext& ctx) { explorer_->showTrashDialog(); },
@@ -300,47 +316,48 @@ private:
 
         // TODO: Better Error handling for invalid bindings (e.g. duplicate keys, unknown actions)
         // Navigation bindings
-        (void)keymap.bind("j", "move_down", ui::Mode::Normal, "Move down");
-        (void)keymap.bind("k", "move_up", ui::Mode::Normal, "Move up");
-        (void)keymap.bind("h", "go_parent", ui::Mode::Normal, "Go to parent");
-        (void)keymap.bind("l", "enter_selected", ui::Mode::Normal, "Enter/open");
-        (void)keymap.bind("gg", "go_top", ui::Mode::Normal, "Go to top");
-        (void)keymap.bind("G", "go_bottom", ui::Mode::Normal, "Go to bottom");
+        consumeResult(keymap.bind("j", "move_down", ui::Mode::Normal, "Move down"));
+        consumeResult(keymap.bind("k", "move_up", ui::Mode::Normal, "Move up"));
+        consumeResult(keymap.bind("h", "go_parent", ui::Mode::Normal, "Go to parent"));
+        consumeResult(keymap.bind("l", "enter_selected", ui::Mode::Normal, "Enter/open"));
+        consumeResult(keymap.bind("gg", "go_top", ui::Mode::Normal, "Go to top"));
+        consumeResult(keymap.bind("G", "go_bottom", ui::Mode::Normal, "Go to bottom"));
 
         // Page navigation
-        (void)keymap.bind("C-d", "page_down", ui::Mode::Normal, "Page down");
-        (void)keymap.bind("C-u", "page_up", ui::Mode::Normal, "Page up");
+        consumeResult(keymap.bind("C-d", "page_down", ui::Mode::Normal, "Page down"));
+        consumeResult(keymap.bind("C-u", "page_up", ui::Mode::Normal, "Page up"));
 
         // File operations
-        (void)keymap.bind("o", "open_file", ui::Mode::Normal, "Open file");
-        (void)keymap.bind("a", "create", ui::Mode::Normal, "Create new");
-        (void)keymap.bind("r", "rename", ui::Mode::Normal, "Rename");
-        (void)keymap.bind("d", "trash", ui::Mode::Normal, "Trash");
-        (void)keymap.bind("D", "delete", ui::Mode::Normal, "Delete");
-        (void)keymap.bind("y", "yank", ui::Mode::Normal, "Yank (copy)");
-        (void)keymap.bind("x", "cut", ui::Mode::Normal, "Cut");
-        (void)keymap.bind("Y", "discard_yank", ui::Mode::Normal, "Discard Yank (copy)");
-        (void)keymap.bind("X", "discard_yank", ui::Mode::Normal, "Discard cut/copy");
-        (void)keymap.bind("p", "paste", ui::Mode::Normal, "Paste yanked item");
-        (void)keymap.bind("P", "paste_overwrite", ui::Mode::Normal, "Paste with overwrite");
-        (void)keymap.bind("cc", "copy_entry_path_relative", ui::Mode::Normal, "Copy entry path (relative)");
-        (void)keymap.bind("cd", "copy_current_dir_relative", ui::Mode::Normal, "Copy current path (relative)");
-        (void)keymap.bind("cC", "copy_entry_path_absolute", ui::Mode::Normal, "Copy entry path (absolute)");
-        (void)keymap.bind("cD", "copy_current_dir_absolute", ui::Mode::Normal, "Copy current path (absolute)");
-        (void)keymap.bind("cf", "copy_file_name", ui::Mode::Normal, "Copy file name");
-        (void)keymap.bind("cn", "copy_name_without_extension", ui::Mode::Normal, "Copy name without extension");
+        consumeResult(keymap.bind("o", "open_file", ui::Mode::Normal, "Open file"));
+        consumeResult(keymap.bind("a", "create", ui::Mode::Normal, "Create new"));
+        consumeResult(keymap.bind("r", "rename", ui::Mode::Normal, "Rename"));
+        consumeResult(keymap.bind("d", "trash", ui::Mode::Normal, "Trash"));
+        consumeResult(keymap.bind("D", "delete", ui::Mode::Normal, "Delete"));
+        consumeResult(keymap.bind("y", "yank", ui::Mode::Normal, "Yank (copy)"));
+        consumeResult(keymap.bind("x", "cut", ui::Mode::Normal, "Cut"));
+        consumeResult(keymap.bind("Y", "discard_yank", ui::Mode::Normal, "Discard Yank (copy)"));
+        consumeResult(keymap.bind("X", "discard_yank", ui::Mode::Normal, "Discard cut/copy"));
+        consumeResult(keymap.bind("p", "paste", ui::Mode::Normal, "Paste yanked item"));
+        consumeResult(keymap.bind("P", "paste_overwrite", ui::Mode::Normal, "Paste with overwrite"));
+        consumeResult(keymap.bind("cc", "copy_entry_path_relative", ui::Mode::Normal, "Copy entry path (relative)"));
+        consumeResult(keymap.bind("cd", "copy_current_dir_relative", ui::Mode::Normal, "Copy current path (relative)"));
+        consumeResult(keymap.bind("cC", "copy_entry_path_absolute", ui::Mode::Normal, "Copy entry path (absolute)"));
+        consumeResult(keymap.bind("cD", "copy_current_dir_absolute", ui::Mode::Normal, "Copy current path (absolute)"));
+        consumeResult(keymap.bind("cf", "copy_file_name", ui::Mode::Normal, "Copy file name"));
+        consumeResult(
+            keymap.bind("cn", "copy_name_without_extension", ui::Mode::Normal, "Copy name without extension"));
 
         // Search
-        (void)keymap.bind("/", "search", ui::Mode::Normal, "Search");
-        (void)keymap.bind("n", "next_match", ui::Mode::Normal, "Next match");
-        (void)keymap.bind("N", "prev_match", ui::Mode::Normal, "Prev match");
-        (void)keymap.bind("\\", "clear_search", ui::Mode::Normal, "Clear search");
+        consumeResult(keymap.bind("/", "search", ui::Mode::Normal, "Search"));
+        consumeResult(keymap.bind("n", "next_match", ui::Mode::Normal, "Next match"));
+        consumeResult(keymap.bind("N", "prev_match", ui::Mode::Normal, "Prev match"));
+        consumeResult(keymap.bind("\\", "clear_search", ui::Mode::Normal, "Clear search"));
 
         // View
-        (void)keymap.bind(".", "toggle_hidden", ui::Mode::Normal, "Toggle the visibility of hidden files");
+        consumeResult(keymap.bind(".", "toggle_hidden", ui::Mode::Normal, "Toggle the visibility of hidden files"));
 
         // Quit
-        (void)keymap.bind("q", "quit", ui::Mode::Normal, "Quit");
+        consumeResult(keymap.bind("q", "quit", ui::Mode::Normal, "Quit"));
     }
 
     void setupInputComponents() {
@@ -394,14 +411,68 @@ private:
     ftxui::Element render() {
         using namespace ftxui;
 
+        // Keep list viewport in sync with terminal height for threshold scrolling.
+        // On first render some terminals report incomplete geometry; ignore tiny values.
+        const int measured_rows = screen_.dimy() - (kRootLayoutRows + kPanelDecorRows);
+        if (measured_rows > 1) {
+            explorer_->setViewportRows(measured_rows);
+        }
+
         const auto& state = explorer_->state();
 
         // Render parent directory list using FileListComponent
         auto parent_content = fileList_->render(state.parentEntries, state.parentSelected, {}, -1);
 
+        const int total_entries = static_cast<int>(state.entries.size());
+        const int visible_rows = std::max(1, state.currentViewportRows);
+        // For example, if there are 100 files in total, and 20 are displayed on the screen,
+        // then one can only scroll down to the 80th file at most (i.e., offset=80, displaying 80~99).
+        const int max_offset = std::max(0, total_entries - visible_rows);
+        const int offset = std::clamp(state.currentScrollOffset, 0, max_offset);
+        const int visible_end = std::min(total_entries, offset + visible_rows);
+
+        auto visible_entries =
+            std::ranges::subrange(state.entries.begin() + offset, state.entries.begin() + visible_end);
+
+        std::vector<int> visible_search_matches;
+        int visible_current_match = -1;  // store the index of the current match within the visible matches
+        visible_search_matches.reserve(state.searchMatches.size());
+
+        for (size_t i = 0; i < state.searchMatches.size(); ++i) {
+            const int match = state.searchMatches[i];
+
+            if (match >= offset && match < visible_end) {
+                visible_search_matches.push_back(match - offset);
+                if (static_cast<int>(i) == state.currentMatchIndex) {
+                    visible_current_match = static_cast<int>(visible_search_matches.size()) - 1;
+                }
+            }
+        }
+        // combine the below two loops and track the current match index at the same time to avoid iterating twice
+
+        // for (int match : state.searchMatches) {
+        //     if (match >= offset && match < visible_end) {
+        //         visible_search_matches.push_back(match - offset);
+        //     }
+        // }
+
+        // if (state.currentMatchIndex >= 0 && state.currentMatchIndex < static_cast<int>(state.searchMatches.size())) {
+        //     const int absolute_current_match = state.searchMatches[static_cast<size_t>(state.currentMatchIndex)];
+        //     if (absolute_current_match >= offset && absolute_current_match < visible_end) {
+        //         for (size_t i = 0; i < visible_search_matches.size(); ++i) {
+        //             if (visible_search_matches[i] == (absolute_current_match - offset)) {
+        //                 visible_current_match = static_cast<int>(i);
+        //                 break;
+        //             }
+        //         }
+        //     }
+        // }
+
+        const int visible_selected = state.currentSelected - offset;
+
         // render current directory list with search highlighting
         auto current_content =
-            fileList_->render(state.entries, state.currentSelected, state.searchMatches, state.currentMatchIndex);
+            fileList_->render(visible_entries, visible_selected, visible_search_matches, visible_current_match);
 
         // render preview using previewComponent
         Element preview_content;
@@ -481,8 +552,8 @@ private:
         // Show trash confirmation dialog
         if (state.showTrashDialog) {
             auto dialog_elem = dialog_->renderConfirmation(
-                "Trash Confirmation", "Are you sure you want to move to trash:", state.trashDeletePath.filename().string(),
-                Color::Red);
+                "Trash Confirmation",
+                "Are you sure you want to move to trash:", state.trashDeletePath.filename().string(), Color::Red);
 
             return dbox({
                 std::move(base_content) | dim,
@@ -531,9 +602,13 @@ private:
         return base_content;
     }
 
-    bool handleEvent(ftxui::Event event) {
+    bool handleEvent(const ftxui::Event& event) {
         using namespace ftxui;
         const auto& state = explorer_->state();
+
+        // if (event == Event::Special({0})) {
+        //     return true;
+        // }
 
         // Handle search dialog events
         if (state.showSearchDialog) {
@@ -553,7 +628,7 @@ private:
         // Handle create dialog events
         if (state.showCreateDialog) {
             if (event == Event::Return) {
-                (void)explorer_->create(newNameInput_);
+                consumeResult(explorer_->create(newNameInput_));
                 explorer_->hideAllDialogs();
                 newNameInput_.clear();
                 return true;
@@ -569,7 +644,7 @@ private:
         // Handle rename dialog events
         if (state.showRenameDialog) {
             if (event == Event::Return) {
-                (void)explorer_->rename(renameInput_);
+                consumeResult(explorer_->rename(renameInput_));
                 explorer_->hideAllDialogs();
                 renameInput_.clear();
                 return true;
@@ -585,7 +660,7 @@ private:
         // Handle delete dialog events
         if (state.showDeleteDialog) {
             if (event == Event::Character('y') || event == Event::Character('Y')) {
-                (void)explorer_->deleteSelected();
+                consumeResult(explorer_->deleteSelected());
                 explorer_->hideAllDialogs();
                 return true;
             }
@@ -599,7 +674,7 @@ private:
         // Handle trash dialog events
         if (state.showTrashDialog) {
             if (event == Event::Character('y') || event == Event::Character('Y')) {
-                (void)explorer_->trashSelected();
+                consumeResult(explorer_->trashSelected());
                 explorer_->hideAllDialogs();
                 return true;
             }
@@ -626,11 +701,11 @@ private:
             return true;
         }
         if (event == Event::ArrowLeft) {
-            (void)explorer_->goParent();
+            consumeResult(explorer_->goParent());
             return true;
         }
         if (event == Event::ArrowRight || event == Event::Return) {
-            (void)explorer_->enterSelected(false);
+            consumeResult(explorer_->enterSelected(false));
             return true;
         }
 
@@ -657,9 +732,12 @@ private:
     ftxui::Component createInputComponent_;
     ftxui::Component renameInputComponent_;
     ftxui::Component searchInputComponent_;
+
+    std::atomic_bool running_{false};
+    std::jthread refreshTicker_;
 };
 
-ExplorerView::ExplorerView(std::shared_ptr<Explorer> explorer) : impl_(std::make_unique<Impl>(explorer)) {}
+ExplorerView::ExplorerView(std::shared_ptr<Explorer> explorer) : impl_(std::make_unique<Impl>(std::move(explorer))) {}
 ExplorerView::~ExplorerView() = default;
 
 ExplorerView::ExplorerView(ExplorerView&&) noexcept = default;

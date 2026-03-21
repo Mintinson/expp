@@ -143,6 +143,47 @@ struct Explorer::Impl {
     bool showHidden = true;
     fs::path baseDirectory;
 
+    void updateScrollForSelection() {
+        const int entry_count = static_cast<int>(state.entries.size());
+        if (entry_count <= 0) {
+            state.currentSelected = 0;
+            state.currentScrollOffset = 0;
+            return;
+        }
+
+        state.currentSelected = std::clamp(state.currentSelected, 0, entry_count - 1);
+
+        const int viewport_rows = std::max(1, state.currentViewportRows);
+        const int max_offset = std::max(0, entry_count - viewport_rows);
+        state.currentScrollOffset = std::clamp(state.currentScrollOffset, 0, max_offset);
+
+        const int top_anchor = std::max(0, viewport_rows / 4);
+        const int bottom_anchor = std::max(0, (viewport_rows * 3) / 4);
+
+        const int top_threshold = state.currentScrollOffset + top_anchor;
+        const int bottom_threshold = state.currentScrollOffset + bottom_anchor;
+
+        if (state.currentSelected < top_threshold) {
+            state.currentScrollOffset = std::max(0, state.currentSelected - top_anchor);
+        } else if (state.currentSelected > bottom_threshold) {
+            state.currentScrollOffset = std::min(max_offset, std::max(0, state.currentSelected - bottom_anchor));
+        }
+
+        state.currentScrollOffset = std::min(state.currentScrollOffset, state.currentSelected);
+
+        const int visible_last = state.currentScrollOffset + viewport_rows - 1;
+        if (state.currentSelected > visible_last) {
+            state.currentScrollOffset = state.currentSelected - viewport_rows + 1;
+        }
+
+        state.currentScrollOffset = std::clamp(state.currentScrollOffset, 0, max_offset);
+    }
+
+    void setViewportRows(int rows) {
+        state.currentViewportRows = std::max(1, rows);
+        updateScrollForSelection();
+    }
+
     void refresh() {
         state.entries.clear();
         auto result = core::filesystem::list_directory(state.currentDir, showHidden);
@@ -159,9 +200,8 @@ struct Explorer::Impl {
             }
         }
 
-        // clamp selection
-        state.currentSelected =
-            std::min(state.currentSelected, std::max(0, static_cast<int>(state.entries.size()) - 1));
+        // clamp selection and preserve scrolling invariants
+        updateScrollForSelection();
 
         // Update parent selection
         updateParentSelection();
@@ -199,6 +239,7 @@ struct Explorer::Impl {
 
         state.currentDir = *canonical_result;
         state.currentSelected = 0;
+        state.currentScrollOffset = 0;
 
         refresh();
         return {};
@@ -212,6 +253,7 @@ struct Explorer::Impl {
         auto old_path = state.currentDir.filename();
         state.currentDir = state.currentDir.parent_path();
         state.currentSelected = 0;
+        state.currentScrollOffset = 0;
 
         refresh();
 
@@ -222,6 +264,7 @@ struct Explorer::Impl {
                 break;
             }
         }
+        updateScrollForSelection();
 
         return {};
     }
@@ -590,12 +633,14 @@ struct Explorer::Impl {
             if (state.searchMatches[i] > state.currentSelected) {
                 state.currentMatchIndex = static_cast<int>(i);
                 state.currentSelected = state.searchMatches[i];
+                updateScrollForSelection();
                 return;
             }
         }
         // Wrap around to the first match
         state.currentMatchIndex = 0;
         state.currentSelected = state.searchMatches[0];
+        updateScrollForSelection();
     }
 
     void jumpToPrevMatch() {
@@ -608,12 +653,14 @@ struct Explorer::Impl {
             if (state.searchMatches[static_cast<size_t>(i)] < state.currentSelected) {
                 state.currentMatchIndex = i;
                 state.currentSelected = state.searchMatches[static_cast<size_t>(i)];
+                updateScrollForSelection();
                 return;
             }
         }
         // Wrap around to the last match
         state.currentMatchIndex = static_cast<int>(state.searchMatches.size()) - 1;
         state.currentSelected = state.searchMatches[static_cast<size_t>(state.currentMatchIndex)];
+        updateScrollForSelection();
     }
 
 };  // Explorer::Impl
@@ -643,20 +690,24 @@ void Explorer::moveDown(int count) {
     if (!impl_->state.entries.empty()) {
         impl_->state.currentSelected =
             std::min(impl_->state.currentSelected + count, static_cast<int>(impl_->state.entries.size()) - 1);
+        impl_->updateScrollForSelection();
     }
 }
 
 void Explorer::moveUp(int count) {
     impl_->state.currentSelected = std::max(impl_->state.currentSelected - count, 0);
+    impl_->updateScrollForSelection();
 }
 
 void Explorer::goToTop() {
     impl_->state.currentSelected = 0;
+    impl_->updateScrollForSelection();
 }
 
 void Explorer::goToBottom() {
     if (!impl_->state.entries.empty()) {
         impl_->state.currentSelected = static_cast<int>(impl_->state.entries.size()) - 1;
+        impl_->updateScrollForSelection();
     }
 }
 
@@ -665,7 +716,12 @@ void Explorer::goToLine(int line) {
         impl_->state.currentSelected = std::min(line - 1,  // 1-indexed to 0-indexed
                                                 static_cast<int>(impl_->state.entries.size()) - 1);
         impl_->state.currentSelected = std::max(impl_->state.currentSelected, 0);
+        impl_->updateScrollForSelection();
     }
+}
+
+void Explorer::setViewportRows(int rows) {
+    impl_->setViewportRows(rows);
 }
 
 core::VoidResult Explorer::create(const std::string& name) {

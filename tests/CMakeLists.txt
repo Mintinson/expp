@@ -10,12 +10,14 @@ add_executable(expp_tests
     test_main.cpp
     core/test_filesystem.cpp
     core/test_error.cpp
+    app/test_explorer_scrolling.cpp
 )
 
 target_link_libraries(expp_tests
     PRIVATE
         expp_core
         expp_ui
+        expp_app
         Catch2::Catch2WithMain
 )
 

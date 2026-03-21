@@ -62,7 +62,7 @@ public:
      * @param currentMatchIndex Currently highlighted match index (-1 if none)
      * @return FTXUI Element
      */
-    [[nodiscard]] ftxui::Element render(const std::vector<core::filesystem::FileEntry>& entries,
+    [[nodiscard]] ftxui::Element render(std::span<const core::filesystem::FileEntry> entries,
                                         int selected,
                                         const std::vector<int>& search_matches = {},
                                         int current_match_index = -1) const;
@@ -223,8 +223,8 @@ private:
 struct PanelConfig {
     bool showParent{true};
     bool showPreview{true};
-    int parentWidth{25};
-    int previewWidth{40};
+    int parentWidth{50};
+    int previewWidth{80};
     const Theme* theme{&global_theme()};
 };
 

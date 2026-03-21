@@ -11,4 +11,4 @@ Todo list
 
 Bug Report
 - [x] program will crash if simlink link itself.
-- [ ] The interface does not move when using the up and down navigation.
+- [x] The interface does not move when using the up and down navigation. (Correct functionality: When the cursor is at 25% of the screen, moving it upwards will shift the list downwards (if there are enough elements above); when the cursor is at 75% of the screen, moving it downwards will shift the list upwards (if there are enough elements).)
