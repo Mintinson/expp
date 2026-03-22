@@ -38,6 +38,7 @@
 #include <span>
 #include <stop_token>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -304,6 +305,31 @@ private:
             "toggle_hidden", [this]([[maybe_unused]] const ui::ActionContext& ctx) { explorer_->toggleShowHidden(); },
             "Toggle the visibility of hidden files", "View", false);
 
+        registerSortAction(actions, "sort_modified", "Sort by modified time", ExplorerState::SortField::ModifiedTime,
+                           ExplorerState::SortDirection::Ascending);
+        registerSortAction(actions, "sort_modified_desc", "Sort by modified time (desc)",
+                           ExplorerState::SortField::ModifiedTime, ExplorerState::SortDirection::Descending);
+        registerSortAction(actions, "sort_birth", "Sort by birth time", ExplorerState::SortField::BirthTime,
+                           ExplorerState::SortDirection::Ascending);
+        registerSortAction(actions, "sort_birth_desc", "Sort by birth time (desc)",
+                           ExplorerState::SortField::BirthTime, ExplorerState::SortDirection::Descending);
+        registerSortAction(actions, "sort_extension", "Sort by extension", ExplorerState::SortField::Extension,
+                           ExplorerState::SortDirection::Ascending);
+        registerSortAction(actions, "sort_extension_desc", "Sort by extension (desc)",
+                           ExplorerState::SortField::Extension, ExplorerState::SortDirection::Descending);
+        registerSortAction(actions, "sort_alpha", "Sort alphabetically", ExplorerState::SortField::Alphabetical,
+                           ExplorerState::SortDirection::Ascending);
+        registerSortAction(actions, "sort_alpha_desc", "Sort alphabetically (desc)",
+                           ExplorerState::SortField::Alphabetical, ExplorerState::SortDirection::Descending);
+        registerSortAction(actions, "sort_natural", "Sort naturally", ExplorerState::SortField::Natural,
+                           ExplorerState::SortDirection::Ascending);
+        registerSortAction(actions, "sort_natural_desc", "Sort naturally (desc)",
+                           ExplorerState::SortField::Natural, ExplorerState::SortDirection::Descending);
+        registerSortAction(actions, "sort_size", "Sort by size", ExplorerState::SortField::Size,
+                           ExplorerState::SortDirection::Ascending);
+        registerSortAction(actions, "sort_size_desc", "Sort by size (desc)", ExplorerState::SortField::Size,
+                           ExplorerState::SortDirection::Descending);
+
         // Application control
         actions.registerAction(
             "quit", [this]([[maybe_unused]] const ui::ActionContext& ctx) { screen_.Exit(); }, "Quit application",
@@ -355,6 +381,18 @@ private:
 
         // View
         consumeResult(keymap.bind(".", "toggle_hidden", ui::Mode::Normal, "Toggle the visibility of hidden files"));
+        consumeResult(keymap.bind(",m", "sort_modified", ui::Mode::Normal, "Sort by modified time"));
+        consumeResult(keymap.bind(",M", "sort_modified_desc", ui::Mode::Normal, "Sort by modified time (desc)"));
+        consumeResult(keymap.bind(",b", "sort_birth", ui::Mode::Normal, "Sort by birth time"));
+        consumeResult(keymap.bind(",B", "sort_birth_desc", ui::Mode::Normal, "Sort by birth time (desc)"));
+        consumeResult(keymap.bind(",e", "sort_extension", ui::Mode::Normal, "Sort by extension"));
+        consumeResult(keymap.bind(",E", "sort_extension_desc", ui::Mode::Normal, "Sort by extension (desc)"));
+        consumeResult(keymap.bind(",a", "sort_alpha", ui::Mode::Normal, "Sort alphabetically"));
+        consumeResult(keymap.bind(",A", "sort_alpha_desc", ui::Mode::Normal, "Sort alphabetically (desc)"));
+        consumeResult(keymap.bind(",n", "sort_natural", ui::Mode::Normal, "Sort naturally"));
+        consumeResult(keymap.bind(",N", "sort_natural_desc", ui::Mode::Normal, "Sort naturally (desc)"));
+        consumeResult(keymap.bind(",s", "sort_size", ui::Mode::Normal, "Sort by size"));
+        consumeResult(keymap.bind(",S", "sort_size_desc", ui::Mode::Normal, "Sort by size (desc)"));
 
         // Quit
         consumeResult(keymap.bind("q", "quit", ui::Mode::Normal, "Quit"));
@@ -510,6 +548,16 @@ private:
             }
         }
 
+        const std::string sort_status = std::format("[sort:{}{}]", sortFieldToShortName(state.sortField),
+                                                    state.sortDirection == ExplorerState::SortDirection::Descending
+                                                        ? ":desc"
+                                                        : ":asc");
+        if (search_status.empty()) {
+            search_status = sort_status;
+        } else {
+            search_status = sort_status + " " + search_status;
+        }
+
         // Build status bar using StatusBarComponent
 
         ui::StatusBarInfo status_info;
@@ -518,7 +566,7 @@ private:
         status_info.keyBuffer = keyHandler_.buffer();
         status_info.searchStatus = std::move(search_status);
         // TODO: Dynamic help text based on mode and available actions
-        status_info.helpText = "j/k move, h/l nav, y/x copy-cut, p/P paste, cc/cd/cC/cD/cf/cn clip, q quit";
+        status_info.helpText = "j/k move, h/l nav, ,m|,b|,e|,a|,n|,s sort, Y/X cancel, q quit";
 
         auto status_bar_elem = statusBar_->render(status_info);
 
@@ -533,6 +581,37 @@ private:
         main_content = renderDialogs(std::move(main_content), state);
 
         return main_content;
+    }
+
+    void registerSortAction(ui::ActionRegistry& actions,
+                            std::string name,
+                            std::string description,
+                            ExplorerState::SortField field,
+                            ExplorerState::SortDirection direction) {
+        actions.registerAction(std::move(name),
+                               [this, field, direction]([[maybe_unused]] const ui::ActionContext& ctx) {
+                                   explorer_->setSortOrder(field, direction);
+                               },
+                               std::move(description), "View", false);
+    }
+
+    [[nodiscard]] static std::string_view sortFieldToShortName(ExplorerState::SortField field) {
+        switch (field) {
+            case ExplorerState::SortField::ModifiedTime:
+                return "modified";
+            case ExplorerState::SortField::BirthTime:
+                return "birth";
+            case ExplorerState::SortField::Extension:
+                return "extension";
+            case ExplorerState::SortField::Alphabetical:
+                return "alpha";
+            case ExplorerState::SortField::Natural:
+                return "natural";
+            case ExplorerState::SortField::Size:
+                return "size";
+            default:
+                return "unknown";
+        }
     }
 
     ftxui::Element renderDialogs(ftxui::Element base_content, const ExplorerState& state) {

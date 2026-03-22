@@ -55,6 +55,7 @@ struct FileEntry {
     fs::path path;
     [[no_unique_address]] FileType type{FileType::Unknown};
     [[no_unique_address]] std::uintmax_t size{0};
+    [[no_unique_address]] std::chrono::file_clock::time_point birthTime;
     [[no_unique_address]] std::chrono::file_clock::time_point lastModified;
     fs::path symlinkTarget;
     [[no_unique_address]] bool isHidden{false};

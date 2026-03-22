@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -14,12 +15,16 @@
     // clang-format on
     #undef max
     #undef min
-#endif
+#else
+    #include <fcntl.h>
+    #include <sys/stat.h>
+#endif  // _WIN32
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <ranges>
+#include <ratio>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -57,6 +62,92 @@ constexpr std::array kConfigExtensions = {".toml", ".yaml", ".yml", ".json", ".i
 template <typename Container>
 [[nodiscard]] bool contains_extension(const Container& container, std::string_view ext) {
     return rng::find(container, ext) != container.end();
+}
+
+/**
+ * @brief Converts a system clock time point to a file clock time point.
+ * @param system_time The system clock time point to convert.
+ * @return The equivalent time point in the file clock.
+ */
+[[nodiscard]] std::chrono::file_clock::time_point to_file_clock(
+    const std::chrono::system_clock::time_point& system_time) {
+    const auto now_sys = std::chrono::system_clock::now();
+    const auto now_file = std::chrono::file_clock::now();
+    return now_file + std::chrono::duration_cast<std::chrono::file_clock::duration>(system_time - now_sys);
+}
+
+//[[nodiscard]] std::chrono::file_clock::time_point query_birth_time(
+//    const fs::path& path, std::chrono::file_clock::time_point fallback) {
+// #ifdef _WIN32
+//    WIN32_FILE_ATTRIBUTE_DATA attributes{};
+//    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attributes)) {
+//        return fallback;
+//    }
+//
+//    ULARGE_INTEGER value{};
+//    value.LowPart = attributes.ftCreationTime.dwLowDateTime;
+//    value.HighPart = attributes.ftCreationTime.dwHighDateTime;
+//
+//    constexpr std::uint64_t kWindowsEpochToUnixEpoch100ns = 116444736000000000ULL;
+//    if (value.QuadPart <= kWindowsEpochToUnixEpoch100ns) {
+//        return fallback;
+//    }
+//
+//    const auto unix_100ns = value.QuadPart - kWindowsEpochToUnixEpoch100ns;
+//    const auto unix_duration = std::chrono::duration_cast<std::chrono::system_clock::duration>(
+//        std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>(static_cast<std::int64_t>(unix_100ns)));
+//
+//    return to_file_clock(std::chrono::system_clock::time_point(unix_duration));
+// #else
+//    (void)path;
+//    return fallback;
+//
+// #endif
+//}
+
+
+/**
+ * @brief Queries the birth (creation) time of a file or directory.
+ * @param path The filesystem path to the file or directory whose birth time is to be queried.
+ * @return A Result containing the file's creation time as a file_clock time_point on success, or an error if the operation fails or birth time is not supported on the platform.
+ */
+[[nodiscard]] core::Result<std::chrono::file_clock::time_point> query_birth_time(const fs::path& path) {
+    using namespace std::chrono;
+
+#ifdef _WIN32
+    WIN32_FILE_ATTRIBUTE_DATA attributes{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attributes)) {
+        return core::make_error(ErrorCategory::FileSystem,
+                                std::format("Failed to get file attributes for '{}'", path.string()));
+    }
+    ULARGE_INTEGER value{};
+
+    value.LowPart = attributes.ftCreationTime.dwLowDateTime;
+    value.HighPart = attributes.ftCreationTime.dwHighDateTime;
+
+    // FILETIME unit is 100 ns on Windows
+    auto filetime_duration = duration<std::int64_t, std::ratio<1, 10'000'000>>(value.QuadPart);
+    // Windows epoch starts on January 1, 1601, while Unix epoch starts on January 1, 1970
+    auto win_epoch = sys_days(January / 1 / 1601);
+    // get the system time on Unix
+    auto sys_time = win_epoch + filetime_duration;
+
+    // Convert to file_clock time point (using standard library)
+    return clock_cast<file_clock>(sys_time);
+#else
+    struct statx stx;
+    // linux 4.11+ introduce statx, support BTIME
+    if (statx(AT_FDCWD, path.c_str(), AT_SYMLINK_NOFOLLOW, STATX_BTIME, &stx) == 0) {
+        if (stx.stx_mask & STATX_BTIME) {  // make sure it support BTIME
+            auto sys_time =
+                system_clock::time_point(seconds(stx.stx_btime.tv_sec) + nanoseconds(stx.stx_btime.tv_nsec));
+            return clock_cast<file_clock>(sys_time);
+        }
+    }
+    // for old linux kernel or other unix-like system, we can only get the birth time by fallback to last modified time,
+    // which is not accurate but better than nothing
+    return core::make_error(ErrorCategory::NoSupport, "Birth time not supported yet");
+#endif  // _WIN32
 }
 
 }  // anonymous namespace
@@ -218,6 +309,14 @@ bool is_previewable(const fs::path& path) noexcept {
         if (time_ec) {
             // if we can't get the last modified time, set it to epoch (or some sentinel value)
             fe.lastModified = fs::file_time_type::min();
+        }
+
+        // Cache birth/creation time with a safe fallback to last-modified.
+        auto birth_time_result = query_birth_time(fe.path);
+        if (birth_time_result) {
+            fe.birthTime = *birth_time_result;
+        } else {
+            fe.birthTime = fe.lastModified;
         }
 
         entries.push_back(std::move(fe));
@@ -383,9 +482,7 @@ VoidResult open_with_default(const fs::path& path) {
 //         return lines;
 //     }
 
-
-
-// } 
+// }
 [[nodiscard]] Result<std::vector<std::string>> read_preview(const fs::path& path, int max_lines) {
     std::vector<std::string> lines;
 

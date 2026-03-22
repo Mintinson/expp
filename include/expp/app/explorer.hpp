@@ -29,6 +29,29 @@ namespace expp::app {
  * @brief Explorer state for UI rendering
  */
 struct ExplorerState {
+    /**
+     * @brief Sort dimensions supported by the explorer list.
+     *
+     * Each field is applied with a stable tie-break chain so results are deterministic
+     * across refreshes and key toggles.
+     */
+    enum class SortField : std::uint8_t {
+        ModifiedTime,
+        BirthTime,
+        Extension,
+        Alphabetical,
+        Natural,
+        Size,
+    };
+
+    /**
+     * @brief Sort direction used by `sortField`.
+     */
+    enum class SortDirection : std::uint8_t {
+        Ascending,
+        Descending,
+    };
+
     enum class ClipboardOperation : std::uint8_t {
         None,
         Copy,
@@ -64,6 +87,9 @@ struct ExplorerState {
 
     std::filesystem::path clipboardPath;
     ClipboardOperation clipboardOperation{ClipboardOperation::None};
+
+    SortField sortField{SortField::Natural};
+    SortDirection sortDirection{SortDirection::Ascending};
 
 };
 
@@ -228,6 +254,17 @@ public:
      * @return A result indicating whether the operation succeeded or failed.
      */
     [[nodiscard]] core::VoidResult copySelectedNameWithoutExtensionToSystemClipboard();
+
+    /**
+     * @brief Changes sort strategy for current and parent lists.
+     *
+     * This operation is lightweight: it reorders cached entries and preserves
+     * selection where possible instead of forcing a full filesystem re-scan.
+     *
+     * @param field Sort field to apply (name, natural, size, timestamps, extension).
+     * @param direction Sort direction (`Ascending` or `Descending`).
+     */
+    void setSortOrder(ExplorerState::SortField field, ExplorerState::SortDirection direction);
 
     // ========== Search ==========
 

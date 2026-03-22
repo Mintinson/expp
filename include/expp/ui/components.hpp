@@ -19,11 +19,13 @@
 #include "expp/core/filesystem.hpp"
 #include "expp/ui/theme.hpp"
 
-#include <memory>
-#include <string>
-#include <vector>
 #include <ftxui/dom/node.hpp>
 #include <ftxui/screen/color.hpp>
+
+#include <memory>
+#include <span>
+#include <string>
+#include <vector>
 
 namespace expp::ui {
 
@@ -138,7 +140,7 @@ struct DialogButton {
 /**
  * @brief Dialog types
  */
-enum class DialogType: std::uint8_t {
+enum class DialogType : std::uint8_t {
     Confirmation,
     Input,
     Message
@@ -223,8 +225,8 @@ private:
 struct PanelConfig {
     bool showParent{true};
     bool showPreview{true};
-    int parentWidth{50};
-    int previewWidth{80};
+    int parentWidth{30};
+    int previewWidth{60};
     const Theme* theme{&global_theme()};
 };
 
@@ -293,7 +295,7 @@ struct PreviewConfig {
  * - TODO: using async component with loading state for large files or slow operations
  */
 class PreviewComponent {
-  public:
+public:
     explicit PreviewComponent(const PreviewConfig& config = {});
     ~PreviewComponent();
 
@@ -317,6 +319,7 @@ class PreviewComponent {
     [[nodiscard]] ftxui::Element renderLines(const std::vector<std::string>& lines) const;
 
     void setConfig(const PreviewConfig& config);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

@@ -33,6 +33,7 @@ enum class ErrorCategory : std::uint8_t {
     Config,
     UI,
     System,
+    NoSupport,
     Unknown
 };
 

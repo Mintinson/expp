@@ -6,8 +6,9 @@
 
 #include <algorithm>
 #include <array>
-#include <cstring>
+#include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <expected>
 #include <filesystem>
 #include <format>
@@ -16,8 +17,8 @@
 #include <ranges>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <system_error>
+#include <utility>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -31,6 +32,114 @@ namespace fs = std::filesystem;
 namespace rng = std::ranges;
 
 namespace {
+
+[[nodiscard]] char to_lower_ascii(char c) {
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+}
+
+[[nodiscard]] int compare_lexicographic_insensitive(std::string_view lhs, std::string_view rhs) {
+    const size_t common = std::min(lhs.size(), rhs.size());
+    for (size_t i = 0; i < common; ++i) {
+        const char lc = to_lower_ascii(lhs[i]);
+        const char rc = to_lower_ascii(rhs[i]);
+        if (lc < rc) {
+            return -1;
+        }
+        if (lc > rc) {
+            return 1;
+        }
+    }
+
+    if (lhs.size() < rhs.size()) {
+        return -1;
+    }
+    if (lhs.size() > rhs.size()) {
+        return 1;
+    }
+    return 0;
+}
+
+[[nodiscard]] int compare_natural_insensitive(std::string_view lhs, std::string_view rhs) {
+    size_t i = 0;
+    size_t j = 0;
+
+    while (i < lhs.size() && j < rhs.size()) {
+        const bool lhs_digit = std::isdigit(static_cast<unsigned char>(lhs[i])) != 0;
+        const bool rhs_digit = std::isdigit(static_cast<unsigned char>(rhs[j])) != 0;
+
+        if (lhs_digit && rhs_digit) {
+            size_t lhs_start = i;
+            size_t rhs_start = j;
+
+            while (lhs_start < lhs.size() && lhs[lhs_start] == '0') {
+                ++lhs_start;
+            }
+            while (rhs_start < rhs.size() && rhs[rhs_start] == '0') {
+                ++rhs_start;
+            }
+
+            size_t lhs_end = lhs_start;
+            size_t rhs_end = rhs_start;
+            while (lhs_end < lhs.size() && std::isdigit(static_cast<unsigned char>(lhs[lhs_end])) != 0) {
+                ++lhs_end;
+            }
+            while (rhs_end < rhs.size() && std::isdigit(static_cast<unsigned char>(rhs[rhs_end])) != 0) {
+                ++rhs_end;
+            }
+
+            const size_t lhs_len = lhs_end - lhs_start;
+            const size_t rhs_len = rhs_end - rhs_start;
+            if (lhs_len != rhs_len) {
+                return lhs_len < rhs_len ? -1 : 1;
+            }
+
+            const int number_cmp = compare_lexicographic_insensitive(lhs.substr(lhs_start, lhs_len),
+                                                                      rhs.substr(rhs_start, rhs_len));
+            if (number_cmp != 0) {
+                return number_cmp;
+            }
+
+            while (i < lhs.size() && std::isdigit(static_cast<unsigned char>(lhs[i])) != 0) {
+                ++i;
+            }
+            while (j < rhs.size() && std::isdigit(static_cast<unsigned char>(rhs[j])) != 0) {
+                ++j;
+            }
+            continue;
+        }
+
+        const char lc = to_lower_ascii(lhs[i]);
+        const char rc = to_lower_ascii(rhs[j]);
+        if (lc < rc) {
+            return -1;
+        }
+        if (lc > rc) {
+            return 1;
+        }
+
+        ++i;
+        ++j;
+    }
+
+    if (i < lhs.size()) {
+        return 1;
+    }
+    if (j < rhs.size()) {
+        return -1;
+    }
+    return 0;
+}
+
+template <typename T>
+[[nodiscard]] int compare_value(const T& lhs, const T& rhs) {
+    if (lhs < rhs) {
+        return -1;
+    }
+    if (rhs < lhs) {
+        return 1;
+    }
+    return 0;
+}
 
 // TODO: move this to a utils file
 /**
@@ -189,6 +298,7 @@ struct Explorer::Impl {
         auto result = core::filesystem::list_directory(state.currentDir, showHidden);
         if (result) {
             state.entries = std::move(*result);
+            sortEntries(state.entries);
         }
 
         // Get Parent Directory Contents
@@ -197,6 +307,7 @@ struct Explorer::Impl {
             auto parent_result = core::filesystem::list_directory(state.currentDir.parent_path(), showHidden);
             if (parent_result) {
                 state.parentEntries = std::move(*parent_result);
+                sortEntries(state.parentEntries);
             }
         }
 
@@ -211,6 +322,49 @@ struct Explorer::Impl {
         state.searchHighlightActive = false;
         state.searchPattern.clear();
         state.currentMatchIndex = -1;
+
+        if (refreshCallback) {
+            refreshCallback();
+        }
+    }
+
+    void setSortOrder(ExplorerState::SortField field, ExplorerState::SortDirection direction) {
+        if (state.sortField == field && state.sortDirection == direction) {
+            return;
+        }
+
+        fs::path selected_path;
+        if (!state.entries.empty()) {
+            selected_path = state.entries[static_cast<size_t>(state.currentSelected)].path;
+        }
+
+        state.sortField = field;
+        state.sortDirection = direction;
+
+        sortEntries(state.entries);
+        sortEntries(state.parentEntries);
+
+        if (!selected_path.empty()) {
+            auto it = rng::find_if(state.entries,
+                                   [&selected_path](const core::filesystem::FileEntry& entry) {
+                                       return entry.path == selected_path;
+                                   });
+            if (it != state.entries.end()) {
+                state.currentSelected = static_cast<int>(rng::distance(state.entries.begin(), it));
+            }
+        }
+
+        updateScrollForSelection();
+        updateParentSelection();
+
+        if (state.searchHighlightActive && !state.searchPattern.empty()) {
+            updateSearchMatches();
+
+            auto current_match_it = rng::find(state.searchMatches, state.currentSelected);
+            if (current_match_it != state.searchMatches.end()) {
+                state.currentMatchIndex = static_cast<int>(rng::distance(state.searchMatches.begin(), current_match_it));
+            }
+        }
 
         if (refreshCallback) {
             refreshCallback();
@@ -595,6 +749,53 @@ struct Explorer::Impl {
         return core::filesystem::remove_file(state.clipboardPath);
     }
 
+    void sortEntries(std::vector<core::filesystem::FileEntry>& entries) const {
+        rng::stable_sort(entries, [this](const auto& lhs, const auto& rhs) {
+        //std::stable_sort(entries.begin(), entries.end(), [this](const auto& lhs, const auto& rhs) {
+            if (lhs.isDirectory() != rhs.isDirectory()) {
+                return lhs.isDirectory();
+            }
+
+            const int field_cmp = compareBySortField(lhs, rhs);
+            if (field_cmp != 0) {
+                return state.sortDirection == ExplorerState::SortDirection::Ascending ? field_cmp < 0 : field_cmp > 0;
+            }
+
+            const int natural_cmp = compare_natural_insensitive(lhs.filename(), rhs.filename());
+            if (natural_cmp != 0) {
+                return natural_cmp < 0;
+            }
+
+            return lhs.path.generic_u8string() < rhs.path.generic_u8string();
+        });
+    }
+
+    [[nodiscard]] int compareBySortField(const core::filesystem::FileEntry& lhs,
+                                         const core::filesystem::FileEntry& rhs) const {
+        switch (state.sortField) {
+            case ExplorerState::SortField::ModifiedTime:
+                return compare_value(lhs.lastModified, rhs.lastModified);
+            case ExplorerState::SortField::BirthTime:
+                return compare_value(lhs.birthTime, rhs.birthTime);
+            case ExplorerState::SortField::Extension: {
+                const int extension_cmp =
+                    compare_lexicographic_insensitive(lhs.extension(), rhs.extension());
+                if (extension_cmp != 0) {
+                    return extension_cmp;
+                }
+                return compare_lexicographic_insensitive(lhs.filename(), rhs.filename());
+            }
+            case ExplorerState::SortField::Alphabetical:
+                return compare_lexicographic_insensitive(lhs.filename(), rhs.filename());
+            case ExplorerState::SortField::Natural:
+                return compare_natural_insensitive(lhs.filename(), rhs.filename());
+            case ExplorerState::SortField::Size:
+                return compare_value(lhs.size, rhs.size);
+            default:
+                return 0;
+        }
+    }
+
     void search(const std::string& pattern) {
         state.searchPattern = pattern;
         state.searchHighlightActive = !pattern.empty();
@@ -722,6 +923,10 @@ void Explorer::goToLine(int line) {
 
 void Explorer::setViewportRows(int rows) {
     impl_->setViewportRows(rows);
+}
+
+void Explorer::setSortOrder(ExplorerState::SortField field, ExplorerState::SortDirection direction) {
+    impl_->setSortOrder(field, direction);
 }
 
 core::VoidResult Explorer::create(const std::string& name) {
