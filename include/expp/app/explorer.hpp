@@ -85,8 +85,14 @@ struct ExplorerState {
     std::string inputBuffer;           // For dialogs
     std::filesystem::path trashDeletePath;  // For delete/trash operations
 
+    // Can we remove the single clipboardPath and just use clipboardPaths for both normal and visual mode? 
     std::filesystem::path clipboardPath;
+    std::vector<std::filesystem::path> clipboardPaths;
     ClipboardOperation clipboardOperation{ClipboardOperation::None};
+
+    bool visualModeActive{false};
+    int visualAnchor{-1};
+    std::vector<int> visualSelectedIndices;
 
     SortField sortField{SortField::Natural};
     SortDirection sortDirection{SortDirection::Ascending};
@@ -254,6 +260,22 @@ public:
      * @return A result indicating whether the operation succeeded or failed.
      */
     [[nodiscard]] core::VoidResult copySelectedNameWithoutExtensionToSystemClipboard();
+
+    /**
+     * @brief Enters visual mode and starts range selection from current cursor row.
+     */
+    void enterVisualMode();
+
+    /**
+     * @brief Exits visual mode and clears active multi-selection.
+     */
+    void exitVisualMode();
+
+    /**
+     * @brief Returns how many entries are currently selected in visual mode.
+     * @return Number of selected entries (0 if visual mode is inactive).
+     */
+    [[nodiscard]] int visualSelectionCount() const noexcept;
 
     /**
      * @brief Changes sort strategy for current and parent lists.

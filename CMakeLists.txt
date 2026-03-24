@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 project(Expp
-    VERSION 0.8.0
+    VERSION 0.11.0
     DESCRIPTION "Cross-platform TUI file manager built with C++23"
     HOMEPAGE_URL "https://github.com/yourusername/Expp"
     LANGUAGES CXX
@@ -152,17 +152,11 @@ endif()
 # ==============================================================================
 add_library(expp_core STATIC
     src/core/filesystem.cpp
-    # src/core/config.cpp  # TODO: Implement configuration manager
-)
-
-# toml++ - Configuration parsing (header-only)
-FetchContent_Declare(tomlplusplus
-    GIT_REPOSITORY https://github.com/marzer/tomlplusplus
-    GIT_TAG v3.4.0
+    src/core/config.cpp
 )
 
 
-target_include_directories(expp_core 
+target_include_directories(expp_core
     PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>

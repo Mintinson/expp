@@ -12,3 +12,5 @@ build/
 buildLinux/
 
 compile_commands.json
+
+samples/

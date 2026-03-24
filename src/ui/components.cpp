@@ -23,16 +23,19 @@ struct FileListComponent::Impl {
     [[nodiscard]] ftxui::Element render(std::span<const core::filesystem::FileEntry> entries,
                                         int selected,
                                         const std::vector<int>& search_matches,
-                                        int current_match_index) const {
+                                        int current_match_index,
+                                        const std::vector<int>& selected_indices) const {
         using namespace ftxui;
 
         Elements elements;
 
         std::unordered_set<int> search_match_set(search_matches.begin(), search_matches.end());
+        std::unordered_set<int> selected_index_set(selected_indices.begin(), selected_indices.end());
 
         for (std::size_t i = 0; i < entries.size(); ++i) {
             const auto& entry = entries[i];
             bool is_selected = static_cast<int>(i) == selected;
+            bool is_visual_selected = selected_index_set.contains(static_cast<int>(i));
             bool is_search_match = !search_matches.empty() && search_match_set.contains(static_cast<int>(i));
             bool is_current_match = is_search_match && (current_match_index != -1) &&
                                     (search_matches[static_cast<size_t>(current_match_index)] == static_cast<int>(i));
@@ -74,6 +77,9 @@ struct FileListComponent::Impl {
             // Apply selection inversion
             if (is_selected) {
                 element |= inverted;
+            } else if (is_visual_selected) {
+                // TODO: the color may be configurable, and should also consider theme contrast
+                element |= bgcolor(Color::Blue) | color(Color::White);
             }
             elements.push_back(std::move(element));
         }
@@ -94,8 +100,9 @@ FileListComponent& FileListComponent::operator=(FileListComponent&&) noexcept = 
 ftxui::Element FileListComponent::render(std::span<const core::filesystem::FileEntry> entries,
                                          int selected,
                                          const std::vector<int>& search_matches,
-                                         int current_match_index) const {
-    return impl_->render(entries, selected, search_matches, current_match_index);
+                                         int current_match_index,
+                                         const std::vector<int>& selected_indices) const {
+    return impl_->render(entries, selected, search_matches, current_match_index, selected_indices);
 }
 
 void FileListComponent::setConfig(FileListConfig config) {

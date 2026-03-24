@@ -64,17 +64,17 @@ template <typename Container>
     return rng::find(container, ext) != container.end();
 }
 
-/**
- * @brief Converts a system clock time point to a file clock time point.
- * @param system_time The system clock time point to convert.
- * @return The equivalent time point in the file clock.
- */
-[[nodiscard]] std::chrono::file_clock::time_point to_file_clock(
-    const std::chrono::system_clock::time_point& system_time) {
-    const auto now_sys = std::chrono::system_clock::now();
-    const auto now_file = std::chrono::file_clock::now();
-    return now_file + std::chrono::duration_cast<std::chrono::file_clock::duration>(system_time - now_sys);
-}
+// /**
+//  * @brief Converts a system clock time point to a file clock time point.
+//  * @param system_time The system clock time point to convert.
+//  * @return The equivalent time point in the file clock.
+//  */
+// [[nodiscard]] std::chrono::file_clock::time_point to_file_clock(
+//     const std::chrono::system_clock::time_point& system_time) {
+//     const auto now_sys = std::chrono::system_clock::now();
+//     const auto now_file = std::chrono::file_clock::now();
+//     return now_file + std::chrono::duration_cast<std::chrono::file_clock::duration>(system_time - now_sys);
+// }
 
 //[[nodiscard]] std::chrono::file_clock::time_point query_birth_time(
 //    const fs::path& path, std::chrono::file_clock::time_point fallback) {

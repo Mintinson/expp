@@ -16,6 +16,7 @@
 
 #include "expp/app/explorer_view.hpp"
 
+#include "expp/core/config.hpp"
 #include "expp/ui/components.hpp"
 #include "expp/ui/key_handler.hpp"
 #include "expp/ui/theme.hpp"
@@ -57,10 +58,24 @@ public:
         : explorer_{std::move(explorer)}
         , screen_{ftxui::ScreenInteractive::Fullscreen()}
         , theme_{&ui::global_theme()}
-        , keyHandler_{kKeyTimeoutMs} {
+        , keyHandler_{core::global_config().config().behavior.keyTimeoutMs} {
         setupComponents();
         setupActions();
+
+        // Load default key bindings first, then override with user config if available
+        // if parse error occurs, it will fallback to defaults
         setupKeyBindings();
+        auto config_path = core::ConfigManager::userConfigPath();
+        if (std::filesystem::exists(config_path)) {
+            auto result = keyHandler_.keymap().loadFromFile(config_path);
+            if (!result) { 
+                setupKeyBindings();  // Fallback on parse error
+            }
+        } 
+        // else {
+        //     setupKeyBindings(); 
+        // }
+
         setupInputComponents();
     }
 
@@ -108,14 +123,16 @@ private:
      * @brief Setup reusable UI components
      */
     void setupComponents() {
-        ui::FileListConfig file_list_config{};
+        const auto& cfg = core::global_config().config();
 
+        ui::FileListConfig file_list_config{};
         file_list_config.theme = theme_;
 
         fileList_ = std::make_unique<ui::FileListComponent>(file_list_config);
 
         ui::PreviewConfig preview_config{};
         preview_config.theme = theme_;
+        preview_config.maxLines = cfg.preview.maxLines;
         preview_ = std::make_unique<ui::PreviewComponent>(preview_config);
 
         statusBar_ = std::make_unique<ui::StatusBarComponent>(theme_);
@@ -125,6 +142,10 @@ private:
 
         ui::PanelConfig panel_config{};
         panel_config.theme = theme_;
+        panel_config.showParent = cfg.layout.showParentPanel;
+        panel_config.showPreview = cfg.layout.showPreviewPanel;
+        panel_config.parentWidth = cfg.layout.parentPanelWidth;
+        panel_config.previewWidth = cfg.layout.previewPanelWidth;
         panel_ = std::make_unique<ui::PanelComponent>(panel_config);
     }
 
@@ -143,11 +164,21 @@ private:
             "Navigation", true);
         actions.registerAction(
             "go_parent",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->goParent()); },
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                consumeResult(explorer_->goParent());
+                if (keyHandler_.mode() == ui::Mode::Visual) {
+                    keyHandler_.setMode(ui::Mode::Normal);
+                }
+            },
             "Move cursor up", "Navigation", false);
         actions.registerAction(
             "enter_selected",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->enterSelected(true)); },
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                consumeResult(explorer_->enterSelected(true));
+                if (keyHandler_.mode() == ui::Mode::Visual) {
+                    keyHandler_.setMode(ui::Mode::Normal);
+                }
+            },
             "Enter directory or open file", "Navigation", false);
         actions.registerAction(
             "go_top", [this]([[maybe_unused]] const ui::ActionContext& ctx) { explorer_->goToTop(); },
@@ -171,6 +202,24 @@ private:
         actions.registerAction(
             "page_up", [this](const ui::ActionContext& ctx) { explorer_->moveUp(kPageStep * ctx.count); },
             "Scroll up half page", "Navigation", true);
+
+        actions.registerAction(
+            "enter_visual_mode",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                explorer_->enterVisualMode();
+                if (explorer_->state().visualModeActive) {
+                    keyHandler_.setMode(ui::Mode::Visual);
+                }
+            },
+            "Enter visual mode", "Navigation", false);
+
+        actions.registerAction(
+            "exit_visual_mode",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                explorer_->exitVisualMode();
+                keyHandler_.setMode(ui::Mode::Normal);
+            },
+            "Exit visual mode", "Navigation", false);
 
         // File operations
         actions.registerAction(
@@ -197,11 +246,23 @@ private:
             },
             "Rename current item", "File Operations", false);
         actions.registerAction(
-            "yank", [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->yankSelected()); },
+            "yank",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                consumeResult(explorer_->yankSelected());
+                if (keyHandler_.mode() == ui::Mode::Visual) {
+                    keyHandler_.setMode(ui::Mode::Normal);
+                }
+            },
             "Yank current item", "File Operations", false);
 
         actions.registerAction(
-            "cut", [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->cutSelected()); },
+            "cut",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                consumeResult(explorer_->cutSelected());
+                if (keyHandler_.mode() == ui::Mode::Visual) {
+                    keyHandler_.setMode(ui::Mode::Normal);
+                }
+            },
             "Cut current item", "File Operations", false);
 
         actions.registerAction(
@@ -348,6 +409,7 @@ private:
         consumeResult(keymap.bind("l", "enter_selected", ui::Mode::Normal, "Enter/open"));
         consumeResult(keymap.bind("gg", "go_top", ui::Mode::Normal, "Go to top"));
         consumeResult(keymap.bind("G", "go_bottom", ui::Mode::Normal, "Go to bottom"));
+        consumeResult(keymap.bind("v", "enter_visual_mode", ui::Mode::Normal, "Enter visual mode"));
 
         // Page navigation
         consumeResult(keymap.bind("C-d", "page_down", ui::Mode::Normal, "Page down"));
@@ -393,6 +455,20 @@ private:
         consumeResult(keymap.bind(",N", "sort_natural_desc", ui::Mode::Normal, "Sort naturally (desc)"));
         consumeResult(keymap.bind(",s", "sort_size", ui::Mode::Normal, "Sort by size"));
         consumeResult(keymap.bind(",S", "sort_size_desc", ui::Mode::Normal, "Sort by size (desc)"));
+
+        // Visual mode
+        consumeResult(keymap.bind("j", "move_down", ui::Mode::Visual, "Move down (visual)"));
+        consumeResult(keymap.bind("k", "move_up", ui::Mode::Visual, "Move up (visual)"));
+        consumeResult(keymap.bind("gg", "go_top", ui::Mode::Visual, "Go to top (visual)"));
+        consumeResult(keymap.bind("G", "go_bottom", ui::Mode::Visual, "Go to bottom (visual)"));
+        consumeResult(keymap.bind("C-d", "page_down", ui::Mode::Visual, "Page down (visual)"));
+        consumeResult(keymap.bind("C-u", "page_up", ui::Mode::Visual, "Page up (visual)"));
+        consumeResult(keymap.bind("y", "yank", ui::Mode::Visual, "Yank selection"));
+        consumeResult(keymap.bind("x", "cut", ui::Mode::Visual, "Cut selection"));
+        consumeResult(keymap.bind("d", "trash", ui::Mode::Visual, "Trash selection"));
+        consumeResult(keymap.bind("D", "delete", ui::Mode::Visual, "Delete selection"));
+        consumeResult(keymap.bind("v", "exit_visual_mode", ui::Mode::Visual, "Exit visual mode"));
+        consumeResult(keymap.bind("<Esc>", "exit_visual_mode", ui::Mode::Visual, "Exit visual mode"));
 
         // Quit
         consumeResult(keymap.bind("q", "quit", ui::Mode::Normal, "Quit"));
@@ -507,10 +583,19 @@ private:
         // }
 
         const int visible_selected = state.currentSelected - offset;
+        std::vector<int> visible_visual_selected_indices;
+        if (state.visualModeActive) {
+            visible_visual_selected_indices.reserve(state.visualSelectedIndices.size());
+            for (int absolute_index : state.visualSelectedIndices) {
+                if (absolute_index >= offset && absolute_index < visible_end) {
+                    visible_visual_selected_indices.push_back(absolute_index - offset);
+                }
+            }
+        }
 
         // render current directory list with search highlighting
-        auto current_content =
-            fileList_->render(visible_entries, visible_selected, visible_search_matches, visible_current_match);
+        auto current_content = fileList_->render(visible_entries, visible_selected, visible_search_matches,
+                                                 visible_current_match, visible_visual_selected_indices);
 
         // render preview using previewComponent
         Element preview_content;
@@ -566,7 +651,15 @@ private:
         status_info.keyBuffer = keyHandler_.buffer();
         status_info.searchStatus = std::move(search_status);
         // TODO: Dynamic help text based on mode and available actions
-        status_info.helpText = "j/k move, h/l nav, ,m|,b|,e|,a|,n|,s sort, Y/X cancel, q quit";
+        if (keyHandler_.mode() == ui::Mode::Visual) {
+            status_info.helpText = "VISUAL: j/k range, y/x copy-cut, d/D trash-delete, v/Esc exit";
+        } else {
+            status_info.helpText = "j/k move, h/l nav, v visual, ,m|,b|,e|,a|,n|,s sort, Y/X cancel, q quit";
+        }
+
+        if (state.visualModeActive) {
+            status_info.searchStatus += std::format(" [visual:{}]", explorer_->visualSelectionCount());
+        }
 
         auto status_bar_elem = statusBar_->render(status_info);
 
@@ -591,6 +684,9 @@ private:
         actions.registerAction(std::move(name),
                                [this, field, direction]([[maybe_unused]] const ui::ActionContext& ctx) {
                                    explorer_->setSortOrder(field, direction);
+                                   if (keyHandler_.mode() == ui::Mode::Visual) {
+                                       keyHandler_.setMode(ui::Mode::Normal);
+                                   }
                                },
                                std::move(description), "View", false);
     }
@@ -740,6 +836,9 @@ private:
         if (state.showDeleteDialog) {
             if (event == Event::Character('y') || event == Event::Character('Y')) {
                 consumeResult(explorer_->deleteSelected());
+                if (keyHandler_.mode() == ui::Mode::Visual) {
+                    keyHandler_.setMode(ui::Mode::Normal);
+                }
                 explorer_->hideAllDialogs();
                 return true;
             }
@@ -754,6 +853,9 @@ private:
         if (state.showTrashDialog) {
             if (event == Event::Character('y') || event == Event::Character('Y')) {
                 consumeResult(explorer_->trashSelected());
+                if (keyHandler_.mode() == ui::Mode::Visual) {
+                    keyHandler_.setMode(ui::Mode::Normal);
+                }
                 explorer_->hideAllDialogs();
                 return true;
             }
@@ -766,6 +868,11 @@ private:
 
         // Handle Escape separately (quit)
         if (event == Event::Escape) {
+            if (keyHandler_.mode() == ui::Mode::Visual) {
+                explorer_->exitVisualMode();
+                keyHandler_.setMode(ui::Mode::Normal);
+                return true;
+            }
             screen_.Exit();
             return true;
         }
@@ -781,10 +888,16 @@ private:
         }
         if (event == Event::ArrowLeft) {
             consumeResult(explorer_->goParent());
+            if (keyHandler_.mode() == ui::Mode::Visual) {
+                keyHandler_.setMode(ui::Mode::Normal);
+            }
             return true;
         }
         if (event == Event::ArrowRight || event == Event::Return) {
             consumeResult(explorer_->enterSelected(false));
+            if (keyHandler_.mode() == ui::Mode::Visual) {
+                keyHandler_.setMode(ui::Mode::Normal);
+            }
             return true;
         }
 

@@ -1,5 +1,5 @@
-#ifndef EXPP_UI_CONFIG_HPP
-#define EXPP_UI_CONFIG_HPP
+#ifndef EXPP_CORE_CONFIG_HPP
+#define EXPP_CORE_CONFIG_HPP
 
 #include "expp/core/error.hpp"
 
@@ -11,41 +11,56 @@
 
 namespace expp::core {
 using namespace std::literals;
-constexpr std::string_view kDefaultDirectIcon = "\uf07b"sv;
+
+constexpr std::string_view kDefaultFolderIcon = "\uf07b"sv;
 constexpr std::string_view kDefaultFileIcon = "\uf15b"sv;
-const std::unordered_map<std::string, std::string> kIConMap = {
-    {"default", "\uf15b"},
-    {    "exe", "\ue795"},
-    {   "link", "\uf481"},
-    {   ".lib", "\ueb9c"},
-    {  ".bash", "\ue795"},
-    {     ".c", "\ue61e"},
-    { ".cmake", "\ue794"},
-    {   ".cpp", "\ue61d"},
-    {    ".cs", "\ue737"},
-    {    ".go", "\ue627"},
-    {     ".h", "\ue615"},
-    {   ".hpp", "\uf0fd"},
-    {  ".html", "\ue736"},
-    {    ".js", "\ue74e"},
-    {  ".json", "\ue60b"},
-    {   ".lua", "\ue620"},
-    {    ".md", "\uf48a"},
-    {    ".py", "\ue73c"},
-    {    ".rs", "\ue7a8"},
-    {    ".zig", "\ue8ef"},
-    {    ".lua", "\ue620"},
-    {    ".ts", "\ue628"},
-    {  ".toml", "\ue6b2"},
-    {  ".log", "\uf4ed"},
-    {  ".yaml", "\ue8eb"},
-    {  ".yml", "\ue6a8"},
-    {  ".xml", "󰗀"},
-    {  ".zip", "\ue6aa"},
-    {  ".rar", "\ue6aa"},
-    {  ".7z", "\ue6aa"},
-    {  ".tar", "\ue6aa"},
-    { "folder", "\uf07b"},
+
+/**
+ * @brief Returns the built-in default icon map
+ */
+inline std::unordered_map<std::string, std::string> defaultIconMap() {
+    return {
+        {"default", "\uf15b"},
+        {    "exe", "\ue795"},
+        {   "link", "\uf481"},
+        {   ".lib", "\ueb9c"},
+        {  ".bash", "\ue795"},
+        {     ".c", "\ue61e"},
+        { ".cmake", "\ue794"},
+        {   ".cpp", "\ue61d"},
+        {    ".cs", "\ue737"},
+        {    ".go", "\ue627"},
+        {     ".h", "\ue615"},
+        {   ".hpp", "\uf0fd"},
+        {  ".html", "\ue736"},
+        {    ".js", "\ue74e"},
+        {  ".json", "\ue60b"},
+        {   ".lua", "\ue620"},
+        {    ".md", "\uf48a"},
+        {    ".py", "\ue73c"},
+        {    ".rs", "\ue7a8"},
+        {   ".zig", "\ue8ef"},
+        {    ".ts", "\ue628"},
+        {  ".toml", "\ue6b2"},
+        {   ".log", "\uf4ed"},
+        {  ".yaml", "\ue8eb"},
+        {   ".yml", "\ue6a8"},
+        {   ".xml", "󰗀"},
+        {   ".zip", "\ue6aa"},
+        {   ".rar", "\ue6aa"},
+        {    ".7z", "\ue6aa"},
+        {   ".tar", "\ue6aa"},
+        { "folder", "\uf07b"},
+    };
+}
+
+/**
+ * @brief Icon configuration
+ */
+struct IconConfig {
+    std::string defaultFileIcon{kDefaultFileIcon};
+    std::string defaultFolderIcon{kDefaultFolderIcon};
+    std::unordered_map<std::string, std::string> icons{defaultIconMap()};
 };
 
 /**
@@ -73,41 +88,6 @@ struct ColorTheme {
     uint32_t border{0x666666};
     uint32_t statusBar{0x333333};
     uint32_t searchHighlight{0xFFFF00};
-};
-
-/**
- * @brief Key binding configuration
- *
- * Keys are stored as string sequences (e.g., "gg", "j", "ctrl+d")
- */
-struct KeyBindings {
-    // Navigation
-    std::string moveDown{"j"};
-    std::string moveUp{"k"};
-    std::string goParent{"h"};
-    std::string enter{"l"};
-    std::string goTop{"gg"};
-    std::string goBottom{"G"};
-    std::string pageDown{"ctrl+d"};
-    std::string pageUp{"ctrl+u"};
-
-    // Actions
-    std::string quit{"q"};
-    std::string open{"o"};
-    std::string create{"a"};
-    std::string rename{"r"};
-    std::string trash{"d"};
-    std::string deletePermanent{"D"};
-
-    // Search
-    std::string search{"/"};
-    std::string nextMatch{"n"};
-    std::string prevMatch{"N"};
-    std::string clearSearch{"\\"};
-
-    // Toggle
-    std::string toggleHidden{"."};
-    std::string refresh{"R"};
 };
 
 /**
@@ -148,13 +128,10 @@ struct BehaviorConfig {
  */
 struct Config {
     ColorTheme theme;
-    KeyBindings keys;
+    IconConfig icons;
     PreviewConfig preview;
     LayoutConfig layout;
     BehaviorConfig behavior;
-
-    // EXTENSION POINT: Plugin configurations
-    // Future: std::unordered_map<std::string, PluginConfig> plugins;
 };
 
 /**
@@ -162,8 +139,8 @@ struct Config {
  *
  * Configuration layers (highest priority first):
  * 1. Runtime overrides
- * 2. User config (~/.config/playfxtui/config.toml)
- * 3. System config (/etc/playfxtui/config.toml)
+ * 2. User config (~/.config/expp/config.toml)
+ * 3. System config (/etc/expp/config.toml)
  * 4. Built-in defaults
  *
  * Thread-safety: Thread-safe for read operations after initialization.
@@ -179,16 +156,20 @@ public:
     // Non-copyable, non-movable (singleton-like usage)
     ConfigManager(const ConfigManager&) = delete;
     ConfigManager& operator=(const ConfigManager&) = delete;
+    ConfigManager& operator=(ConfigManager&&) = delete;
+    ConfigManager(ConfigManager&&) = delete;
 
     /**
      * @brief Loads configuration from default locations
      * @return Success or Error
      *
      * Searches in order:
-     * 1. $XDG_CONFIG_HOME/playfxtui/config.toml
-     * 2. ~/.config/playfxtui/config.toml
-     * 3. /etc/playfxtui/config.toml (Linux/macOS)
-     * 4. %APPDATA%\playfxtui\config.toml (Windows)
+     * 1. $XDG_CONFIG_HOME/expp/config.toml
+     * 2. ~/.config/expp/config.toml
+     * 3. /etc/expp/config.toml (Linux/macOS)
+     * 4. %APPDATA%\expp\config.toml (Windows)
+     *
+     * If no config file is found, uses built-in defaults (not an error).
      */
     [[nodiscard]] VoidResult load();
 
@@ -215,7 +196,7 @@ public:
      * @brief Updates configuration (thread-safe)
      * @param newConfig New configuration to apply
      */
-    void setConfig(Config newConfig);
+    void setConfig(Config new_config);
 
     /**
      * @brief Resets to built-in defaults
@@ -265,4 +246,4 @@ private:
 [[nodiscard]] ConfigManager& global_config();
 
 }  // namespace expp::core
-#endif  // EXPP_UI_CONFIG_HPP
+#endif  // EXPP_CORE_CONFIG_HPP

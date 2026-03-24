@@ -252,6 +252,53 @@ struct Explorer::Impl {
     bool showHidden = true;
     fs::path baseDirectory;
 
+    void clearVisualSelection() {
+        state.visualModeActive = false;
+        state.visualAnchor = -1;
+        state.visualSelectedIndices.clear();
+    }
+
+    void updateVisualSelectionFromCursor() {
+        if (!state.visualModeActive || state.entries.empty()) {
+            state.visualSelectedIndices.clear();
+            return;
+        }
+
+        state.visualAnchor = std::clamp(state.visualAnchor, 0, static_cast<int>(state.entries.size()) - 1);
+        const int left = std::min(state.visualAnchor, state.currentSelected);
+        const int right = std::max(state.visualAnchor, state.currentSelected);
+
+        state.visualSelectedIndices.clear();
+        const int selected_count = std::max(0, right - left + 1);
+        state.visualSelectedIndices.reserve(static_cast<size_t>(selected_count));
+        for (int i = left; i <= right; ++i) {
+            state.visualSelectedIndices.push_back(i);
+        }
+    }
+
+    // Return the paths of the currently selected entries (can be multiple if visual mode is active)
+    [[nodiscard]] std::vector<fs::path> selectedEntryPaths() const {
+        std::vector<fs::path> selected_paths;
+
+        if (state.entries.empty()) {
+            return selected_paths;
+        }
+
+        if (!state.visualModeActive || state.visualSelectedIndices.empty()) {
+            selected_paths.push_back(state.entries[static_cast<size_t>(state.currentSelected)].path);
+            return selected_paths;
+        }
+
+        selected_paths.reserve(state.visualSelectedIndices.size());
+        for (int index : state.visualSelectedIndices) {
+            if (index >= 0 && index < static_cast<int>(state.entries.size())) {
+                selected_paths.push_back(state.entries[static_cast<size_t>(index)].path);
+            }
+        }
+
+        return selected_paths;
+    }
+
     void updateScrollForSelection() {
         const int entry_count = static_cast<int>(state.entries.size());
         if (entry_count <= 0) {
@@ -314,6 +361,10 @@ struct Explorer::Impl {
         // clamp selection and preserve scrolling invariants
         updateScrollForSelection();
 
+        if (state.visualModeActive) {
+            updateVisualSelectionFromCursor();
+        }
+
         // Update parent selection
         updateParentSelection();
 
@@ -332,6 +383,9 @@ struct Explorer::Impl {
         if (state.sortField == field && state.sortDirection == direction) {
             return;
         }
+
+        // once change sort order, clear visual selection to avoid confusion (e.g. selected entries may no longer be adjacent)
+        clearVisualSelection();
 
         fs::path selected_path;
         if (!state.entries.empty()) {
@@ -394,6 +448,7 @@ struct Explorer::Impl {
         state.currentDir = *canonical_result;
         state.currentSelected = 0;
         state.currentScrollOffset = 0;
+        clearVisualSelection();
 
         refresh();
         return {};
@@ -408,6 +463,7 @@ struct Explorer::Impl {
         state.currentDir = state.currentDir.parent_path();
         state.currentSelected = 0;
         state.currentScrollOffset = 0;
+        clearVisualSelection();
 
         refresh();
 
@@ -483,38 +539,43 @@ struct Explorer::Impl {
     }
 
     core::VoidResult deleteSelected() {
-        if (state.entries.empty()) {
+        auto targets = selectedEntryPaths();
+        if (targets.empty()) {
             return {};
         }
 
-        const auto& entry = state.entries[static_cast<size_t>(state.currentSelected)];
+        for (const auto& target : targets) {
+            core::VoidResult result;
+            if (fs::is_directory(target)) {
+                result = core::filesystem::remove_directory(target);
+            } else {
+                result = core::filesystem::remove_file(target);
+            }
 
-        // Use core::filesystem::remove_directory or core::filesystem::remove_file
-        core::VoidResult result;
-        if (fs::is_directory(entry.path)) {
-            result = core::filesystem::remove_directory(entry.path);
-        } else {
-            result = core::filesystem::remove_file(entry.path);
+            if (!result) {
+                return result;
+            }
         }
 
-        if (!result) {
-            return result;
-        }
+        clearVisualSelection();
         refresh();
         return {};
     }
 
     core::VoidResult trashSelected() {
-        if (state.entries.empty()) {
+        auto targets = selectedEntryPaths();
+        if (targets.empty()) {
             return {};
         }
 
-        const auto& entry = state.entries[static_cast<size_t>(state.currentSelected)];
-
-        auto result = core::filesystem::move_to_trash(entry.path);
-        if (!result) {
-            return result;
+        for (const auto& target : targets) {
+            auto result = core::filesystem::move_to_trash(target);
+            if (!result) {
+                return result;
+            }
         }
+
+        clearVisualSelection();
         refresh();
         return {};
     }
@@ -550,62 +611,67 @@ struct Explorer::Impl {
     }
 
     core::VoidResult pasteYanked(bool overwrite) {
-        if (state.clipboardOperation == ExplorerState::ClipboardOperation::None || state.clipboardPath.empty()) {
+        if (state.clipboardOperation == ExplorerState::ClipboardOperation::None || state.clipboardPaths.empty()) {
             return core::make_error(core::ErrorCategory::InvalidState, "Clipboard is empty");
         }
 
-        if (!fs::exists(state.clipboardPath)) {
-            clearClipboard();
-            return core::make_error(core::ErrorCategory::FileSystem, "Clipboard source does not exist");
-        }
-
-        const fs::path destination = state.currentDir / state.clipboardPath.filename();
-
-        std::error_code ec;
-        if (fs::exists(destination, ec)) {
-            if (!overwrite) {
-                return core::make_error(core::ErrorCategory::FileSystem,
-                                        std::format("Destination already exists: {}", destination.string()));
-            }
-
-            if (fs::is_directory(destination, ec)) {
-                core::VoidResult remove_result = core::filesystem::remove_directory(destination);
-                if (!remove_result) {
-                    return remove_result;
-                }
-            } else {
-                core::VoidResult remove_result = core::filesystem::remove_file(destination);
-                if (!remove_result) {
-                    return remove_result;
-                }
-            }
-        }
-
-        std::error_code equivalent_ec;
-        if (fs::equivalent(state.clipboardPath, destination, equivalent_ec)) {
-            return core::make_error(core::ErrorCategory::InvalidArgument,
-                                    "Source and destination resolve to the same path");
-        }
-
-        if (state.clipboardOperation == ExplorerState::ClipboardOperation::Copy &&
-            isSourceParentOfDestination(state.clipboardPath, destination)) {
-            return core::make_error(core::ErrorCategory::InvalidArgument,
-                                    "Cannot copy a directory into itself or its subdirectory");
-        }
-
-        core::VoidResult op_result;
-        if (state.clipboardOperation == ExplorerState::ClipboardOperation::Copy) {
-            op_result = copyClipboardSourceTo(destination, overwrite);
-        } else {
-            op_result = moveClipboardSourceTo(destination, overwrite);
-            if (op_result) {
+        for (const auto& source : state.clipboardPaths) {
+            if (!fs::exists(source)) {
                 clearClipboard();
+                return core::make_error(core::ErrorCategory::FileSystem, "Clipboard source does not exist");
+            }
+
+            const fs::path destination = state.currentDir / source.filename();
+
+            std::error_code ec;
+            if (fs::exists(destination, ec)) {
+                if (!overwrite) {
+                    return core::make_error(core::ErrorCategory::FileSystem,
+                                            std::format("Destination already exists: {}", destination.string()));
+                }
+
+                if (fs::is_directory(destination, ec)) {
+                    core::VoidResult remove_result = core::filesystem::remove_directory(destination);
+                    if (!remove_result) {
+                        return remove_result;
+                    }
+                } else {
+                    core::VoidResult remove_result = core::filesystem::remove_file(destination);
+                    if (!remove_result) {
+                        return remove_result;
+                    }
+                }
+            }
+
+            std::error_code equivalent_ec;
+            if (fs::equivalent(source, destination, equivalent_ec)) {
+                return core::make_error(core::ErrorCategory::InvalidArgument,
+                                        "Source and destination resolve to the same path");
+            }
+
+            if (state.clipboardOperation == ExplorerState::ClipboardOperation::Copy &&
+                isSourceParentOfDestination(source, destination)) {
+                return core::make_error(core::ErrorCategory::InvalidArgument,
+                                        "Cannot copy a directory into itself or its subdirectory");
+            }
+
+            core::VoidResult op_result;
+            if (state.clipboardOperation == ExplorerState::ClipboardOperation::Copy) {
+                op_result = copyClipboardSourceTo(source, destination, overwrite);
+            } else {
+                op_result = moveClipboardSourceTo(source, destination, overwrite);
+            }
+
+            if (!op_result) {
+                return op_result;
             }
         }
 
-        if (!op_result) {
-            return op_result;
+        if (state.clipboardOperation == ExplorerState::ClipboardOperation::Cut) {
+            clearClipboard();
         }
+
+        clearVisualSelection();
 
         refresh();
         return {};
@@ -652,17 +718,21 @@ struct Explorer::Impl {
     }
 
     core::VoidResult setClipboardFromSelection(ExplorerState::ClipboardOperation operation) {
-        if (state.entries.empty()) {
+        auto selected_paths = selectedEntryPaths();
+        if (selected_paths.empty()) {
             return core::make_error(core::ErrorCategory::FileSystem, "No entry selected");
         }
 
-        state.clipboardPath = state.entries[static_cast<size_t>(state.currentSelected)].path;
+        state.clipboardPaths = std::move(selected_paths);
+        state.clipboardPath = state.clipboardPaths.front();
         state.clipboardOperation = operation;
+        clearVisualSelection();
         return {};
     }
 
     void clearClipboard() {
         state.clipboardPath.clear();
+        state.clipboardPaths.clear();
         state.clipboardOperation = ExplorerState::ClipboardOperation::None;
     }
 
@@ -711,8 +781,10 @@ struct Explorer::Impl {
         return to_utf8_string(normalized);
     }
 
-    [[nodiscard]] core::VoidResult copyClipboardSourceTo(const fs::path& destination, bool overwrite) const {
-        const bool is_directory = fs::is_directory(state.clipboardPath);
+    [[nodiscard]] core::VoidResult copyClipboardSourceTo(const fs::path& source,
+                                                         const fs::path& destination,
+                                                         bool overwrite) const {
+        const bool is_directory = fs::is_directory(source);
 
         std::error_code copy_ec;
         fs::copy_options options = fs::copy_options::copy_symlinks;
@@ -721,7 +793,7 @@ struct Explorer::Impl {
         }
         options |= overwrite ? fs::copy_options::overwrite_existing : fs::copy_options::skip_existing;
 
-        fs::copy(state.clipboardPath, destination, options, copy_ec);
+        fs::copy(source, destination, options, copy_ec);
         if (copy_ec) {
             return core::make_error(core::ErrorCategory::FileSystem,
                                     std::format("Failed to copy to '{}': {}", destination.string(),
@@ -731,22 +803,24 @@ struct Explorer::Impl {
         return {};
     }
 
-    [[nodiscard]] core::VoidResult moveClipboardSourceTo(const fs::path& destination, bool overwrite) const {
-        auto rename_result = core::filesystem::rename(state.clipboardPath, destination);
+    [[nodiscard]] core::VoidResult moveClipboardSourceTo(const fs::path& source,
+                                                         const fs::path& destination,
+                                                         bool overwrite) const {
+        auto rename_result = core::filesystem::rename(source, destination);
         if (rename_result) {
             return {};
         }
 
-        auto copy_result = copyClipboardSourceTo(destination, overwrite);
+        auto copy_result = copyClipboardSourceTo(source, destination, overwrite);
         if (!copy_result) {
             return copy_result;
         }
 
-        if (fs::is_directory(state.clipboardPath)) {
-            return core::filesystem::remove_directory(state.clipboardPath);
+        if (fs::is_directory(source)) {
+            return core::filesystem::remove_directory(source);
         }
 
-        return core::filesystem::remove_file(state.clipboardPath);
+        return core::filesystem::remove_file(source);
     }
 
     void sortEntries(std::vector<core::filesystem::FileEntry>& entries) const {
@@ -892,23 +966,27 @@ void Explorer::moveDown(int count) {
         impl_->state.currentSelected =
             std::min(impl_->state.currentSelected + count, static_cast<int>(impl_->state.entries.size()) - 1);
         impl_->updateScrollForSelection();
+        impl_->updateVisualSelectionFromCursor();
     }
 }
 
 void Explorer::moveUp(int count) {
     impl_->state.currentSelected = std::max(impl_->state.currentSelected - count, 0);
     impl_->updateScrollForSelection();
+    impl_->updateVisualSelectionFromCursor();
 }
 
 void Explorer::goToTop() {
     impl_->state.currentSelected = 0;
     impl_->updateScrollForSelection();
+    impl_->updateVisualSelectionFromCursor();
 }
 
 void Explorer::goToBottom() {
     if (!impl_->state.entries.empty()) {
         impl_->state.currentSelected = static_cast<int>(impl_->state.entries.size()) - 1;
         impl_->updateScrollForSelection();
+        impl_->updateVisualSelectionFromCursor();
     }
 }
 
@@ -918,6 +996,7 @@ void Explorer::goToLine(int line) {
                                                 static_cast<int>(impl_->state.entries.size()) - 1);
         impl_->state.currentSelected = std::max(impl_->state.currentSelected, 0);
         impl_->updateScrollForSelection();
+        impl_->updateVisualSelectionFromCursor();
     }
 }
 
@@ -976,6 +1055,28 @@ core::VoidResult Explorer::copySelectedFileNameToSystemClipboard() {
 
 core::VoidResult Explorer::copySelectedNameWithoutExtensionToSystemClipboard() {
     return impl_->copySelectedNameWithoutExtensionToSystemClipboard();
+}
+
+void Explorer::enterVisualMode() {
+    if (impl_->state.entries.empty()) {
+        return;
+    }
+
+    impl_->state.visualModeActive = true;
+    impl_->state.visualAnchor = impl_->state.currentSelected;
+    impl_->updateVisualSelectionFromCursor();
+}
+
+void Explorer::exitVisualMode() {
+    impl_->clearVisualSelection();
+}
+
+int Explorer::visualSelectionCount() const noexcept {
+    if (!impl_->state.visualModeActive) {
+        return 0;
+    }
+
+    return static_cast<int>(impl_->state.visualSelectedIndices.size());
 }
 
 void Explorer::search(const std::string& pattern) {

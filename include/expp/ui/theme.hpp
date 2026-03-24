@@ -1,5 +1,5 @@
-#ifndef EXPP_UI_THEME_CPP
-#define EXPP_UI_THEME_CPP
+#ifndef EXPP_UI_THEME_HPP
+#define EXPP_UI_THEME_HPP
 
 #include "expp/core/config.hpp"
 #include "expp/core/filesystem.hpp"
@@ -7,6 +7,8 @@
 #include <ftxui/screen/color.hpp>
 
 #include <cstdint>
+#include <string>
+#include <unordered_map>
 
 namespace expp::ui {
 /**
@@ -16,7 +18,7 @@ namespace expp::ui {
  */
 [[nodiscard]] inline ftxui::Color hex_to_color(std::uint32_t hex) noexcept {
     return {
-        
+
         static_cast<std::uint8_t>((hex >> 16) & 0xFF),  // Red // NOLINT
         static_cast<std::uint8_t>((hex >> 8) & 0xFF),   // Green // NOLINT
         static_cast<std::uint8_t>(hex & 0xFF)           // Blue // NOLINT
@@ -30,7 +32,8 @@ namespace expp::ui {
  */
 class Theme {
 public:
-    explicit Theme(const core::ColorTheme& config_theme = {});
+    explicit Theme(const core::ColorTheme& config_theme = {},
+                   const core::IconConfig& icon_config = {});
 
     /**
      * @brief Gets color for a file type
@@ -56,10 +59,16 @@ public:
     [[nodiscard]] ftxui::Color getSearchHighlightColor() const noexcept { return searchHighlightColor_; }
 
     /**
-     * @brief Reloads theme from configuration
+     * @brief Reloads theme colors from configuration
      * @param config New color theme configuration
      */
     void reload(const core::ColorTheme& config);
+
+    /**
+     * @brief Reloads icons from configuration
+     * @param iconConfig New icon configuration
+     */
+    void reloadIcons(const core::IconConfig& iconConfig);
 
 private:
     // File type colors
@@ -81,6 +90,11 @@ private:
     ftxui::Color borderColor_;
     ftxui::Color statusBarColor_;
     ftxui::Color searchHighlightColor_;
+
+    // Icons
+    std::unordered_map<std::string, std::string> iconMap_;
+    std::string defaultFileIcon_;
+    std::string defaultFolderIcon_;
 };
 
 /**
@@ -91,4 +105,4 @@ private:
 
 }  // namespace expp::ui
 
-#endif  // EXPP_UI_THEME_CPP
+#endif  // EXPP_UI_THEME_HPP

@@ -67,7 +67,8 @@ public:
     [[nodiscard]] ftxui::Element render(std::span<const core::filesystem::FileEntry> entries,
                                         int selected,
                                         const std::vector<int>& search_matches = {},
-                                        int current_match_index = -1) const;
+                                        int current_match_index = -1,
+                                        const std::vector<int>& selected_indices = {}) const;
 
     /**
      * @brief Updates configuration

@@ -2,18 +2,19 @@
 
 namespace expp::ui {
 
-expp::ui::Theme::Theme(const core::ColorTheme& config_theme) {
+Theme::Theme(const core::ColorTheme& config_theme, const core::IconConfig& icon_config) {
     reload(config_theme);
+    reloadIcons(icon_config);
 }
 
-ftxui::Color expp::ui::Theme::getFileEntryColor(core::filesystem::FileEntry entry) const noexcept {
+ftxui::Color Theme::getFileEntryColor(core::filesystem::FileEntry entry) const noexcept {
     if (entry.isHidden) {
         return hiddenColor_;
     }
     return getFileTypeColor(entry.type);
 }
 
-ftxui::Color expp::ui::Theme::getFileTypeColor(core::filesystem::FileType type) const noexcept {
+ftxui::Color Theme::getFileTypeColor(core::filesystem::FileType type) const noexcept {
     switch (type) {
         case core::filesystem::FileType::Directory:
             return directoryColor_;
@@ -42,26 +43,33 @@ ftxui::Color expp::ui::Theme::getFileTypeColor(core::filesystem::FileType type) 
 
 std::string_view Theme::getFileTypeIcon(const core::filesystem::FileEntry& entry) const noexcept {
     if (entry.type == core::filesystem::FileType::Directory) {
-        auto it = core::kIConMap.find("folder");
-        return it != core::kIConMap.end() ? it->second : core::kDefaultDirectIcon;
+        if (auto it = iconMap_.find("folder"); it != iconMap_.end()) {
+            return it->second;
+        }
+        return defaultFolderIcon_;
     }
     if (entry.type == core::filesystem::FileType::Executable) {
-        auto it = core::kIConMap.find("exe");
-        return it != core::kIConMap.end() ? it->second : core::kDefaultFileIcon;
+        if (auto it = iconMap_.find("exe"); it != iconMap_.end()) {
+            return it->second;
+        }
+        return defaultFileIcon_;
     }
     if (entry.type == core::filesystem::FileType::Symlink) {
-        auto it = core::kIConMap.find("link");
-        return it != core::kIConMap.end() ? it->second : core::kDefaultFileIcon;
+        if (auto it = iconMap_.find("link"); it != iconMap_.end()) {
+            return it->second;
+        }
+        return defaultFileIcon_;
     }
-    if (auto it = core::kIConMap.find(entry.extension()); it != core::kIConMap.end()) {
+    if (auto it = iconMap_.find(entry.extension()); it != iconMap_.end()) {
         return it->second;
     }
-    auto it2 = core::kIConMap.find("default");
-    return it2 != core::kIConMap.end() ? it2->second : core::kDefaultFileIcon;
+    if (auto it = iconMap_.find("default"); it != iconMap_.end()) {
+        return it->second;
+    }
+    return defaultFileIcon_;
 }
 
-void expp::ui::Theme::reload(const core::ColorTheme& config) {
-    // TODO: refactor it once c++26 reflection is available
+void Theme::reload(const core::ColorTheme& config) {
     directoryColor_ = hex_to_color(config.directory);
     regularFileColor_ = hex_to_color(config.regularFile);
     executableColor_ = hex_to_color(config.executable);
@@ -80,6 +88,13 @@ void expp::ui::Theme::reload(const core::ColorTheme& config) {
     statusBarColor_ = hex_to_color(config.statusBar);
     searchHighlightColor_ = hex_to_color(config.searchHighlight);
 }
+
+void Theme::reloadIcons(const core::IconConfig& iconConfig) {
+    iconMap_ = iconConfig.icons;
+    defaultFileIcon_ = iconConfig.defaultFileIcon;
+    defaultFolderIcon_ = iconConfig.defaultFolderIcon;
+}
+
 // Global theme instance
 Theme& global_theme() {
     static Theme instance;

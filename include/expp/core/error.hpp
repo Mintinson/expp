@@ -64,6 +64,8 @@ enum class ErrorCategory : std::uint8_t {
             return "UI";
         case ErrorCategory::System:
             return "System";
+        case ErrorCategory::NoSupport:
+            return "NoSupport";
         case ErrorCategory::Unknown:
             return "Unknown";
     }

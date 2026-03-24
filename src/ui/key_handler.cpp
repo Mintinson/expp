@@ -14,19 +14,21 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <expected>
+#include <filesystem>
 #include <format>
+#include <functional>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <ranges>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include <expected>
-#include <filesystem>
-#include <functional>
-#include <optional>
+
+#include <toml++/toml.hpp>
 
 namespace expp::ui {
 namespace rng = std::ranges;
@@ -417,8 +419,44 @@ bool KeyMap::unbind(std::string_view keys, Mode mode) {
     return false;
 }
 
-core::VoidResult KeyMap::loadFromFile([[maybe_unused]] const std::filesystem::path& path) {
-    return core::make_error(core::ErrorCategory::InvalidState, "TOML config loading not yet implemented");
+core::VoidResult KeyMap::loadFromFile(const std::filesystem::path& path) {
+    toml::table tbl;
+    try {
+        tbl = toml::parse_file(path.string());
+    } catch (const toml::parse_error& err) {
+        return core::make_error(core::ErrorCategory::Config, std::format("Failed to parse keybinding config '{}': {}",
+                                                                         path.string(), err.description()));
+    }
+
+    auto *keys = tbl["keys"].as_table();
+    if (!keys) {
+        return {};  // No [keys] section — not an error, just use defaults
+    }
+
+    for (auto&& [modeName, modeTable] : *keys) {
+        auto mode = parse_mode(modeName);
+        if (!mode) {
+            continue;  // Skip unknown mode names
+        }
+
+        auto* bindings = modeTable.as_table();
+        if (!bindings) {
+            continue;
+        }
+
+        for (auto&& [actionName, keyValue] : *bindings) {
+            auto key_str = keyValue.value<std::string>();
+            if (!key_str) {
+                continue;  // Skip non-string values
+            }
+
+            auto result = bind(*key_str, std::string{actionName}, *mode);
+            // Silently skip invalid bindings — they don't prevent other bindings from loading
+            (void)result;
+        }
+    }
+
+    return {};
 }
 
 void KeyMap::loadDefaults() {
@@ -521,8 +559,8 @@ struct KeyHandler::Impl {
 
     [[nodiscard]] std::string bufferToString() const {
         return std::accumulate(buffer.begin(), buffer.end(),
-                           hasNumericPrefix ? std::to_string(numericPrefix) : std::string{},
-                           [](const std::string& acc, const Key& key) { return acc + key_to_string(key); });
+                               hasNumericPrefix ? std::to_string(numericPrefix) : std::string{},
+                               [](const std::string& acc, const Key& key) { return acc + key_to_string(key); });
     }
 
     bool tryLegacyBindings() {
@@ -532,10 +570,10 @@ struct KeyHandler::Impl {
         while (start < seq.size() && std::isdigit(seq[start]) != 0) {
             ++start;
         }
-        std::string keySeq = seq.substr(start);
+        std::string key_seq = seq.substr(start);
 
         for (const auto& binding : legacyBindings) {
-            if (binding.sequence == keySeq) {
+            if (binding.sequence == key_seq) {
                 int count = hasNumericPrefix ? numericPrefix : 1;
                 binding.action(count);
                 reset();
