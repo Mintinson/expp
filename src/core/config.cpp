@@ -262,8 +262,11 @@ VoidResult ConfigManager::load() {
     std::vector<std::filesystem::path> search_paths;
 
 #ifdef _WIN32
-    if (const char* appdata = std::getenv("APPDATA")) {
-        searchPaths.emplace_back(std::filesystem::path(appdata) / "expp" / "config.toml");
+    char* appdata;
+    size_t size;
+    if (_dupenv_s(&appdata, &size, "APPDATA") == 0 && appdata != nullptr) {
+        search_paths.emplace_back(std::filesystem::path(appdata) / "expp" / "config.toml");
+        free(appdata);
     }
 #else
     if (const char* xdg_config = std::getenv("XDG_CONFIG_HOME")) {
@@ -414,10 +417,19 @@ void ConfigManager::enableHotReload(bool enable) {
 
 std::filesystem::path ConfigManager::userConfigPath() {
 #ifdef _WIN32
-    if (const char* appdata = std::getenv("APPDATA")) {
-        return std::filesystem::path(appdata) / "expp" / "config.toml";
+    char* appdata;
+    size_t size;
+    if (_dupenv_s(&appdata, &size, "APPDATA") == 0 && appdata != nullptr) {
+        std::filesystem::path path = std::filesystem::path(appdata) / "expp" / "config.toml";
+        free(appdata);
+        return path;
     }
     return "config.toml";
+    // if (const char* appdata = std::getenv("APPDATA")) {
+    
+    //     return std::filesystem::path(appdata) / "expp" / "config.toml";
+    // }
+    // return "config.toml";
 #else
     if (const char* xdg_config = std::getenv("XDG_CONFIG_HOME")) {
         return std::filesystem::path(xdg_config) / "expp" / "config.toml";

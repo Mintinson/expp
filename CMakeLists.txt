@@ -43,6 +43,7 @@ target_compile_options(expp_warnings INTERFACE
         /permissive-
         /Zc:__cplusplus
         /Zc:preprocessor
+        /utf-8
     >
     $<$<CXX_COMPILER_ID:GNU>:
         -Wall
