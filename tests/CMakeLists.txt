@@ -9,8 +9,11 @@ include(Catch)
 add_executable(expp_tests
     test_main.cpp
     core/test_filesystem.cpp
+    core/test_config.cpp
     core/test_error.cpp
+    ui/test_key_handler.cpp
     app/test_explorer_scrolling.cpp
+    app/test_notification_center.cpp
 )
 
 target_link_libraries(expp_tests

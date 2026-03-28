@@ -270,6 +270,26 @@ struct KeyBinding {
     std::string description;    ///< Optional override for help display
 };
 
+struct KeyLoadEntry {
+    std::string keys;
+    std::string actionName;
+    Mode mode{Mode::Normal};
+    std::string description;
+};
+
+struct KeyLoadWarning {
+    std::string message;
+};
+
+/**
+ * @brief A structure that encapsulates the results of a key binding load operation. 
+ * It contains a collection of successfully loaded key bindings alongside a list of any warnings generated during the process.
+ */
+struct KeyLoadReport {
+    std::vector<KeyLoadEntry> loadedBindings;
+    std::vector<KeyLoadWarning> warnings;
+};
+
 class KeyMap {
 public:
     KeyMap();
@@ -317,7 +337,7 @@ public:
      * @param path Path to config file
      * @return Error if file cannot be read or parsed
      */
-    [[nodiscard]] core::VoidResult loadFromFile(const std::filesystem::path& path);
+    [[nodiscard]] core::Result<KeyLoadReport> loadFromFile(const std::filesystem::path& path);
 
     /**
      * @brief Loads default vim-like keybindings
@@ -343,6 +363,11 @@ public:
      * @brief Checks if sequence is a valid prefix of any binding
      */
     [[nodiscard]] bool isPrefix(const std::vector<Key>& sequence, Mode mode) const;
+
+    /**
+     * @brief Removes all key bindings
+     */
+    void clear();
 
 private:
     struct Impl;

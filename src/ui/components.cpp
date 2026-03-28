@@ -1,11 +1,13 @@
 #include "expp/ui/components.hpp"
 
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/screen/terminal.hpp>
 
 #include <algorithm>
 #include <format>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -147,16 +149,16 @@ public:
                bgcolor(theme->getStatusBarColor());
 
         // TODO: which one is better.
-        Elements combined;
-        for (auto& elem : left_elements) {
-            combined.push_back(std::move(elem));
-        }
-        combined.push_back(filler());
-        for (auto& elem : right_elements) {
-            combined.push_back(std::move(elem));
-        }
+        // Elements combined;
+        // for (auto& elem : left_elements) {
+        //     combined.push_back(std::move(elem));
+        // }
+        // combined.push_back(filler());
+        // for (auto& elem : right_elements) {
+        //     combined.push_back(std::move(elem));
+        // }
 
-        return hbox(std::move(combined));
+        // return hbox(std::move(combined));
     }
 };
 StatusBarComponent::StatusBarComponent(const Theme* theme) : impl_(std::make_unique<Impl>(theme)) {}
@@ -171,6 +173,76 @@ ftxui::Element StatusBarComponent::render(const StatusBarInfo& info) const {
 }
 
 void StatusBarComponent::setTheme(const Theme* theme) {
+    impl_->theme = theme;
+}
+
+// ============================================================================
+// ToastComponent Implementation
+// ============================================================================
+struct ToastComponent::Impl {
+public:
+    explicit Impl(const Theme* in_theme) : theme(in_theme) {}
+
+    const Theme* theme;
+
+    [[nodiscard]] static ftxui::Color severityColor(ToastSeverity severity) {
+        using ftxui::Color;
+
+        switch (severity) {
+            case ToastSeverity::Info:
+                return Color::BlueLight;
+            case ToastSeverity::Success:
+                return Color::GreenLight;
+            case ToastSeverity::Warning:
+                return Color::YellowLight;
+            case ToastSeverity::Error:
+                return Color::RedLight;
+            default:
+                return Color::White;
+        }
+    }
+
+    [[nodiscard]] static std::string_view severityLabel(ToastSeverity severity) {
+        switch (severity) {
+            case ToastSeverity::Info:
+                return "INFO";
+            case ToastSeverity::Success:
+                return "OK";
+            case ToastSeverity::Warning:
+                return "WARN";
+            case ToastSeverity::Error:
+                return "ERR";
+            default:
+                return "LOG";
+        }
+    }
+
+    [[nodiscard]] ftxui::Element render(const ToastInfo& toast) const {
+        using namespace ftxui;
+
+        const auto accent = severityColor(toast.severity);
+        return hbox({
+                   text(std::format(" {} ", severityLabel(toast.severity))) | bold | color(Color::Black) |
+                       bgcolor(accent),
+                   text(" "),
+                   text(toast.message) | color(theme->getForegroundColor()),
+               }) |
+               bgcolor(theme->getStatusBarColor()) | borderRounded | clear_under;
+    }
+};
+
+ToastComponent::ToastComponent(const Theme* theme) : impl_(std::make_unique<Impl>(theme)) {}
+
+ToastComponent::~ToastComponent() = default;
+
+ToastComponent::ToastComponent(ToastComponent&&) noexcept = default;
+ToastComponent& ToastComponent::operator=(ToastComponent&&) noexcept = default;
+
+ftxui::Element ToastComponent::render(const ToastInfo& toast) const {
+    return impl_->render(toast);
+}
+
+void ToastComponent::setTheme(const Theme* theme) {
     impl_->theme = theme;
 }
 
@@ -333,12 +405,25 @@ public:
 
     PreviewConfig config;
 
+    [[nodiscard]] int resolveMaxLines() const {
+        int max_lines = config.maxLines;
+        if (max_lines < 0) {
+            const auto terminal_size = ftxui::Terminal::Size();
+            if (terminal_size.dimy > 0) {
+                max_lines = terminal_size.dimy;
+            }
+        }
+        return std::max(1, max_lines);
+    }
+
     [[nodiscard]] ftxui::Element render(const core::filesystem::FileEntry& entry) const {
         using namespace ftxui;
-        auto preview_result = core::filesystem::read_preview(entry.path);
+        const int max_lines = resolveMaxLines();
+
+        auto preview_result = core::filesystem::read_preview(entry.path, max_lines);
 
         if (preview_result) {
-            return renderLines(*preview_result);
+            return renderLines(*preview_result, max_lines);
         }
         // Show error message
         std::string err_msg = config.errorPrefix + preview_result.error().message() + "]";
@@ -346,21 +431,25 @@ public:
     }
 
     [[nodiscard]] ftxui::Element renderLines(const std::vector<std::string>& lines) const {
+        return renderLines(lines, resolveMaxLines());
+    }
+
+    [[nodiscard]] ftxui::Element renderLines(const std::vector<std::string>& lines, int max_lines) const {
         using namespace ftxui;
         if (lines.empty()) {
             return text(config.emptyMessage) | dim | center;
         }
 
         ftxui::Elements elements;
-        int line_count = std::min(static_cast<int>(lines.size()), config.maxLines);
+        const int line_count = std::min(static_cast<int>(lines.size()), max_lines);
 
         for (int i = 0; i < line_count; ++i) {
             elements.push_back(text(lines[static_cast<size_t>(i)]));
         }
 
-        if (lines.size() > static_cast<size_t>(config.maxLines)) {
+        if (lines.size() > static_cast<size_t>(max_lines)) {
             elements.push_back(
-                text("... (" + std::to_string(lines.size() - static_cast<size_t>(config.maxLines)) + " more lines)") |
+                text("... (" + std::to_string(lines.size() - static_cast<size_t>(max_lines)) + " more lines)") |
                 dim);
         }
 

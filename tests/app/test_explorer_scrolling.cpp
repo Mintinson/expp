@@ -41,11 +41,13 @@ TEST_CASE("Explorer bottom selection shows last page", "[app][explorer][scroll]"
     TempDirectory tmp;
     tmp.createFiles(30);
 
-    expp::app::Explorer explorer(tmp.path());
-    explorer.setViewportRows(7);
-    explorer.goToBottom();
+    auto explorer_result = expp::app::Explorer::create(tmp.path());
+    REQUIRE(explorer_result.has_value());
+    auto explorer = *explorer_result;
+    explorer->setViewportRows(7);
+    explorer->goToBottom();
 
-    const auto& state = explorer.state();
+    const auto& state = explorer->state();
     REQUIRE(state.entries.size() == 30);
     CHECK(state.currentSelected == 29);
     CHECK(state.currentScrollOffset == 23);
@@ -55,19 +57,46 @@ TEST_CASE("Explorer scroll offset clamps after viewport expansion", "[app][explo
     TempDirectory tmp;
     tmp.createFiles(24);
 
-    expp::app::Explorer explorer(tmp.path());
-    explorer.setViewportRows(5);
-    explorer.goToBottom();
+    auto explorer_result = expp::app::Explorer::create(tmp.path());
+    REQUIRE(explorer_result.has_value());
+    auto explorer = *explorer_result;
+    explorer->setViewportRows(5);
+    explorer->goToBottom();
 
     {
-        const auto& state = explorer.state();
+        const auto& state = explorer->state();
         CHECK(state.currentSelected == 23);
         CHECK(state.currentScrollOffset == 19);
     }
 
-    explorer.setViewportRows(40);
+    explorer->setViewportRows(40);
 
-    const auto& state = explorer.state();
+    const auto& state = explorer->state();
     CHECK(state.currentSelected == 23);
     CHECK(state.currentScrollOffset == 0);
+}
+
+TEST_CASE("Explorer create fails for missing startup directory", "[app][explorer][errors]") {
+    TempDirectory tmp;
+    const auto missing = tmp.path() / "missing";
+
+    auto explorer_result = expp::app::Explorer::create(missing);
+
+    CHECK_FALSE(explorer_result.has_value());
+}
+
+TEST_CASE("Explorer refresh surfaces directory disappearance", "[app][explorer][errors]") {
+    TempDirectory tmp;
+    tmp.createFiles(3);
+
+    auto explorer_result = expp::app::Explorer::create(tmp.path());
+    REQUIRE(explorer_result.has_value());
+    auto explorer = *explorer_result;
+
+    std::error_code ec;
+    fs::remove_all(tmp.path(), ec);
+    REQUIRE_FALSE(ec);
+
+    auto refresh_result = explorer->refresh();
+    CHECK_FALSE(refresh_result.has_value());
 }

@@ -419,7 +419,7 @@ bool KeyMap::unbind(std::string_view keys, Mode mode) {
     return false;
 }
 
-core::VoidResult KeyMap::loadFromFile(const std::filesystem::path& path) {
+core::Result<KeyLoadReport> KeyMap::loadFromFile(const std::filesystem::path& path) {
     toml::table tbl;
     try {
         tbl = toml::parse_file(path.string());
@@ -428,35 +428,55 @@ core::VoidResult KeyMap::loadFromFile(const std::filesystem::path& path) {
                                                                          path.string(), err.description()));
     }
 
+    KeyLoadReport report;
     auto *keys = tbl["keys"].as_table();
     if (!keys) {
-        return {};  // No [keys] section — not an error, just use defaults
+        return report;  // No [keys] section — not an error, just use defaults
     }
 
     for (auto&& [modeName, modeTable] : *keys) {
         auto mode = parse_mode(modeName);
         if (!mode) {
+            report.warnings.push_back(
+                KeyLoadWarning{std::format("Skipped unknown keybinding mode '{}'", std::string{modeName})});
             continue;  // Skip unknown mode names
         }
 
         auto* bindings = modeTable.as_table();
         if (!bindings) {
+            report.warnings.push_back(
+                KeyLoadWarning{std::format("Skipped non-table keybinding mode '{}'", std::string{modeName})});
             continue;
         }
 
         for (auto&& [actionName, keyValue] : *bindings) {
             auto key_str = keyValue.value<std::string>();
             if (!key_str) {
+                report.warnings.push_back(
+                    KeyLoadWarning{std::format("Skipped binding '{}' in mode '{}' because the key is not a string",
+                                               std::string{actionName}, std::string{modeName})});
                 continue;  // Skip non-string values
             }
 
-            auto result = bind(*key_str, std::string{actionName}, *mode);
-            // Silently skip invalid bindings — they don't prevent other bindings from loading
-            (void)result;
+            KeyLoadEntry entry{
+                .keys = *key_str,
+                .actionName = std::string{actionName},
+                .mode = *mode,
+                .description = {},
+            };
+            auto result = bind(entry.keys, entry.actionName, entry.mode);
+            if (!result) {
+                report.warnings.push_back(
+                    KeyLoadWarning{std::format("Skipped binding '{}' -> '{}' in mode '{}': {}", entry.keys,
+                                               entry.actionName, mode_to_name(*mode), result.error().message())});
+                continue;
+            }
+
+            report.loadedBindings.push_back(std::move(entry));
         }
     }
 
-    return {};
+    return report;
 }
 
 void KeyMap::loadDefaults() {
@@ -524,6 +544,10 @@ bool KeyMap::isPrefix(const std::vector<Key>& sequence, Mode mode) const {
         }
         return std::equal(sequence.begin(), sequence.end(), b.sequence.begin());
     });
+}
+
+void KeyMap::clear() {
+    impl_->bindings.clear();
 }
 
 // ============================================================================

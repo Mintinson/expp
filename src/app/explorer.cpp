@@ -1,6 +1,7 @@
 
 #include "expp/app/explorer.hpp"
 
+#include "expp/core/config.hpp"
 #include "expp/core/error.hpp"
 #include "expp/core/filesystem.hpp"
 
@@ -241,10 +242,10 @@ template <typename T>
 }  // namespace
 
 struct Explorer::Impl {
-    explicit Impl(fs::path start_path) {
+    explicit Impl(fs::path start_path) : showHidden(core::global_config().config().behavior.showHiddenFiles) {
         state.currentDir = std::move(start_path);
         baseDirectory = core::filesystem::normalize(state.currentDir);
-        refresh();
+        
     }
 
     ExplorerState state;
@@ -340,23 +341,27 @@ struct Explorer::Impl {
         updateScrollForSelection();
     }
 
-    void refresh() {
-        state.entries.clear();
+    [[nodiscard]] core::VoidResult refresh() {
         auto result = core::filesystem::list_directory(state.currentDir, showHidden);
-        if (result) {
-            state.entries = std::move(*result);
-            sortEntries(state.entries);
+        if (!result) {
+            return std::unexpected(result.error());
         }
 
+        auto entries = std::move(*result);
+        sortEntries(entries);
+
         // Get Parent Directory Contents
-        state.parentEntries.clear();
+        std::vector<core::filesystem::FileEntry> parent_entries;
         if (state.currentDir.has_parent_path() && state.currentDir.parent_path() != state.currentDir) {
             auto parent_result = core::filesystem::list_directory(state.currentDir.parent_path(), showHidden);
             if (parent_result) {
-                state.parentEntries = std::move(*parent_result);
-                sortEntries(state.parentEntries);
+                parent_entries = std::move(*parent_result);
+                sortEntries(parent_entries);
             }
         }
+
+        state.entries = std::move(entries);
+        state.parentEntries = std::move(parent_entries);
 
         // clamp selection and preserve scrolling invariants
         updateScrollForSelection();
@@ -377,6 +382,7 @@ struct Explorer::Impl {
         if (refreshCallback) {
             refreshCallback();
         }
+        return {};
     }
 
     void setSortOrder(ExplorerState::SortField field, ExplorerState::SortDirection direction) {
@@ -437,7 +443,13 @@ struct Explorer::Impl {
     }
 
     core::VoidResult navigateTo(const fs::path& path) {
-        if (!fs::is_directory(path)) {
+        std::error_code directory_ec;
+        if (!fs::is_directory(path, directory_ec)) {
+            if (directory_ec) {
+                return core::make_error(core::ErrorCategory::FileSystem,
+                                        std::format("Cannot access directory '{}': {}", path.string(),
+                                                    directory_ec.message()));
+            }
             return core::make_error(core::ErrorCategory::FileSystem, std::format("Not a directory: {}", path.string()));
         }
         auto canonical_result = core::filesystem::canonicalize(path);
@@ -445,12 +457,28 @@ struct Explorer::Impl {
             return std::unexpected(canonical_result.error());
         }
 
+        const fs::path previous_dir = state.currentDir;
+        const int previous_selected = state.currentSelected;
+        const int previous_offset = state.currentScrollOffset;
+        const bool previous_visual = state.visualModeActive;
+        const int previous_anchor = state.visualAnchor;
+        const auto previous_visual_indices = state.visualSelectedIndices;
+
         state.currentDir = *canonical_result;
         state.currentSelected = 0;
         state.currentScrollOffset = 0;
         clearVisualSelection();
 
-        refresh();
+        auto refresh_result = refresh();
+        if (!refresh_result) {
+            state.currentDir = previous_dir;
+            state.currentSelected = previous_selected;
+            state.currentScrollOffset = previous_offset;
+            state.visualModeActive = previous_visual;
+            state.visualAnchor = previous_anchor;
+            state.visualSelectedIndices = previous_visual_indices;
+            return refresh_result;
+        }
         return {};
     }
 
@@ -460,12 +488,28 @@ struct Explorer::Impl {
         }
 
         auto old_path = state.currentDir.filename();
+        const fs::path previous_dir = state.currentDir;
+        const int previous_selected = state.currentSelected;
+        const int previous_offset = state.currentScrollOffset;
+        const bool previous_visual = state.visualModeActive;
+        const int previous_anchor = state.visualAnchor;
+        const auto previous_visual_indices = state.visualSelectedIndices;
+
         state.currentDir = state.currentDir.parent_path();
         state.currentSelected = 0;
         state.currentScrollOffset = 0;
         clearVisualSelection();
 
-        refresh();
+        auto refresh_result = refresh();
+        if (!refresh_result) {
+            state.currentDir = previous_dir;
+            state.currentSelected = previous_selected;
+            state.currentScrollOffset = previous_offset;
+            state.visualModeActive = previous_visual;
+            state.visualAnchor = previous_anchor;
+            state.visualSelectedIndices = previous_visual_indices;
+            return refresh_result;
+        }
 
         // Try to select the directory we came from
         for (size_t i = 0; i < state.entries.size(); ++i) {
@@ -517,8 +561,7 @@ struct Explorer::Impl {
                 return std::unexpected(result.error());
             }
         }
-        refresh();
-        return {};
+        return refresh();
     }
 
     core::VoidResult rename(const std::string& new_name) {
@@ -534,8 +577,7 @@ struct Explorer::Impl {
         if (!result) {
             return result;
         }
-        refresh();
-        return {};
+        return refresh();
     }
 
     core::VoidResult deleteSelected() {
@@ -558,8 +600,7 @@ struct Explorer::Impl {
         }
 
         clearVisualSelection();
-        refresh();
-        return {};
+        return refresh();
     }
 
     core::VoidResult trashSelected() {
@@ -576,8 +617,7 @@ struct Explorer::Impl {
         }
 
         clearVisualSelection();
-        refresh();
-        return {};
+        return refresh();
     }
 
     core::VoidResult openSelected() {
@@ -672,9 +712,7 @@ struct Explorer::Impl {
         }
 
         clearVisualSelection();
-
-        refresh();
-        return {};
+        return refresh();
     }
 
     [[nodiscard]] core::VoidResult copySelectedPathToSystemClipboard(bool absolute) const {
@@ -942,6 +980,15 @@ struct Explorer::Impl {
 
 Explorer::Explorer(std::filesystem::path start_path) : impl_(std::make_unique<Impl>(std::move(start_path))) {}
 
+core::Result<std::shared_ptr<Explorer>> Explorer::create(std::filesystem::path start_path) {
+    auto explorer = std::shared_ptr<Explorer>(new Explorer(std::move(start_path)));
+    auto refresh_result = explorer->refresh();
+    if (!refresh_result) {
+        return std::unexpected(refresh_result.error());
+    }
+    return explorer;
+}
+
 Explorer::~Explorer() = default;
 Explorer::Explorer(Explorer&&) noexcept = default;
 Explorer& Explorer::operator=(Explorer&&) noexcept = default;
@@ -1140,16 +1187,22 @@ void Explorer::setInput(const std::string& input) {
     impl_->state.inputBuffer = input;
 }
 
-void Explorer::refresh() {
-    impl_->refresh();
+core::VoidResult Explorer::refresh() {
+    return impl_->refresh();
 }
 
 void Explorer::onRefresh(RefreshCallback callback) {
     impl_->refreshCallback = std::move(callback);
 }
 
-void Explorer::toggleShowHidden() {
+core::VoidResult Explorer::toggleShowHidden() {
+    const bool previous_show_hidden = impl_->showHidden;
     impl_->showHidden = !impl_->showHidden;
-    refresh();
+    auto result = refresh();
+    if (!result) {
+        impl_->showHidden = previous_show_hidden;
+        return result;
+    }
+    return {};
 }
 }  // namespace expp::app

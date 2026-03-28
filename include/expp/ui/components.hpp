@@ -22,12 +22,16 @@
 #include <ftxui/dom/node.hpp>
 #include <ftxui/screen/color.hpp>
 
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
 #include <vector>
 
 namespace expp::ui {
+
+
+
 
 // ============================================================================
 // FileListComponent: Renders a list of files with styling
@@ -126,6 +130,41 @@ private:
 };
 
 // ============================================================================
+// ToastComponent: Transient notifications
+// ============================================================================
+
+enum class ToastSeverity : std::uint8_t {
+    Info,
+    Success,
+    Warning,
+    Error,
+};
+
+struct ToastInfo {
+    ToastSeverity severity{ToastSeverity::Info};
+    std::string message;
+};
+
+class ToastComponent {
+public:
+    explicit ToastComponent(const Theme* theme = &global_theme());
+    ~ToastComponent();
+
+    ToastComponent(ToastComponent&&) noexcept;
+    ToastComponent& operator=(ToastComponent&&) noexcept;
+    ToastComponent(const ToastComponent&) = delete;
+    ToastComponent& operator=(const ToastComponent&) = delete;
+
+    [[nodiscard]] ftxui::Element render(const ToastInfo& toast) const;
+
+    void setTheme(const Theme* theme);
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+// ============================================================================
 // DialogComponent: Modal dialogs
 // ============================================================================
 
@@ -155,7 +194,7 @@ struct DialogConfig {
     std::string title;
     std::string message;
     std::vector<DialogButton> buttons;
-    int width{50};
+    int width{};
     const Theme* theme{&global_theme()};
 };
 
@@ -226,8 +265,8 @@ private:
 struct PanelConfig {
     bool showParent{true};
     bool showPreview{true};
-    int parentWidth{30};
-    int previewWidth{60};
+    int parentWidth{};
+    int previewWidth{};
     const Theme* theme{&global_theme()};
 };
 
@@ -279,7 +318,7 @@ private:
  */
 struct PreviewConfig {
     const Theme* theme{&global_theme()};
-    int maxLines{50};
+    int maxLines{};
     std::string emptyMessage{"[Empty]"};
     std::string errorPrefix{"[Error: "};
 };

@@ -18,7 +18,7 @@ constexpr std::string_view kDefaultFileIcon = "\uf15b"sv;
 /**
  * @brief Returns the built-in default icon map
  */
-inline std::unordered_map<std::string, std::string> defaultIconMap() {
+inline std::unordered_map<std::string, std::string> default_icon_map() {
     return {
         {"default", "\uf15b"},
         {    "exe", "\ue795"},
@@ -45,7 +45,7 @@ inline std::unordered_map<std::string, std::string> defaultIconMap() {
         {   ".log", "\uf4ed"},
         {  ".yaml", "\ue8eb"},
         {   ".yml", "\ue6a8"},
-        {   ".xml", "󰗀"},
+        {   ".xml",   "󰗀"},
         {   ".zip", "\ue6aa"},
         {   ".rar", "\ue6aa"},
         {    ".7z", "\ue6aa"},
@@ -60,7 +60,7 @@ inline std::unordered_map<std::string, std::string> defaultIconMap() {
 struct IconConfig {
     std::string defaultFileIcon{kDefaultFileIcon};
     std::string defaultFolderIcon{kDefaultFolderIcon};
-    std::unordered_map<std::string, std::string> icons{defaultIconMap()};
+    std::unordered_map<std::string, std::string> icons{default_icon_map()};
 };
 
 /**
@@ -124,6 +124,15 @@ struct BehaviorConfig {
 };
 
 /**
+ * @brief Notification toast configuration
+ */
+struct NotificationConfig {
+    int durationMs{2500};
+    bool showSuccess{true};
+    bool showInfo{true};
+};
+
+/**
  * @brief Main configuration container
  */
 struct Config {
@@ -132,6 +141,7 @@ struct Config {
     PreviewConfig preview;
     LayoutConfig layout;
     BehaviorConfig behavior;
+    NotificationConfig notifications;
 };
 
 /**

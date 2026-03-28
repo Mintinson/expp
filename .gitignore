@@ -14,3 +14,7 @@ buildLinux/
 compile_commands.json
 
 samples/
+
+*.md
+
+!README.md

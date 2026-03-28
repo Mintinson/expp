@@ -63,7 +63,7 @@ struct ExplorerState {
     std::vector<core::filesystem::FileEntry> parentEntries;
     int currentSelected{0};
     int currentScrollOffset{0};
-    int currentViewportRows{1000};
+    int currentViewportRows{1000};  // NOLINT
     int parentSelected{0};
 
     // Search state
@@ -103,7 +103,12 @@ class Explorer {
 public:
     using RefreshCallback = std::function<void()>;
 
-    explicit Explorer(std::filesystem::path start_path = std::filesystem::current_path());
+    /**
+     * @brief Creates a new explorer instance
+     * @param start_path 
+     * @return 
+     */
+    [[nodiscard]] static core::Result<std::shared_ptr<Explorer>> create(std::filesystem::path start_path);
     ~Explorer();
 
     // Non-copyable, movable
@@ -331,7 +336,7 @@ public:
     /**
      * @brief Refreshes directory contents
      */
-    void refresh();
+    [[nodiscard]] core::VoidResult refresh();
 
     /**
      * @brief Registers refresh callback
@@ -340,9 +345,11 @@ public:
     void onRefresh(RefreshCallback callback);
 
     // ========== View ==========
-    void toggleShowHidden();
+    [[nodiscard]] core::VoidResult toggleShowHidden();
 
 private:
+    explicit Explorer(std::filesystem::path start_path);
+
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

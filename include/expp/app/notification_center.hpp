@@ -1,0 +1,48 @@
+#ifndef EXPP_APP_NOTIFICATION_CENTER_HPP
+#define EXPP_APP_NOTIFICATION_CENTER_HPP
+
+#include "expp/core/config.hpp"
+#include "expp/core/error.hpp"
+#include "expp/ui/components.hpp"
+
+#include <chrono>
+#include <optional>
+#include <string>
+
+namespace expp::app {
+
+struct NotificationOptions {
+    int durationMs{2500};
+    bool showSuccess{true};
+    bool showInfo{true};
+};
+
+[[nodiscard]] NotificationOptions make_notification_options(const core::NotificationConfig& config) noexcept;
+
+[[nodiscard]] ui::ToastSeverity severity_for_error(const core::Error& error) noexcept;
+
+class NotificationCenter {
+public:
+    using Clock = std::chrono::steady_clock;
+
+    explicit NotificationCenter(NotificationOptions options = {});
+
+    void publish(ui::ToastSeverity severity,
+                 std::string message,
+                 Clock::time_point now = Clock::now());
+
+    void expire(Clock::time_point now = Clock::now());
+
+    [[nodiscard]] const std::optional<ui::ToastInfo>& current() const noexcept;
+
+private:
+    [[nodiscard]] bool isEnabled(ui::ToastSeverity severity) const noexcept;
+
+    NotificationOptions options_;
+    std::optional<ui::ToastInfo> activeToast_;
+    Clock::time_point expiresAt_{};
+};
+
+}  // namespace expp::app
+
+#endif  // EXPP_APP_NOTIFICATION_CENTER_HPP

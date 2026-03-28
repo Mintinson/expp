@@ -15,7 +15,8 @@ Checks: >
   -cppcoreguidelines-non-private-member-variables-in-classes,
   -cert-env33-c,
   -readability-identifier-length,
-  -modernize-use-trailing-return-type
+  -modernize-use-trailing-return-type,
+  -bugprone-easily-swappable-parameters
 
 
 WarningsAsErrors: ''

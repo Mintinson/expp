@@ -6,8 +6,8 @@ Todo list
 - [x] Changeable Sort order. (`,m` by modified time, `,b` by birth time, `,e` by extension, `,a` by alphabetically, `,n` sort naturally, `,s` by size. And with upper letter will sort reversely.)
 - [x] Multiple selection by vim-like visual mode, and support like multiple copy, cut, trash, delete, etc. 
 - [x] Support toml configuration, and load all configurable properties (like icons, theme, layout) from it instead of hard-coded. At the same time, support user extension.
-- [ ] Better Error handling. (Maybe by Notification Toast)
-- [ ] Notification toast (Message, Warning, Error etc.)
+- [x] Notification toast (Message, Warning, Error etc.)
+- [x] Better Error handling. Maybe by Notification Toast when there is a slight error, but stop the program when there is a serious error. The termination of the program should be safe and do necessary clean up.
 
 Bug Report
 - [x] program will crash if simlink link itself.

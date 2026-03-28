@@ -27,7 +27,6 @@
 
 namespace expp::core::filesystem {
 
-constexpr int kDefaultMaxPreviewLines = 50;
 namespace fs = std::filesystem;
 
 /**
@@ -175,11 +174,10 @@ struct FileEntry {
 /**
  * @brief Reads file preview (first N lines)
  * @param path Path to read
- * @param max_lines Maximum lines to read (default: 50)
+ * @param max_lines Maximum lines to read
  * @return Vector of lines or Error
  */
-[[nodiscard]] Result<std::vector<std::string>> read_preview(const fs::path& path,
-                                                            int max_lines = kDefaultMaxPreviewLines);
+[[nodiscard]] Result<std::vector<std::string>> read_preview(const fs::path& path, int max_lines);
 
 /**
  * @brief Gets human-readable file size string

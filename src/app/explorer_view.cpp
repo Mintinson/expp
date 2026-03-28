@@ -16,6 +16,7 @@
 
 #include "expp/app/explorer_view.hpp"
 
+#include "expp/app/notification_center.hpp"
 #include "expp/core/config.hpp"
 #include "expp/ui/components.hpp"
 #include "expp/ui/key_handler.hpp"
@@ -32,9 +33,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <format>
 #include <iterator>
 #include <memory>
+#include <optional>
+#include <print>
 #include <ranges>
 #include <span>
 #include <stop_token>
@@ -58,23 +62,22 @@ public:
         : explorer_{std::move(explorer)}
         , screen_{ftxui::ScreenInteractive::Fullscreen()}
         , theme_{&ui::global_theme()}
-        , keyHandler_{core::global_config().config().behavior.keyTimeoutMs} {
+        , keyHandler_{core::global_config().config().behavior.keyTimeoutMs}
+        , notifications_{make_notification_options(core::global_config().config().notifications)} {
         setupComponents();
         setupActions();
 
         // Load default key bindings first, then override with user config if available
-        // if parse error occurs, it will fallback to defaults
         setupKeyBindings();
         auto config_path = core::ConfigManager::userConfigPath();
         if (std::filesystem::exists(config_path)) {
             auto result = keyHandler_.keymap().loadFromFile(config_path);
-            if (!result) { 
-                setupKeyBindings();  // Fallback on parse error
+            if (!result) {
+                initError_ = result.error();
+                return;
             }
-        } 
-        // else {
-        //     setupKeyBindings(); 
-        // }
+            applyUserKeyBindings(*result);
+        }
 
         setupInputComponents();
     }
@@ -82,9 +85,15 @@ public:
     int run() {
         using namespace ftxui;
 
+        if (initError_.has_value()) {
+            std::println(stderr, "Fatal: {}", initError_->message());
+            return 1;
+        }
+
         auto component = Renderer([this] { return render(); });
 
         component = CatchEvent(component, [this](const Event& event) { return handleEvent(event); });
+        publishStartupWarnings();
         running_.store(true);
         refreshTicker_ = std::jthread([this](std::stop_token stop_token) {
             while (!stop_token.stop_requested()) {
@@ -113,10 +122,112 @@ public:
     }
 
 private:
-    static void consumeResult(core::VoidResult result) {
+    /**
+     * @brief Handle the result of an operation, publishing notifications as appropriate
+     * @param result The result of the operation
+     * @param success_message The message to display on success
+     * @param success_severity The severity of the success notification
+     * @return True if the operation was successful, false otherwise
+     */
+    [[nodiscard]] bool handleResult(core::VoidResult result,
+                                    std::string success_message = {},
+                                    ui::ToastSeverity success_severity = ui::ToastSeverity::Success) {
         if (!result) {
-            // TODO: route action errors to status bar / notification toast.
+            notifications_.publish(severity_for_error(result.error()), result.error().message());
+            return false;
         }
+
+        if (!success_message.empty()) {
+            notifications_.publish(success_severity, std::move(success_message));
+        }
+        return true;
+    }
+
+    /**
+     * @brief Get the number of selected items, accounting for visual mode if active
+     * @return The number of selected items (1 if visual mode is inactive, otherwise the count of visually selected items)
+     */
+    [[nodiscard]] int selectedCount() const noexcept {
+        const auto& state = explorer_->state();
+        if (state.entries.empty()) {
+            return 0;
+        }
+        if (state.visualModeActive) {
+            return std::max(1, explorer_->visualSelectionCount());
+        }
+        return 1;
+    }
+
+    /**
+     * @brief Format a noun with a count, handling singular and plural forms
+     * @param count The number of items
+     * @param singular The singular form of the noun
+     * @return The formatted string (e.g., "1 file" or "3 files")
+     */
+    [[nodiscard]] static std::string nounWithCount(int count, std::string_view singular) {
+        return std::format("{} {}{}", count, singular, count == 1 ? "" : "s");
+    }
+
+    /**
+     * @brief Publish startup warnings to the notification center
+     */
+    void publishStartupWarnings() {
+        if (startupWarnings_.empty()) {
+            return;
+        }
+        notifications_.publish(ui::ToastSeverity::Warning, summarizeWarnings(startupWarnings_));
+        startupWarnings_.clear();
+    }
+
+    /// Apply user-loaded key bindings and collect any warnings for display
+    void applyUserKeyBindings(const ui::KeyLoadReport& report) {
+        auto& keymap = keyHandler_.keymap();
+        keymap.clear();
+        setupKeyBindings();
+
+        for (const auto& warning : report.warnings) {
+            startupWarnings_.push_back(warning.message);
+        }
+
+        for (const auto& binding : report.loadedBindings) {
+            if (keyHandler_.actions().find(binding.actionName) == nullptr) {
+                startupWarnings_.push_back(
+                    std::format("Skipped binding '{}' -> '{}': unknown action", binding.keys, binding.actionName));
+                continue;
+            }
+
+            auto bind_result = keymap.bind(binding.keys, binding.actionName, binding.mode, binding.description);
+            if (!bind_result) {
+                startupWarnings_.push_back(std::format("Skipped binding '{}' -> '{}': {}", binding.keys,
+                                                       binding.actionName, bind_result.error().message()));
+            }
+        }
+    }
+
+    /**
+     * @brief Summarize a list of warnings into a single string for display
+     * @param warnings
+     * @return
+     */
+    [[nodiscard]] static std::string summarizeWarnings(const std::vector<std::string>& warnings) {
+        if (warnings.empty()) {
+            return {};
+        }
+        if (warnings.size() == 1) {
+            return warnings.front();
+        }
+
+        constexpr size_t kPreviewCount = 2;
+        // std::string summary = std::format("Skipped {} key bindings: ", warnings.size());
+
+        using namespace std::string_view_literals;
+        auto preview =
+            warnings | std::views::take(kPreviewCount) | std::views::join_with("; "sv) | std::ranges::to<std::string>();
+        if (warnings.size() > kPreviewCount) {
+            return std::format("Skipped {} key bindings: {}; +{} more", warnings.size(), preview,
+                               warnings.size() - kPreviewCount);
+        }
+        return std::format("Skipped {} key bindings: {}", warnings.size(), preview);
     }
 
     /**
@@ -136,6 +247,7 @@ private:
         preview_ = std::make_unique<ui::PreviewComponent>(preview_config);
 
         statusBar_ = std::make_unique<ui::StatusBarComponent>(theme_);
+        toast_ = std::make_unique<ui::ToastComponent>(theme_);
 
         dialog_ = std::make_unique<ui::DialogComponent>();
         dialog_->setTheme(theme_);
@@ -165,7 +277,7 @@ private:
         actions.registerAction(
             "go_parent",
             [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                consumeResult(explorer_->goParent());
+                (void)handleResult(explorer_->goParent());
                 if (keyHandler_.mode() == ui::Mode::Visual) {
                     keyHandler_.setMode(ui::Mode::Normal);
                 }
@@ -174,7 +286,7 @@ private:
         actions.registerAction(
             "enter_selected",
             [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                consumeResult(explorer_->enterSelected(true));
+                (void)handleResult(explorer_->enterSelected(true));
                 if (keyHandler_.mode() == ui::Mode::Visual) {
                     keyHandler_.setMode(ui::Mode::Normal);
                 }
@@ -224,7 +336,12 @@ private:
         // File operations
         actions.registerAction(
             "open_file",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->openSelected()); },
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                const auto& state = explorer_->state();
+                const bool can_open_file =
+                    !state.entries.empty() && !state.entries[static_cast<size_t>(state.currentSelected)].isDirectory();
+                (void)handleResult(explorer_->openSelected(), can_open_file ? "Opened with default application" : "");
+            },
             "Open file with default application", "File Operations", false);
 
         actions.registerAction(
@@ -248,7 +365,9 @@ private:
         actions.registerAction(
             "yank",
             [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                consumeResult(explorer_->yankSelected());
+                const int count = selectedCount();
+                (void)handleResult(explorer_->yankSelected(),
+                                   count > 0 ? std::format("Copied {}", nounWithCount(count, "item")) : "");
                 if (keyHandler_.mode() == ui::Mode::Visual) {
                     keyHandler_.setMode(ui::Mode::Normal);
                 }
@@ -258,7 +377,9 @@ private:
         actions.registerAction(
             "cut",
             [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                consumeResult(explorer_->cutSelected());
+                const int count = selectedCount();
+                (void)handleResult(explorer_->cutSelected(),
+                                   count > 0 ? std::format("Cut {}", nounWithCount(count, "item")) : "");
                 if (keyHandler_.mode() == ui::Mode::Visual) {
                     keyHandler_.setMode(ui::Mode::Normal);
                 }
@@ -267,58 +388,75 @@ private:
 
         actions.registerAction(
             "discard_yank",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->discardYank()); },
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                (void)handleResult(explorer_->discardYank(), "Clipboard cleared", ui::ToastSeverity::Info);
+            },
             "Clear clipboard", "File Operations", false);
 
         actions.registerAction(
             "paste",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->pasteYanked(false)); },
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                const auto item_count = static_cast<int>(explorer_->state().clipboardPaths.size());
+                (void)handleResult(explorer_->pasteYanked(false),
+                                   item_count > 0 ? std::format("Pasted {}", nounWithCount(item_count, "item")) : "");
+            },
             "Paste yanked item into current directory", "File Operations", false);
 
         actions.registerAction(
             "paste_overwrite",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) { consumeResult(explorer_->pasteYanked(true)); },
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                const auto item_count = static_cast<int>(explorer_->state().clipboardPaths.size());
+                (void)handleResult(
+                    explorer_->pasteYanked(true),
+                    item_count > 0 ? std::format("Pasted {} with overwrite", nounWithCount(item_count, "item")) : "");
+            },
             "Paste into current directory with overwrite", "File Operations", false);
 
         actions.registerAction(
             "copy_entry_path_relative",
             [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                consumeResult(explorer_->copySelectedPathToSystemClipboard(false));
+                (void)handleResult(explorer_->copySelectedPathToSystemClipboard(false), "Copied relative path",
+                                   ui::ToastSeverity::Info);
             },
             "Copy selected entry relative path to system clipboard", "File Operations", false);
 
         actions.registerAction(
             "copy_current_dir_relative",
             [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                consumeResult(explorer_->copyCurrentDirectoryPathToSystemClipboard(false));
+                (void)handleResult(explorer_->copyCurrentDirectoryPathToSystemClipboard(false),
+                                   "Copied relative directory path", ui::ToastSeverity::Info);
             },
             "Copy current directory relative path to system clipboard", "File Operations", false);
 
         actions.registerAction(
             "copy_entry_path_absolute",
             [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                consumeResult(explorer_->copySelectedPathToSystemClipboard(true));
+                (void)handleResult(explorer_->copySelectedPathToSystemClipboard(true), "Copied absolute path",
+                                   ui::ToastSeverity::Info);
             },
             "Copy selected entry absolute path to system clipboard", "File Operations", false);
 
         actions.registerAction(
             "copy_current_dir_absolute",
             [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                consumeResult(explorer_->copyCurrentDirectoryPathToSystemClipboard(true));
+                (void)handleResult(explorer_->copyCurrentDirectoryPathToSystemClipboard(true),
+                                   "Copied absolute directory path", ui::ToastSeverity::Info);
             },
             "Copy current directory absolute path to system clipboard", "File Operations", false);
 
         actions.registerAction(
             "copy_file_name",
             [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                consumeResult(explorer_->copySelectedFileNameToSystemClipboard());
+                (void)handleResult(explorer_->copySelectedFileNameToSystemClipboard(), "Copied file name",
+                                   ui::ToastSeverity::Info);
             },
             "Copy selected file name to system clipboard", "File Operations", false);
 
         actions.registerAction(
             "copy_name_without_extension",
             [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                consumeResult(explorer_->copySelectedNameWithoutExtensionToSystemClipboard());
+                (void)handleResult(explorer_->copySelectedNameWithoutExtensionToSystemClipboard(),
+                                   "Copied name without extension", ui::ToastSeverity::Info);
             },
             "Copy selected name without extension to system clipboard", "File Operations", false);
 
@@ -363,7 +501,10 @@ private:
 
         // View actions
         actions.registerAction(
-            "toggle_hidden", [this]([[maybe_unused]] const ui::ActionContext& ctx) { explorer_->toggleShowHidden(); },
+            "toggle_hidden",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                (void)handleResult(explorer_->toggleShowHidden());
+            },
             "Toggle the visibility of hidden files", "View", false);
 
         registerSortAction(actions, "sort_modified", "Sort by modified time", ExplorerState::SortField::ModifiedTime,
@@ -372,8 +513,8 @@ private:
                            ExplorerState::SortField::ModifiedTime, ExplorerState::SortDirection::Descending);
         registerSortAction(actions, "sort_birth", "Sort by birth time", ExplorerState::SortField::BirthTime,
                            ExplorerState::SortDirection::Ascending);
-        registerSortAction(actions, "sort_birth_desc", "Sort by birth time (desc)",
-                           ExplorerState::SortField::BirthTime, ExplorerState::SortDirection::Descending);
+        registerSortAction(actions, "sort_birth_desc", "Sort by birth time (desc)", ExplorerState::SortField::BirthTime,
+                           ExplorerState::SortDirection::Descending);
         registerSortAction(actions, "sort_extension", "Sort by extension", ExplorerState::SortField::Extension,
                            ExplorerState::SortDirection::Ascending);
         registerSortAction(actions, "sort_extension_desc", "Sort by extension (desc)",
@@ -384,8 +525,8 @@ private:
                            ExplorerState::SortField::Alphabetical, ExplorerState::SortDirection::Descending);
         registerSortAction(actions, "sort_natural", "Sort naturally", ExplorerState::SortField::Natural,
                            ExplorerState::SortDirection::Ascending);
-        registerSortAction(actions, "sort_natural_desc", "Sort naturally (desc)",
-                           ExplorerState::SortField::Natural, ExplorerState::SortDirection::Descending);
+        registerSortAction(actions, "sort_natural_desc", "Sort naturally (desc)", ExplorerState::SortField::Natural,
+                           ExplorerState::SortDirection::Descending);
         registerSortAction(actions, "sort_size", "Sort by size", ExplorerState::SortField::Size,
                            ExplorerState::SortDirection::Ascending);
         registerSortAction(actions, "sort_size_desc", "Sort by size (desc)", ExplorerState::SortField::Size,
@@ -400,78 +541,87 @@ private:
     void setupKeyBindings() {
         // Use the Keymap to bind keys to actions
         auto& keymap = keyHandler_.keymap();
+        // Lambda to simplify binding keys and handling errors during setup
+        const auto bind_or_fail = [this, &keymap](std::string_view keys, std::string action, ui::Mode mode,
+                                                  std::string description) {
+            if (initError_.has_value()) {
+                return;
+            }
+            auto result = keymap.bind(keys, std::move(action), mode, std::move(description));
+            if (!result) {
+                initError_ = result.error();
+            }
+        };
 
-        // TODO: Better Error handling for invalid bindings (e.g. duplicate keys, unknown actions)
         // Navigation bindings
-        consumeResult(keymap.bind("j", "move_down", ui::Mode::Normal, "Move down"));
-        consumeResult(keymap.bind("k", "move_up", ui::Mode::Normal, "Move up"));
-        consumeResult(keymap.bind("h", "go_parent", ui::Mode::Normal, "Go to parent"));
-        consumeResult(keymap.bind("l", "enter_selected", ui::Mode::Normal, "Enter/open"));
-        consumeResult(keymap.bind("gg", "go_top", ui::Mode::Normal, "Go to top"));
-        consumeResult(keymap.bind("G", "go_bottom", ui::Mode::Normal, "Go to bottom"));
-        consumeResult(keymap.bind("v", "enter_visual_mode", ui::Mode::Normal, "Enter visual mode"));
+        bind_or_fail("j", "move_down", ui::Mode::Normal, "Move down");
+        bind_or_fail("k", "move_up", ui::Mode::Normal, "Move up");
+        bind_or_fail("h", "go_parent", ui::Mode::Normal, "Go to parent");
+        bind_or_fail("l", "enter_selected", ui::Mode::Normal, "Enter/open");
+        bind_or_fail("gg", "go_top", ui::Mode::Normal, "Go to top");
+        bind_or_fail("G", "go_bottom", ui::Mode::Normal, "Go to bottom");
+        bind_or_fail("v", "enter_visual_mode", ui::Mode::Normal, "Enter visual mode");
 
         // Page navigation
-        consumeResult(keymap.bind("C-d", "page_down", ui::Mode::Normal, "Page down"));
-        consumeResult(keymap.bind("C-u", "page_up", ui::Mode::Normal, "Page up"));
+        bind_or_fail("C-d", "page_down", ui::Mode::Normal, "Page down");
+        bind_or_fail("C-u", "page_up", ui::Mode::Normal, "Page up");
 
         // File operations
-        consumeResult(keymap.bind("o", "open_file", ui::Mode::Normal, "Open file"));
-        consumeResult(keymap.bind("a", "create", ui::Mode::Normal, "Create new"));
-        consumeResult(keymap.bind("r", "rename", ui::Mode::Normal, "Rename"));
-        consumeResult(keymap.bind("d", "trash", ui::Mode::Normal, "Trash"));
-        consumeResult(keymap.bind("D", "delete", ui::Mode::Normal, "Delete"));
-        consumeResult(keymap.bind("y", "yank", ui::Mode::Normal, "Yank (copy)"));
-        consumeResult(keymap.bind("x", "cut", ui::Mode::Normal, "Cut"));
-        consumeResult(keymap.bind("Y", "discard_yank", ui::Mode::Normal, "Discard Yank (copy)"));
-        consumeResult(keymap.bind("X", "discard_yank", ui::Mode::Normal, "Discard cut/copy"));
-        consumeResult(keymap.bind("p", "paste", ui::Mode::Normal, "Paste yanked item"));
-        consumeResult(keymap.bind("P", "paste_overwrite", ui::Mode::Normal, "Paste with overwrite"));
-        consumeResult(keymap.bind("cc", "copy_entry_path_relative", ui::Mode::Normal, "Copy entry path (relative)"));
-        consumeResult(keymap.bind("cd", "copy_current_dir_relative", ui::Mode::Normal, "Copy current path (relative)"));
-        consumeResult(keymap.bind("cC", "copy_entry_path_absolute", ui::Mode::Normal, "Copy entry path (absolute)"));
-        consumeResult(keymap.bind("cD", "copy_current_dir_absolute", ui::Mode::Normal, "Copy current path (absolute)"));
-        consumeResult(keymap.bind("cf", "copy_file_name", ui::Mode::Normal, "Copy file name"));
-        consumeResult(
-            keymap.bind("cn", "copy_name_without_extension", ui::Mode::Normal, "Copy name without extension"));
+        bind_or_fail("o", "open_file", ui::Mode::Normal, "Open file");
+        bind_or_fail("a", "create", ui::Mode::Normal, "Create new");
+        bind_or_fail("r", "rename", ui::Mode::Normal, "Rename");
+        bind_or_fail("d", "trash", ui::Mode::Normal, "Trash");
+        bind_or_fail("D", "delete", ui::Mode::Normal, "Delete");
+        bind_or_fail("y", "yank", ui::Mode::Normal, "Yank (copy)");
+        bind_or_fail("x", "cut", ui::Mode::Normal, "Cut");
+        bind_or_fail("Y", "discard_yank", ui::Mode::Normal, "Discard Yank (copy)");
+        bind_or_fail("X", "discard_yank", ui::Mode::Normal, "Discard cut/copy");
+        bind_or_fail("p", "paste", ui::Mode::Normal, "Paste yanked item");
+        bind_or_fail("P", "paste_overwrite", ui::Mode::Normal, "Paste with overwrite");
+        bind_or_fail("cc", "copy_entry_path_relative", ui::Mode::Normal, "Copy entry path (relative)");
+        bind_or_fail("cd", "copy_current_dir_relative", ui::Mode::Normal, "Copy current path (relative)");
+        bind_or_fail("cC", "copy_entry_path_absolute", ui::Mode::Normal, "Copy entry path (absolute)");
+        bind_or_fail("cD", "copy_current_dir_absolute", ui::Mode::Normal, "Copy current path (absolute)");
+        bind_or_fail("cf", "copy_file_name", ui::Mode::Normal, "Copy file name");
+        bind_or_fail("cn", "copy_name_without_extension", ui::Mode::Normal, "Copy name without extension");
 
         // Search
-        consumeResult(keymap.bind("/", "search", ui::Mode::Normal, "Search"));
-        consumeResult(keymap.bind("n", "next_match", ui::Mode::Normal, "Next match"));
-        consumeResult(keymap.bind("N", "prev_match", ui::Mode::Normal, "Prev match"));
-        consumeResult(keymap.bind("\\", "clear_search", ui::Mode::Normal, "Clear search"));
+        bind_or_fail("/", "search", ui::Mode::Normal, "Search");
+        bind_or_fail("n", "next_match", ui::Mode::Normal, "Next match");
+        bind_or_fail("N", "prev_match", ui::Mode::Normal, "Prev match");
+        bind_or_fail("\\", "clear_search", ui::Mode::Normal, "Clear search");
 
         // View
-        consumeResult(keymap.bind(".", "toggle_hidden", ui::Mode::Normal, "Toggle the visibility of hidden files"));
-        consumeResult(keymap.bind(",m", "sort_modified", ui::Mode::Normal, "Sort by modified time"));
-        consumeResult(keymap.bind(",M", "sort_modified_desc", ui::Mode::Normal, "Sort by modified time (desc)"));
-        consumeResult(keymap.bind(",b", "sort_birth", ui::Mode::Normal, "Sort by birth time"));
-        consumeResult(keymap.bind(",B", "sort_birth_desc", ui::Mode::Normal, "Sort by birth time (desc)"));
-        consumeResult(keymap.bind(",e", "sort_extension", ui::Mode::Normal, "Sort by extension"));
-        consumeResult(keymap.bind(",E", "sort_extension_desc", ui::Mode::Normal, "Sort by extension (desc)"));
-        consumeResult(keymap.bind(",a", "sort_alpha", ui::Mode::Normal, "Sort alphabetically"));
-        consumeResult(keymap.bind(",A", "sort_alpha_desc", ui::Mode::Normal, "Sort alphabetically (desc)"));
-        consumeResult(keymap.bind(",n", "sort_natural", ui::Mode::Normal, "Sort naturally"));
-        consumeResult(keymap.bind(",N", "sort_natural_desc", ui::Mode::Normal, "Sort naturally (desc)"));
-        consumeResult(keymap.bind(",s", "sort_size", ui::Mode::Normal, "Sort by size"));
-        consumeResult(keymap.bind(",S", "sort_size_desc", ui::Mode::Normal, "Sort by size (desc)"));
+        bind_or_fail(".", "toggle_hidden", ui::Mode::Normal, "Toggle the visibility of hidden files");
+        bind_or_fail(",m", "sort_modified", ui::Mode::Normal, "Sort by modified time");
+        bind_or_fail(",M", "sort_modified_desc", ui::Mode::Normal, "Sort by modified time (desc)");
+        bind_or_fail(",b", "sort_birth", ui::Mode::Normal, "Sort by birth time");
+        bind_or_fail(",B", "sort_birth_desc", ui::Mode::Normal, "Sort by birth time (desc)");
+        bind_or_fail(",e", "sort_extension", ui::Mode::Normal, "Sort by extension");
+        bind_or_fail(",E", "sort_extension_desc", ui::Mode::Normal, "Sort by extension (desc)");
+        bind_or_fail(",a", "sort_alpha", ui::Mode::Normal, "Sort alphabetically");
+        bind_or_fail(",A", "sort_alpha_desc", ui::Mode::Normal, "Sort alphabetically (desc)");
+        bind_or_fail(",n", "sort_natural", ui::Mode::Normal, "Sort naturally");
+        bind_or_fail(",N", "sort_natural_desc", ui::Mode::Normal, "Sort naturally (desc)");
+        bind_or_fail(",s", "sort_size", ui::Mode::Normal, "Sort by size");
+        bind_or_fail(",S", "sort_size_desc", ui::Mode::Normal, "Sort by size (desc)");
 
         // Visual mode
-        consumeResult(keymap.bind("j", "move_down", ui::Mode::Visual, "Move down (visual)"));
-        consumeResult(keymap.bind("k", "move_up", ui::Mode::Visual, "Move up (visual)"));
-        consumeResult(keymap.bind("gg", "go_top", ui::Mode::Visual, "Go to top (visual)"));
-        consumeResult(keymap.bind("G", "go_bottom", ui::Mode::Visual, "Go to bottom (visual)"));
-        consumeResult(keymap.bind("C-d", "page_down", ui::Mode::Visual, "Page down (visual)"));
-        consumeResult(keymap.bind("C-u", "page_up", ui::Mode::Visual, "Page up (visual)"));
-        consumeResult(keymap.bind("y", "yank", ui::Mode::Visual, "Yank selection"));
-        consumeResult(keymap.bind("x", "cut", ui::Mode::Visual, "Cut selection"));
-        consumeResult(keymap.bind("d", "trash", ui::Mode::Visual, "Trash selection"));
-        consumeResult(keymap.bind("D", "delete", ui::Mode::Visual, "Delete selection"));
-        consumeResult(keymap.bind("v", "exit_visual_mode", ui::Mode::Visual, "Exit visual mode"));
-        consumeResult(keymap.bind("<Esc>", "exit_visual_mode", ui::Mode::Visual, "Exit visual mode"));
+        bind_or_fail("j", "move_down", ui::Mode::Visual, "Move down (visual)");
+        bind_or_fail("k", "move_up", ui::Mode::Visual, "Move up (visual)");
+        bind_or_fail("gg", "go_top", ui::Mode::Visual, "Go to top (visual)");
+        bind_or_fail("G", "go_bottom", ui::Mode::Visual, "Go to bottom (visual)");
+        bind_or_fail("C-d", "page_down", ui::Mode::Visual, "Page down (visual)");
+        bind_or_fail("C-u", "page_up", ui::Mode::Visual, "Page up (visual)");
+        bind_or_fail("y", "yank", ui::Mode::Visual, "Yank selection");
+        bind_or_fail("x", "cut", ui::Mode::Visual, "Cut selection");
+        bind_or_fail("d", "trash", ui::Mode::Visual, "Trash selection");
+        bind_or_fail("D", "delete", ui::Mode::Visual, "Delete selection");
+        bind_or_fail("v", "exit_visual_mode", ui::Mode::Visual, "Exit visual mode");
+        bind_or_fail("<Esc>", "exit_visual_mode", ui::Mode::Visual, "Exit visual mode");
 
         // Quit
-        consumeResult(keymap.bind("q", "quit", ui::Mode::Normal, "Quit"));
+        bind_or_fail("q", "quit", ui::Mode::Normal, "Quit");
     }
 
     void setupInputComponents() {
@@ -524,6 +674,8 @@ private:
 
     ftxui::Element render() {
         using namespace ftxui;
+
+        notifications_.expire();
 
         // Keep list viewport in sync with terminal height for threshold scrolling.
         // On first render some terminals report incomplete geometry; ignore tiny values.
@@ -633,10 +785,9 @@ private:
             }
         }
 
-        const std::string sort_status = std::format("[sort:{}{}]", sortFieldToShortName(state.sortField),
-                                                    state.sortDirection == ExplorerState::SortDirection::Descending
-                                                        ? ":desc"
-                                                        : ":asc");
+        const std::string sort_status =
+            std::format("[sort:{}{}]", sortFieldToShortName(state.sortField),
+                        state.sortDirection == ExplorerState::SortDirection::Descending ? ":desc" : ":asc");
         if (search_status.empty()) {
             search_status = sort_status;
         } else {
@@ -673,6 +824,20 @@ private:
         // Overlay dialogs if active
         main_content = renderDialogs(std::move(main_content), state);
 
+        if (const auto& toast = notifications_.current(); toast.has_value()) {
+            auto toast_layer = vbox({
+                filler(),
+                hbox({
+                    filler(),
+                    toast_->render(*toast),
+                }),
+            });
+            main_content = dbox({
+                std::move(main_content),
+                std::move(toast_layer),
+            });
+        }
+
         return main_content;
     }
 
@@ -681,14 +846,15 @@ private:
                             std::string description,
                             ExplorerState::SortField field,
                             ExplorerState::SortDirection direction) {
-        actions.registerAction(std::move(name),
-                               [this, field, direction]([[maybe_unused]] const ui::ActionContext& ctx) {
-                                   explorer_->setSortOrder(field, direction);
-                                   if (keyHandler_.mode() == ui::Mode::Visual) {
-                                       keyHandler_.setMode(ui::Mode::Normal);
-                                   }
-                               },
-                               std::move(description), "View", false);
+        actions.registerAction(
+            std::move(name),
+            [this, field, direction]([[maybe_unused]] const ui::ActionContext& ctx) {
+                explorer_->setSortOrder(field, direction);
+                if (keyHandler_.mode() == ui::Mode::Visual) {
+                    keyHandler_.setMode(ui::Mode::Normal);
+                }
+            },
+            std::move(description), "View", false);
     }
 
     [[nodiscard]] static std::string_view sortFieldToShortName(ExplorerState::SortField field) {
@@ -803,9 +969,12 @@ private:
         // Handle create dialog events
         if (state.showCreateDialog) {
             if (event == Event::Return) {
-                consumeResult(explorer_->create(newNameInput_));
-                explorer_->hideAllDialogs();
-                newNameInput_.clear();
+                const std::string success_message =
+                    newNameInput_.empty() ? std::string{} : std::format("Created '{}'", newNameInput_);
+                if (handleResult(explorer_->create(newNameInput_), success_message)) {
+                    explorer_->hideAllDialogs();
+                    newNameInput_.clear();
+                }
                 return true;
             }
             if (event == Event::Escape) {
@@ -819,9 +988,12 @@ private:
         // Handle rename dialog events
         if (state.showRenameDialog) {
             if (event == Event::Return) {
-                consumeResult(explorer_->rename(renameInput_));
-                explorer_->hideAllDialogs();
-                renameInput_.clear();
+                const std::string success_message =
+                    renameInput_.empty() ? std::string{} : std::format("Renamed to '{}'", renameInput_);
+                if (handleResult(explorer_->rename(renameInput_), success_message)) {
+                    explorer_->hideAllDialogs();
+                    renameInput_.clear();
+                }
                 return true;
             }
             if (event == Event::Escape) {
@@ -835,7 +1007,9 @@ private:
         // Handle delete dialog events
         if (state.showDeleteDialog) {
             if (event == Event::Character('y') || event == Event::Character('Y')) {
-                consumeResult(explorer_->deleteSelected());
+                const int count = selectedCount();
+                (void)handleResult(explorer_->deleteSelected(),
+                                   count > 0 ? std::format("Deleted {}", nounWithCount(count, "item")) : "");
                 if (keyHandler_.mode() == ui::Mode::Visual) {
                     keyHandler_.setMode(ui::Mode::Normal);
                 }
@@ -852,7 +1026,9 @@ private:
         // Handle trash dialog events
         if (state.showTrashDialog) {
             if (event == Event::Character('y') || event == Event::Character('Y')) {
-                consumeResult(explorer_->trashSelected());
+                const int count = selectedCount();
+                (void)handleResult(explorer_->trashSelected(),
+                                   count > 0 ? std::format("Moved {} to trash", nounWithCount(count, "item")) : "");
                 if (keyHandler_.mode() == ui::Mode::Visual) {
                     keyHandler_.setMode(ui::Mode::Normal);
                 }
@@ -887,14 +1063,14 @@ private:
             return true;
         }
         if (event == Event::ArrowLeft) {
-            consumeResult(explorer_->goParent());
+            (void)handleResult(explorer_->goParent());
             if (keyHandler_.mode() == ui::Mode::Visual) {
                 keyHandler_.setMode(ui::Mode::Normal);
             }
             return true;
         }
         if (event == Event::ArrowRight || event == Event::Return) {
-            consumeResult(explorer_->enterSelected(false));
+            (void)handleResult(explorer_->enterSelected(false));
             if (keyHandler_.mode() == ui::Mode::Visual) {
                 keyHandler_.setMode(ui::Mode::Normal);
             }
@@ -909,12 +1085,14 @@ private:
     ftxui::ScreenInteractive screen_;
     const ui::Theme* theme_;
     ui::KeyHandler keyHandler_;
+    NotificationCenter notifications_;
 
     // UI Components
     std::unique_ptr<ui::FileListComponent> fileList_;
     std::unique_ptr<ui::PanelComponent> panel_;
     std::unique_ptr<ui::PreviewComponent> preview_;
     std::unique_ptr<ui::StatusBarComponent> statusBar_;
+    std::unique_ptr<ui::ToastComponent> toast_;
     std::unique_ptr<ui::DialogComponent> dialog_;
 
     // Input components and their buffers
@@ -925,6 +1103,8 @@ private:
     ftxui::Component renameInputComponent_;
     ftxui::Component searchInputComponent_;
 
+    std::vector<std::string> startupWarnings_;
+    std::optional<core::Error> initError_;
     std::atomic_bool running_{false};
     std::jthread refreshTicker_;
 };

@@ -15,9 +15,7 @@ A cross-platform TUI file manager built with C++23, aiming to rival **Yazi** in 
 - **Architecture**: Prefer composition over inheritance; adhere to SOLID principles; zero-overhead abstractions  
 
 ## Code Style (`.clang-format` already configured)  
-- Based on LLVM style: 4-space indentation, 120-column limit  
-- Naming: `PascalCase` for classes, `camelCase` for functions/variables, `SCREAMING_SNAKE_CASE` for macros  
-- Header files: `.hpp`; implementation files: `.cpp`  
+- You can read the `.clang-format` and `.clang-tidy` files in the current project root directory to understand the correct code style.
 
 ## Key Design Patterns  
 1. **RAII**: All resource management must be automated  

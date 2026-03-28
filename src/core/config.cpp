@@ -172,6 +172,18 @@ void load_behavior_config(const toml::table& tbl, BehaviorConfig& behavior) {
     }
 }
 
+void load_notification_config(const toml::table& tbl, NotificationConfig& notifications) {
+    if (auto v = tbl["duration_ms"].value<int64_t>()) {
+        notifications.durationMs = static_cast<int>(*v);
+    }
+    if (auto v = tbl["show_success"].value<bool>()) {
+        notifications.showSuccess = *v;
+    }
+    if (auto v = tbl["show_info"].value<bool>()) {
+        notifications.showInfo = *v;
+    }
+}
+
 toml::table serialize_color_theme(const ColorTheme& theme) {
     toml::table tbl;
     tbl.insert("name", theme.name);
@@ -236,6 +248,14 @@ toml::table serialize_behavior_config(const BehaviorConfig& behavior) {
     tbl.insert("sort_directories_first", behavior.sortDirectoriesFirst);
     tbl.insert("case_sensitive_search", behavior.caseSensitiveSearch);
     tbl.insert("key_timeout_ms", static_cast<int64_t>(behavior.keyTimeoutMs));
+    return tbl;
+}
+
+toml::table serialize_notification_config(const NotificationConfig& notifications) {
+    toml::table tbl;
+    tbl.insert("duration_ms", static_cast<int64_t>(notifications.durationMs));
+    tbl.insert("show_success", notifications.showSuccess);
+    tbl.insert("show_info", notifications.showInfo);
     return tbl;
 }
 
@@ -321,6 +341,10 @@ VoidResult ConfigManager::loadFrom(const std::filesystem::path& path) {
         load_behavior_config(*behavior, cfg.behavior);
     }
 
+    if (auto *notifications = tbl["notifications"].as_table()) {
+        load_notification_config(*notifications, cfg.notifications);
+    }
+
     // Note: [keys] section is handled separately by KeyMap::loadFromFile()
     // because keybindings need the ActionRegistry context.
 
@@ -359,6 +383,7 @@ VoidResult ConfigManager::save() const {
         root.insert("preview", serialize_preview_config(impl_->config.preview));
         root.insert("layout", serialize_layout_config(impl_->config.layout));
         root.insert("behavior", serialize_behavior_config(impl_->config.behavior));
+        root.insert("notifications", serialize_notification_config(impl_->config.notifications));
     }
 
     std::ofstream ofs(path);

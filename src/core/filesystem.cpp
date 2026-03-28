@@ -169,13 +169,13 @@ bool is_executable(const fs::path& filepath) noexcept {
 
         std::ranges::transform(ext, ext.begin(), ::toupper);
 
-        size_t required_size;
+        size_t required_size{};
         char* pathext_buffer = nullptr;
         _dupenv_s(&pathext_buffer, &required_size, "PATHEXT");
 
         std::string pathext = pathext_buffer ? pathext_buffer : ".COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF";
         if (pathext_buffer) {
-            free(pathext_buffer);
+            free(pathext_buffer); // NOLINT
         }
 
         size_t pos = pathext.find(ext);
@@ -417,13 +417,13 @@ VoidResult move_to_trash(const fs::path& path) {
     }
 
 #ifdef _WIN32
-    std::wstring doubleNullPath = path.wstring() + L'\0';
-    SHFILEOPSTRUCTW fileOp = {};
-    fileOp.wFunc = FO_DELETE;
-    fileOp.pFrom = doubleNullPath.c_str();
-    fileOp.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
+    std::wstring double_null_path = path.wstring() + L'\0';
+    SHFILEOPSTRUCTW file_op = {};
+    file_op.wFunc = FO_DELETE;
+    file_op.pFrom = double_null_path.c_str();
+    file_op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
 
-    if (SHFileOperationW(&fileOp) != 0 || fileOp.fAnyOperationsAborted) {
+    if (SHFileOperationW(&file_op) != 0 || file_op.fAnyOperationsAborted) {
         return make_error(ErrorCategory::System, std::format("Failed to move to Recycle Bin: {}", path.string()));
     }
 #else
@@ -483,6 +483,8 @@ VoidResult open_with_default(const fs::path& path) {
 //     }
 
 // }
+
+
 [[nodiscard]] Result<std::vector<std::string>> read_preview(const fs::path& path, int max_lines) {
     std::vector<std::string> lines;
 
