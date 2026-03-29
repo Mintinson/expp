@@ -1,19 +1,24 @@
 #include "expp/ui/components.hpp"
 
+#include <algorithm>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/terminal.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <format>
 #include <memory>
+#include <ranges>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include <expp/core/filesystem.hpp>
 #include <expp/ui/theme.hpp>
+
 
 namespace expp::ui {
 
@@ -247,6 +252,309 @@ void ToastComponent::setTheme(const Theme* theme) {
 }
 
 // ============================================================================
+// HelpMenu helpers and component
+// ============================================================================
+
+namespace {
+
+[[nodiscard]] std::string key_sequence_to_string(const expp::ui::KeyBinding& binding) {
+    std::string rendered;
+    for (const auto& key : binding.sequence) {
+        rendered += expp::ui::key_to_string(key);
+    }
+    return rendered;
+}
+
+/**
+ * @brief Converts a string to lowercase
+ *
+ * @param text Input string
+ * @return std::string Lowercase copy of the input string
+ */
+[[nodiscard]] std::string lowercase_copy(std::string_view text) {
+    return text | std::views::transform([](auto ch) { return static_cast<char>(std::tolower(ch)); }) |
+           std::ranges::to<std::string>();
+}
+
+}  // namespace
+
+std::vector<HelpEntry> build_help_entries(std::span<const Action> actions, std::span<const KeyBinding> bindings) {
+    std::unordered_map<std::string_view, const Action*> action_index;
+    action_index.reserve(actions.size());
+    for (const auto& action : actions) {
+        action_index.emplace(action.name, std::addressof(action));
+    }
+
+    std::vector<HelpEntry> entries;
+    entries.reserve(bindings.size());
+
+    for (const auto& binding : bindings) {
+        const auto action_it = action_index.find(binding.actionName);
+        if (action_it == action_index.end()) {
+            continue;
+        }
+
+        const auto& action = *action_it->second;
+        entries.push_back(HelpEntry{
+            .category = action.category,
+            .shortcut = key_sequence_to_string(binding),
+            .description = binding.description.empty()
+                               ? action.description
+                               : binding.description,  // override with binding description if provided
+            .mode = binding.mode,
+        });
+    }
+
+    // category > mode > shortcut > description
+    std::ranges::sort(entries, [](const HelpEntry& lhs, const HelpEntry& rhs) {
+        if (lhs.category != rhs.category) {
+            return lhs.category < rhs.category;
+        }
+        if (lhs.mode != rhs.mode) {
+            return static_cast<int>(lhs.mode) < static_cast<int>(rhs.mode);
+        }
+        if (lhs.shortcut != rhs.shortcut) {
+            return lhs.shortcut < rhs.shortcut;
+        }
+        return lhs.description < rhs.description;
+    });
+    return entries;
+}
+
+std::vector<HelpEntry> filter_help_entries(std::span<const HelpEntry> entries, std::string_view filter) {
+    // TODO: it is necessary to have entries copy? Can we do lazy filtering with views instead?
+    const std::string normalized_filter = lowercase_copy(filter);
+    if (normalized_filter.empty()) {
+        return {entries.begin(), entries.end()};
+    }
+    auto filter_pred = [&normalized_filter](const HelpEntry& entry) {
+        const std::string normalized_shortcut = lowercase_copy(entry.shortcut);
+        const std::string normalized_description = lowercase_copy(entry.description);
+        return normalized_shortcut.contains(normalized_filter) || normalized_description.contains(normalized_filter);
+    };
+    return entries | std::views::filter(filter_pred) | std::ranges::to<std::vector>();
+
+    // std::vector<HelpEntry> filtered;
+    // filtered.reserve(entries.size());
+    // for (const auto& entry : entries) {
+    //     const std::string normalized_shortcut = lowercase_copy(entry.shortcut);
+    //     const std::string normalized_description = lowercase_copy(entry.description);
+    //     if (normalized_shortcut.contains(normalized_filter) || normalized_description.contains(normalized_filter)) {
+    //         filtered.push_back(entry);
+    //     }
+    // }
+    // return filtered;
+}
+
+HelpViewport clamp_help_viewport(HelpViewport viewport, std::size_t entry_count) {
+    viewport.viewportRows = std::max(1, viewport.viewportRows);
+    if (entry_count == 0U) {
+        viewport.selectedIndex = 0;
+        viewport.scrollOffset = 0;
+        return viewport;
+    }
+
+    const int last_index = static_cast<int>(entry_count) - 1;
+    viewport.selectedIndex = std::clamp(viewport.selectedIndex, 0, last_index);
+
+    const int max_offset = std::max(0, static_cast<int>(entry_count) - viewport.viewportRows);
+
+    // Keep selection within the visible window using 25/75 thresholds
+    const int top_margin = viewport.viewportRows / 4;
+    const int bottom_margin = (viewport.viewportRows * 3) / 4;
+
+    // If selection is above the visible top margin, scroll up
+    if (viewport.selectedIndex < viewport.scrollOffset + top_margin) {
+        viewport.scrollOffset = std::max(0, viewport.selectedIndex - top_margin);
+    }
+
+    // If selection is below the visible bottom margin, scroll down
+    if (viewport.selectedIndex >= viewport.scrollOffset + bottom_margin) {
+        viewport.scrollOffset = viewport.selectedIndex - bottom_margin + 1;
+    }
+
+    // Hard guarantee: selected index must be within [scrollOffset, scrollOffset + viewportRows)
+    viewport.scrollOffset = std::min(viewport.selectedIndex, viewport.scrollOffset);
+    if (viewport.selectedIndex >= viewport.scrollOffset + viewport.viewportRows) {
+        viewport.scrollOffset = viewport.selectedIndex - viewport.viewportRows + 1;
+    }
+
+    viewport.scrollOffset = std::clamp(viewport.scrollOffset, 0, max_offset);
+    return viewport;
+}
+
+struct HelpMenuComponent::Impl {
+public:
+    static constexpr int kCursorWidth = 3;
+    static constexpr int kCategoryWidth = 16;
+    static constexpr int kShortcutWidth = 14;
+    static constexpr int kModeWidth = 10;
+
+    explicit Impl(const Theme* in_theme) : theme(in_theme) {}
+
+    const Theme* theme;
+
+    [[nodiscard]] static std::string modeLabel(Mode mode) {
+        if (mode == Mode::Normal) {
+            return {};
+        }
+        std::string label{mode_to_name(mode)};
+        if (!label.empty()) {
+            label.front() = static_cast<char>(std::toupper(static_cast<unsigned char>(label.front())));
+        }
+        return std::format("[{}]", label);
+    }
+
+    [[nodiscard]] static ftxui::Element makeCell(ftxui::Element element, int width) {
+        using namespace ftxui;
+        return std::move(element) | size(WIDTH, EQUAL, width);
+    }
+
+    [[nodiscard]] ftxui::Element themedSeparator() const {
+        return ftxui::separator() | ftxui::color(theme->getBorderColor());
+    }
+
+    [[nodiscard]] ftxui::Element render(std::span<const HelpEntry> entries,
+                                        std::string_view filter_text,
+                                        bool filter_mode,
+                                        HelpViewport viewport) const {
+        using namespace ftxui;
+
+        const HelpViewport clamped = clamp_help_viewport(viewport, entries.size());
+        const int visible_begin = clamped.scrollOffset;
+
+        // Compute visible_end dynamically: category headers consume a row each
+        int rows_remaining = clamped.viewportRows;
+        int visible_end = visible_begin;
+        for (int i = visible_begin; i < static_cast<int>(entries.size()) && rows_remaining > 0; ++i) {
+            bool has_header =
+                (i == visible_begin) || (entries[static_cast<size_t>(i - 1)].category != entries[static_cast<size_t>(i)].category);
+            int cost = has_header ? 2 : 1;
+            if (rows_remaining < cost && visible_end > visible_begin) {
+                break;
+            }
+            rows_remaining -= cost;
+            visible_end = i + 1;
+        }
+
+        // Count actual visual rows for sizing
+        int body_rows = clamped.viewportRows - rows_remaining;
+
+        Elements body;
+        if (entries.empty()) {
+            body.push_back(text("[No matching shortcuts]") | dim | center | color(theme->getForegroundColor()));
+        } else {
+            for (int index = visible_begin; index < visible_end; ++index) {
+                const auto& entry = entries[static_cast<size_t>(index)];
+                const bool show_category =
+                    index == visible_begin || entries[static_cast<size_t>(index - 1)].category != entry.category;
+                const bool is_selected = index == clamped.selectedIndex;
+
+                if (show_category) {
+                    body.push_back(separatorLight() | color(theme->getBorderColor()));
+                    // Category label overlaid on the separator line — not an extra row
+                }
+
+                Elements row;
+                row.push_back(
+                    makeCell(text(is_selected ? " > " : "   ") | bold | color(theme->getBorderColor()), kCursorWidth));
+
+                // Show category badge on first entry of each group
+                if (show_category) {
+                    row.push_back(
+                        makeCell(text(entry.category) | bold | color(theme->getSearchHighlightColor()), kCategoryWidth));
+                } else {
+                    row.push_back(makeCell(text(""), kCategoryWidth));
+                }
+
+                row.push_back(
+                    makeCell(text(entry.shortcut) | bold | color(theme->getForegroundColor()), kShortcutWidth));
+
+                const std::string mode_label = modeLabel(entry.mode);
+                if (!mode_label.empty()) {
+                    row.push_back(makeCell(text(mode_label) | dim | color(theme->getBorderColor()), kModeWidth));
+                } else {
+                    row.push_back(makeCell(text(""), kModeWidth));
+                }
+
+                row.push_back(text(" "));
+                row.push_back(text(entry.description) | color(theme->getForegroundColor()) | flex);
+
+                auto row_element = hbox(std::move(row));
+                if (is_selected) {
+                    row_element |= bgcolor(theme->getSelectionColor());
+                } else {
+                    row_element |= bgcolor(theme->getBackgroundColor());
+                }
+
+                body.push_back(std::move(row_element));
+            }
+        }
+
+        const std::string filter_label = filter_text.empty() ? "<none>" : std::string{filter_text};
+        const std::string selection_label =
+            entries.empty() ? "0/0" : std::format("{}/{}", clamped.selectedIndex + 1, entries.size());
+        auto filter_value = text(filter_label);
+        if (filter_mode) {
+            filter_value = std::move(filter_value) | color(theme->getBorderColor()) | bold;
+        } else {
+            filter_value = std::move(filter_value) | color(theme->getForegroundColor()) | dim;
+        }
+
+        auto header_row = hbox({
+                              makeCell(text(""), kCursorWidth),
+                              makeCell(text("Category") | bold | color(theme->getForegroundColor()), kCategoryWidth),
+                              makeCell(text("Shortcut") | bold | color(theme->getForegroundColor()), kShortcutWidth),
+                              makeCell(text("Mode") | bold | color(theme->getForegroundColor()), kModeWidth),
+                              text(" Description") | bold | color(theme->getForegroundColor()),
+                          }) |
+                          bgcolor(theme->getStatusBarColor());
+
+        static constexpr int kChromeRows = 8;
+        return vbox({
+                   text("Keyboard Shortcuts") | bold | center | color(theme->getForegroundColor()) |
+                       bgcolor(theme->getStatusBarColor()),
+                   themedSeparator(),
+                   std::move(header_row),
+                   themedSeparator(),
+                   hbox({
+                       text(" Filter: ") | bold | color(theme->getForegroundColor()) |
+                           bgcolor(theme->getStatusBarColor()),
+                       std::move(filter_value),
+                       filler(),
+                       text(selection_label) | color(theme->getForegroundColor()) | dim |
+                           bgcolor(theme->getStatusBarColor()),
+                   }) | bgcolor(theme->getStatusBarColor()),
+                   themedSeparator(),
+                   vbox(std::move(body)) | flex | bgcolor(theme->getBackgroundColor()),
+                   themedSeparator(),
+                   text("[j/k] Move  [f] Filter  [Enter] Done  [Esc/~] Close") | dim |
+                       color(theme->getForegroundColor()) | bgcolor(theme->getStatusBarColor()) | center,
+               }) |
+               borderRounded | color(theme->getBorderColor()) | bgcolor(theme->getBackgroundColor()) |
+               size(WIDTH, EQUAL, 104) | size(HEIGHT, EQUAL, body_rows + kChromeRows);
+    }
+};
+
+HelpMenuComponent::HelpMenuComponent(const Theme* theme) : impl_(std::make_unique<Impl>(theme)) {}
+
+HelpMenuComponent::~HelpMenuComponent() = default;
+
+HelpMenuComponent::HelpMenuComponent(HelpMenuComponent&&) noexcept = default;
+HelpMenuComponent& HelpMenuComponent::operator=(HelpMenuComponent&&) noexcept = default;
+
+ftxui::Element HelpMenuComponent::render(std::span<const HelpEntry> entries,
+                                         std::string_view filter_text,
+                                         bool filter_mode,
+                                         HelpViewport viewport) const {
+    return impl_->render(entries, filter_text, filter_mode, viewport);
+}
+
+void HelpMenuComponent::setTheme(const Theme* theme) {
+    impl_->theme = theme;
+}
+
+// ============================================================================
 // DialogComponent Implementation
 // ============================================================================
 struct DialogComponent::Impl {
@@ -449,8 +757,7 @@ public:
 
         if (lines.size() > static_cast<size_t>(max_lines)) {
             elements.push_back(
-                text("... (" + std::to_string(lines.size() - static_cast<size_t>(max_lines)) + " more lines)") |
-                dim);
+                text("... (" + std::to_string(lines.size() - static_cast<size_t>(max_lines)) + " more lines)") | dim);
         }
 
         return vbox(std::move(elements));

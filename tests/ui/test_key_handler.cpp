@@ -76,3 +76,18 @@ move_down = "j"
 
     CHECK_FALSE(result.has_value());
 }
+
+TEST_CASE("KeyMap loadDefaults includes directory jump and help bindings", "[ui][keymap]") {
+    expp::ui::KeyMap keymap;
+    keymap.loadDefaults();
+
+    CHECK(keymap.findExact({expp::ui::Key::fromChar('g'), expp::ui::Key::fromChar('h')}, expp::ui::Mode::Normal) !=
+          nullptr);
+    CHECK(keymap.findExact({expp::ui::Key::fromChar('g'), expp::ui::Key::fromChar('c')}, expp::ui::Mode::Normal) !=
+          nullptr);
+    CHECK(keymap.findExact({expp::ui::Key::fromChar('g'), expp::ui::Key::fromChar('l')}, expp::ui::Mode::Normal) !=
+          nullptr);
+    CHECK(keymap.findExact({expp::ui::Key::fromChar('g'), expp::ui::Key::fromChar(':')}, expp::ui::Mode::Normal) !=
+          nullptr);
+    CHECK(keymap.findExact({expp::ui::Key::fromChar('~')}, expp::ui::Mode::Normal) != nullptr);
+}

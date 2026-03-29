@@ -17,6 +17,7 @@
 #define EXPP_UI_COMPONENTS_HPP
 
 #include "expp/core/filesystem.hpp"
+#include "expp/ui/key_handler.hpp"
 #include "expp/ui/theme.hpp"
 
 #include <ftxui/dom/node.hpp>
@@ -29,9 +30,6 @@
 #include <vector>
 
 namespace expp::ui {
-
-
-
 
 // ============================================================================
 // FileListComponent: Renders a list of files with styling
@@ -156,6 +154,73 @@ public:
     ToastComponent& operator=(const ToastComponent&) = delete;
 
     [[nodiscard]] ftxui::Element render(const ToastInfo& toast) const;
+
+    void setTheme(const Theme* theme);
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+// ============================================================================
+// HelpMenuComponent: Keyboard shortcut reference
+// ============================================================================
+
+struct HelpEntry {
+    std::string category;
+    std::string shortcut;
+    std::string description;
+    Mode mode{Mode::Normal};
+};
+
+struct HelpViewport {
+    int selectedIndex{0};
+    int scrollOffset{0};
+    int viewportRows{12};
+};
+
+/**
+ * @brief Builds help entries from actions and key bindings
+ *
+ * @param actions List of actions
+ * @param bindings List of key bindings
+ * @return std::vector<HelpEntry> List of help entries
+ */
+[[nodiscard]] std::vector<HelpEntry> build_help_entries(std::span<const Action> actions,
+                                                        std::span<const KeyBinding> bindings);
+
+/**
+ * @brief Filters help entries based on a search term
+ * @param entries List of help entries
+ * @param filter Search term
+ * @return std::vector<HelpEntry> Filtered list of help entries
+ *
+ * @todo it is necessary to have entries copy? Can we do lazy filtering with views instead?
+ */
+[[nodiscard]] std::vector<HelpEntry> filter_help_entries(std::span<const HelpEntry> entries, std::string_view filter);
+
+/**
+ * @brief Clamps the help viewport to the valid range
+ * @param viewport The current viewport
+ * @param entry_count The total number of help entries
+ * @return HelpViewport The clamped viewport
+ */
+[[nodiscard]] HelpViewport clamp_help_viewport(HelpViewport viewport, std::size_t entry_count);
+
+class HelpMenuComponent {
+public:
+    explicit HelpMenuComponent(const Theme* theme = &global_theme());
+    ~HelpMenuComponent();
+
+    HelpMenuComponent(HelpMenuComponent&&) noexcept;
+    HelpMenuComponent& operator=(HelpMenuComponent&&) noexcept;
+    HelpMenuComponent(const HelpMenuComponent&) = delete;
+    HelpMenuComponent& operator=(const HelpMenuComponent&) = delete;
+
+    [[nodiscard]] ftxui::Element render(std::span<const HelpEntry> entries,
+                                        std::string_view filter_text,
+                                        bool filter_mode,
+                                        HelpViewport viewport) const;
 
     void setTheme(const Theme* theme);
 

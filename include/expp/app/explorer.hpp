@@ -141,6 +141,12 @@ public:
     [[nodiscard]] core::VoidResult goParent();
 
     /**
+     * @brief Navigates to the selected symlink target directory
+     * @return Success or Error
+     */
+    [[nodiscard]] core::VoidResult navigateToSelectedLinkTargetDirectory();
+
+    /**
      * @brief Enters selected item (directory or opens file)
      * @param openFile If true, opens files with default app
      * @return Success or Error

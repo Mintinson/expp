@@ -492,6 +492,10 @@ void KeyMap::loadDefaults() {
 
     // Jump
     (void)bind("gg", "go_top", Mode::Normal);
+    (void)bind("gh", "go_home_directory", Mode::Normal);
+    (void)bind("gc", "go_config_directory", Mode::Normal);
+    (void)bind("gl", "go_link_target_directory", Mode::Normal);
+    (void)bind("g:", "prompt_directory_jump", Mode::Normal);
     (void)bind("G", "go_bottom", Mode::Normal);
     (void)bind("C-d", "page_down", Mode::Normal);
     (void)bind("C-u", "page_up", Mode::Normal);
@@ -501,7 +505,7 @@ void KeyMap::loadDefaults() {
     (void)bind("<End>", "go_bottom", Mode::Normal);
 
     // File operations
-    (void)bind("o", "open_selected", Mode::Normal);
+    (void)bind("o", "open_file", Mode::Normal);
     (void)bind("<Enter>", "enter_selected", Mode::Normal);
     (void)bind("a", "create", Mode::Normal);
     (void)bind("r", "rename", Mode::Normal);
@@ -516,6 +520,7 @@ void KeyMap::loadDefaults() {
 
     // Mode switching
     (void)bind("<Esc>", "quit", Mode::Normal);
+    (void)bind("~", "open_help", Mode::Normal);
     (void)bind("q", "quit", Mode::Normal);
 
     // Insert mode

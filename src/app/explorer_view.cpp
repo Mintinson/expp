@@ -16,6 +16,7 @@
 
 #include "expp/app/explorer_view.hpp"
 
+#include "expp/app/navigation_utils.hpp"
 #include "expp/app/notification_center.hpp"
 #include "expp/core/config.hpp"
 #include "expp/ui/components.hpp"
@@ -32,6 +33,7 @@
 // clang-format on
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <format>
@@ -56,7 +58,15 @@ public:
     static constexpr int kRootLayoutRows = 2;  // Main separator + status bar
     static constexpr int kPanelDecorRows = 4;  // Border(top/bottom) + title + separator
     static constexpr auto kRefreshInterval = std::chrono::milliseconds(120);
+    static constexpr int kHelpViewportPaddingRows = 10;
     constexpr static int kKeyTimeoutMs = 1000;
+
+    struct HelpState {
+        bool open{false};
+        bool filterMode{false};
+        std::string filterText;
+        ui::HelpViewport viewport;
+    };
 
     explicit Impl(std::shared_ptr<Explorer> explorer)
         : explorer_{std::move(explorer)}
@@ -80,6 +90,7 @@ public:
         }
 
         setupInputComponents();
+        rebuildHelpEntries();
     }
 
     int run() {
@@ -145,7 +156,8 @@ private:
 
     /**
      * @brief Get the number of selected items, accounting for visual mode if active
-     * @return The number of selected items (1 if visual mode is inactive, otherwise the count of visually selected items)
+     * @return The number of selected items (1 if visual mode is inactive, otherwise the count of visually selected
+     * items)
      */
     [[nodiscard]] int selectedCount() const noexcept {
         const auto& state = explorer_->state();
@@ -230,6 +242,149 @@ private:
         return std::format("Skipped {} key bindings: {}", warnings.size(), preview);
     }
 
+    [[nodiscard]] static bool isBlank(std::string_view text) {
+        return std::ranges::all_of(text, [](unsigned char ch) { return std::isspace(ch) != 0; });
+    }
+
+    void rebuildHelpEntries() {
+        helpEntries_ = ui::build_help_entries(keyHandler_.actions().actions(), keyHandler_.keymap().bindings());
+        applyHelpFilter();
+    }
+
+    void applyHelpFilter() {
+        filteredHelpEntries_ = ui::filter_help_entries(helpEntries_, helpState_.filterText);
+        helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_.size());
+    }
+
+    void openHelp() {
+        helpState_ = {};
+        helpState_.open = true;
+        helpState_.viewport.viewportRows = std::clamp(screen_.dimy() - kHelpViewportPaddingRows, 12, 28);
+        helpFilterInputComponent_->TakeFocus();
+        applyHelpFilter();
+    }
+
+    void closeHelp() {
+        helpState_ = {};
+        filteredHelpEntries_.clear();
+    }
+
+    void openDirectoryJumpDialog() {
+        showDirectoryJumpDialog_ = true;
+        directoryJumpInput_.clear();
+        directoryJumpInputComponent_->TakeFocus();
+    }
+
+    void closeDirectoryJumpDialog() {
+        showDirectoryJumpDialog_ = false;
+        directoryJumpInput_.clear();
+    }
+
+    void moveHelpSelection(int delta) {
+        if (filteredHelpEntries_.empty()) {
+            helpState_.viewport.selectedIndex = 0;
+            helpState_.viewport.scrollOffset = 0;
+            return;
+        }
+
+        helpState_.viewport.selectedIndex =
+            std::clamp(helpState_.viewport.selectedIndex + delta, 0, static_cast<int>(filteredHelpEntries_.size()) - 1);
+        helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_.size());
+    }
+
+    [[nodiscard]] bool navigateToHomeDirectory() {
+        auto home_result = resolve_home_directory();
+        if (!home_result) {
+            notifications_.publish(severity_for_error(home_result.error()), home_result.error().message());
+            return false;
+        }
+
+        return handleResult(explorer_->navigateTo(*home_result));
+    }
+
+    [[nodiscard]] bool navigateToConfigDirectory() {
+        const auto config_dir = core::ConfigManager::userConfigPath().parent_path();
+        if (config_dir.empty()) {
+            notifications_.publish(ui::ToastSeverity::Warning, "Config directory is not available");
+            return false;
+        }
+        return handleResult(explorer_->navigateTo(config_dir));
+    }
+
+    [[nodiscard]] bool navigateToTypedDirectory() {
+        auto resolved_path = resolve_directory_input(directoryJumpInput_, explorer_->state().currentDir);
+        if (!resolved_path) {
+            notifications_.publish(severity_for_error(resolved_path.error()), resolved_path.error().message());
+            return false;
+        }
+        return handleResult(explorer_->navigateTo(*resolved_path));
+    }
+
+    [[nodiscard]] bool handleDirectoryJumpDialogEvent(const ftxui::Event& event) {
+        using namespace ftxui;
+
+        if (event == Event::Return) {
+            if (isBlank(directoryJumpInput_)) {
+                closeDirectoryJumpDialog();
+                return true;
+            }
+
+            if (navigateToTypedDirectory()) {
+                closeDirectoryJumpDialog();
+            }
+            return true;
+        }
+        if (event == Event::Escape) {
+            closeDirectoryJumpDialog();
+            return true;
+        }
+        return directoryJumpInputComponent_->OnEvent(event);
+    }
+
+    [[nodiscard]] bool handleHelpEvent(const ftxui::Event& event) {
+        using namespace ftxui;
+
+        if (event == Event::Custom) {
+            return false;
+        }
+
+        if (helpState_.filterMode) {
+            if (event == Event::Return) {
+                helpState_.filterMode = false;
+                return true;
+            }
+            if (event == Event::Escape) {
+                helpState_.filterMode = false;
+                return true;
+            }
+
+            const bool handled = helpFilterInputComponent_->OnEvent(event);
+            if (handled) {
+                applyHelpFilter();
+            }
+            return handled;
+        }
+
+        if (event == Event::Character('~') || event == Event::Escape) {
+            closeHelp();
+            return true;
+        }
+        if (event == Event::Character('j') || event == Event::ArrowDown) {
+            moveHelpSelection(1);
+            return true;
+        }
+        if (event == Event::Character('k') || event == Event::ArrowUp) {
+            moveHelpSelection(-1);
+            return true;
+        }
+        if (event == Event::Character('f')) {
+            helpState_.filterMode = true;
+            helpFilterInputComponent_->TakeFocus();
+            return true;
+        }
+        return true;
+    }
+
     /**
      * @brief Setup reusable UI components
      */
@@ -248,6 +403,7 @@ private:
 
         statusBar_ = std::make_unique<ui::StatusBarComponent>(theme_);
         toast_ = std::make_unique<ui::ToastComponent>(theme_);
+        helpMenu_ = std::make_unique<ui::HelpMenuComponent>(theme_);
 
         dialog_ = std::make_unique<ui::DialogComponent>();
         dialog_->setTheme(theme_);
@@ -314,6 +470,37 @@ private:
         actions.registerAction(
             "page_up", [this](const ui::ActionContext& ctx) { explorer_->moveUp(kPageStep * ctx.count); },
             "Scroll up half page", "Navigation", true);
+        actions.registerAction(
+            "go_home_directory",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                (void)navigateToHomeDirectory();
+                if (keyHandler_.mode() == ui::Mode::Visual) {
+                    keyHandler_.setMode(ui::Mode::Normal);
+                }
+            },
+            "Navigate to home directory", "Navigation", false);
+        actions.registerAction(
+            "go_config_directory",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                (void)navigateToConfigDirectory();
+                if (keyHandler_.mode() == ui::Mode::Visual) {
+                    keyHandler_.setMode(ui::Mode::Normal);
+                }
+            },
+            "Navigate to expp config directory", "Navigation", false);
+        actions.registerAction(
+            "go_link_target_directory",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
+                (void)handleResult(explorer_->navigateToSelectedLinkTargetDirectory());
+                if (keyHandler_.mode() == ui::Mode::Visual) {
+                    keyHandler_.setMode(ui::Mode::Normal);
+                }
+            },
+            "Navigate to selected link target directory", "Navigation", false);
+        actions.registerAction(
+            "prompt_directory_jump",
+            [this]([[maybe_unused]] const ui::ActionContext& ctx) { openDirectoryJumpDialog(); },
+            "Open directory jump prompt", "Navigation", false);
 
         actions.registerAction(
             "enter_visual_mode",
@@ -534,6 +721,9 @@ private:
 
         // Application control
         actions.registerAction(
+            "open_help", [this]([[maybe_unused]] const ui::ActionContext& ctx) { openHelp(); }, "Open help menu",
+            "Help", false);
+        actions.registerAction(
             "quit", [this]([[maybe_unused]] const ui::ActionContext& ctx) { screen_.Exit(); }, "Quit application",
             "Application", false);
     }
@@ -559,6 +749,10 @@ private:
         bind_or_fail("h", "go_parent", ui::Mode::Normal, "Go to parent");
         bind_or_fail("l", "enter_selected", ui::Mode::Normal, "Enter/open");
         bind_or_fail("gg", "go_top", ui::Mode::Normal, "Go to top");
+        bind_or_fail("gh", "go_home_directory", ui::Mode::Normal, "Go to home directory");
+        bind_or_fail("gc", "go_config_directory", ui::Mode::Normal, "Go to config directory");
+        bind_or_fail("gl", "go_link_target_directory", ui::Mode::Normal, "Go to link target directory");
+        bind_or_fail("g:", "prompt_directory_jump", ui::Mode::Normal, "Jump to directory");
         bind_or_fail("G", "go_bottom", ui::Mode::Normal, "Go to bottom");
         bind_or_fail("v", "enter_visual_mode", ui::Mode::Normal, "Enter visual mode");
 
@@ -621,6 +815,7 @@ private:
         bind_or_fail("<Esc>", "exit_visual_mode", ui::Mode::Visual, "Exit visual mode");
 
         // Quit
+        bind_or_fail("~", "open_help", ui::Mode::Normal, "Open help");
         bind_or_fail("q", "quit", ui::Mode::Normal, "Quit");
     }
 
@@ -670,6 +865,32 @@ private:
             return state.element;
         };
         searchInputComponent_ = Input(&searchInput_, "pattern", search_input_option);
+
+        auto directory_jump_input_option = InputOption::Default();
+        directory_jump_input_option.multiline = false;
+        directory_jump_input_option.transform = [](InputState state) {
+            if (state.is_placeholder) {
+                state.element |= dim;
+            }
+            if (state.focused) {
+                state.element |= color(Color::GreenLight);
+            }
+            return state.element;
+        };
+        directoryJumpInputComponent_ = Input(&directoryJumpInput_, "~/path/to/dir", directory_jump_input_option);
+
+        auto help_filter_input_option = InputOption::Default();
+        help_filter_input_option.multiline = false;
+        help_filter_input_option.transform = [](InputState state) {
+            if (state.is_placeholder) {
+                state.element |= dim;
+            }
+            if (state.focused) {
+                state.element |= color(Color::Yellow);
+            }
+            return state.element;
+        };
+        helpFilterInputComponent_ = Input(&helpState_.filterText, "shortcut or description", help_filter_input_option);
     }
 
     ftxui::Element render() {
@@ -801,11 +1022,15 @@ private:
         status_info.currentPath = state.currentDir.string();
         status_info.keyBuffer = keyHandler_.buffer();
         status_info.searchStatus = std::move(search_status);
-        // TODO: Dynamic help text based on mode and available actions
-        if (keyHandler_.mode() == ui::Mode::Visual) {
+        if (helpState_.open) {
+            status_info.helpText = "HELP: j/k move, f filter, Enter done, Esc/~ close";
+        } else if (showDirectoryJumpDialog_) {
+            status_info.helpText = "JUMP: Enter confirm, Esc cancel";
+        } else if (keyHandler_.mode() == ui::Mode::Visual) {
             status_info.helpText = "VISUAL: j/k range, y/x copy-cut, d/D trash-delete, v/Esc exit";
         } else {
-            status_info.helpText = "j/k move, h/l nav, v visual, ,m|,b|,e|,a|,n|,s sort, Y/X cancel, q quit";
+            status_info.helpText =
+                "j/k move, h/l nav, gh/gc/gl/g: jump, ~ help, v visual, ,m|,b|,e|,a|,n|,s sort, q quit";
         }
 
         if (state.visualModeActive) {
@@ -879,6 +1104,29 @@ private:
     ftxui::Element renderDialogs(ftxui::Element base_content, const ExplorerState& state) {
         using namespace ftxui;
 
+        if (helpState_.open) {
+            helpState_.viewport.viewportRows = std::clamp(screen_.dimy() - kHelpViewportPaddingRows, 12, 28);
+            helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_.size());
+
+            auto help_elem = helpMenu_->render(filteredHelpEntries_, helpState_.filterText, helpState_.filterMode,
+                                               helpState_.viewport);
+
+            return dbox({
+                std::move(base_content) | dim,
+                std::move(help_elem) | clear_under | center,
+            });
+        }
+
+        if (showDirectoryJumpDialog_) {
+            auto dialog_elem = dialog_->renderInput(
+                "Jump To Directory", "Enter a path, or use ~ for home:", directoryJumpInputComponent_->Render());
+
+            return dbox({
+                std::move(base_content) | dim,
+                std::move(dialog_elem) | clear_under | center,
+            });
+        }
+
         // Show delete confirmation dialog
         if (state.showDeleteDialog) {
             auto dialog_elem = dialog_->renderConfirmation("Delete Confirmation", "Are you sure you want to delete:",
@@ -946,6 +1194,14 @@ private:
     bool handleEvent(const ftxui::Event& event) {
         using namespace ftxui;
         const auto& state = explorer_->state();
+
+        if (helpState_.open) {
+            return handleHelpEvent(event);
+        }
+
+        if (showDirectoryJumpDialog_) {
+            return handleDirectoryJumpDialogEvent(event);
+        }
 
         // if (event == Event::Special({0})) {
         //     return true;
@@ -1093,15 +1349,24 @@ private:
     std::unique_ptr<ui::PreviewComponent> preview_;
     std::unique_ptr<ui::StatusBarComponent> statusBar_;
     std::unique_ptr<ui::ToastComponent> toast_;
+    std::unique_ptr<ui::HelpMenuComponent> helpMenu_;
     std::unique_ptr<ui::DialogComponent> dialog_;
 
     // Input components and their buffers
     std::string newNameInput_;
     std::string renameInput_;
     std::string searchInput_;
+    std::string directoryJumpInput_;
     ftxui::Component createInputComponent_;
     ftxui::Component renameInputComponent_;
     ftxui::Component searchInputComponent_;
+    ftxui::Component directoryJumpInputComponent_;
+    ftxui::Component helpFilterInputComponent_;
+
+    bool showDirectoryJumpDialog_{false};
+    HelpState helpState_;
+    std::vector<ui::HelpEntry> helpEntries_;
+    std::vector<ui::HelpEntry> filteredHelpEntries_;
 
     std::vector<std::string> startupWarnings_;
     std::optional<core::Error> initError_;

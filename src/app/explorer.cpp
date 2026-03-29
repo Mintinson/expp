@@ -523,6 +523,52 @@ struct Explorer::Impl {
         return {};
     }
 
+    core::VoidResult navigateToSelectedLinkTargetDirectory() {
+        if (state.entries.empty()) {
+            return core::make_error(core::ErrorCategory::InvalidState, "No entry selected");
+        }
+
+        const auto& entry = state.entries[static_cast<size_t>(state.currentSelected)];
+        if (!entry.isSymlink()) {
+            return core::make_error(core::ErrorCategory::InvalidArgument,
+                                    std::format("'{}' is not a symbolic link", entry.filename()));
+        }
+        if (entry.symlinkTarget.empty()) {
+            return core::make_error(core::ErrorCategory::NotFound,
+                                    std::format("Cannot resolve link target for '{}'", entry.filename()));
+        }
+
+        fs::path target_path = entry.symlinkTarget;
+        if (target_path.is_relative()) {
+            target_path = entry.path.parent_path() / target_path;
+        }
+        target_path = core::filesystem::normalize(target_path);
+
+        std::error_code exists_ec;
+        if (!fs::exists(target_path, exists_ec)) {
+            if (exists_ec) {
+                return core::make_error(core::ErrorCategory::FileSystem,
+                                        std::format("Cannot access link target '{}': {}", target_path.string(),
+                                                    exists_ec.message()));
+            }
+            return core::make_error(core::ErrorCategory::NotFound,
+                                    std::format("Link target does not exist: {}", target_path.string()));
+        }
+
+        std::error_code directory_ec;
+        if (!fs::is_directory(target_path, directory_ec)) {
+            if (directory_ec) {
+                return core::make_error(core::ErrorCategory::FileSystem,
+                                        std::format("Cannot inspect link target '{}': {}", target_path.string(),
+                                                    directory_ec.message()));
+            }
+            return core::make_error(core::ErrorCategory::InvalidArgument,
+                                    std::format("Link target is not a directory: {}", target_path.string()));
+        }
+
+        return navigateTo(target_path);
+    }
+
     core::VoidResult enterSelected(bool open_file) {
         if (state.entries.empty()) {
             return {};
@@ -1002,6 +1048,10 @@ core::VoidResult Explorer::navigateTo(const fs::path& path) {
 }
 core::VoidResult Explorer::goParent() {
     return impl_->goParent();
+}
+
+core::VoidResult Explorer::navigateToSelectedLinkTargetDirectory() {
+    return impl_->navigateToSelectedLinkTargetDirectory();
 }
 
 core::VoidResult Explorer::enterSelected(bool open_file) {

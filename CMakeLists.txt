@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 project(Expp
-    VERSION 0.12.0
+    VERSION 0.14.0
     DESCRIPTION "Cross-platform TUI file manager built with C++23"
     HOMEPAGE_URL "https://github.com/yourusername/Expp"
     LANGUAGES CXX
@@ -209,6 +209,7 @@ target_link_libraries(expp_ui
 # ==============================================================================
 add_library(expp_app STATIC
     src/app/notification_center.cpp
+    src/app/navigation_utils.cpp
     src/app/explorer.cpp
     src/app/explorer_view.cpp
 )

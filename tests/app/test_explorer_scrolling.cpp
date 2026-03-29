@@ -100,3 +100,68 @@ TEST_CASE("Explorer refresh surfaces directory disappearance", "[app][explorer][
     auto refresh_result = explorer->refresh();
     CHECK_FALSE(refresh_result.has_value());
 }
+
+TEST_CASE("Explorer follows selected symlink target directory", "[app][explorer][symlink]") {
+    TempDirectory tmp;
+    const auto links_dir = tmp.path() / "links";
+    const auto target_dir = tmp.path() / "target";
+    fs::create_directories(links_dir);
+    fs::create_directories(target_dir);
+
+    std::error_code ec;
+    fs::create_directory_symlink("../target", links_dir / "dir_link", ec);
+    if (ec) {
+        SKIP("Directory symlink creation is not available in this environment");
+    }
+
+    auto explorer_result = expp::app::Explorer::create(links_dir);
+    REQUIRE(explorer_result.has_value());
+    auto explorer = *explorer_result;
+
+    auto navigate_result = explorer->navigateToSelectedLinkTargetDirectory();
+    REQUIRE(navigate_result.has_value());
+    CHECK(explorer->state().currentDir == fs::weakly_canonical(target_dir));
+}
+
+TEST_CASE("Explorer rejects invalid selected symlink targets", "[app][explorer][symlink]") {
+    TempDirectory tmp;
+
+    SECTION("broken symlink returns an error") {
+        const auto links_dir = tmp.path() / "broken_links";
+        fs::create_directories(links_dir);
+
+        std::error_code ec;
+        fs::create_directory_symlink("../missing", links_dir / "broken_link", ec);
+        if (ec) {
+            SKIP("Directory symlink creation is not available in this environment");
+        }
+
+        auto explorer_result = expp::app::Explorer::create(links_dir);
+        REQUIRE(explorer_result.has_value());
+
+        auto result = (*explorer_result)->navigateToSelectedLinkTargetDirectory();
+        CHECK_FALSE(result.has_value());
+    }
+
+    SECTION("symlink to file returns an error") {
+        const auto links_dir = tmp.path() / "file_links";
+        const auto file_target = tmp.path() / "target.txt";
+        fs::create_directories(links_dir);
+
+        std::ofstream out(file_target);
+        out << "data\n";
+        out.close();
+
+        std::error_code ec;
+        fs::create_symlink("../target.txt", links_dir / "file_link", ec);
+        if (ec) {
+            SKIP("Symlink creation is not available in this environment");
+        }
+
+        auto explorer_result = expp::app::Explorer::create(links_dir);
+        REQUIRE(explorer_result.has_value());
+
+        auto result = (*explorer_result)->navigateToSelectedLinkTargetDirectory();
+        CHECK_FALSE(result.has_value());
+    }
+}
