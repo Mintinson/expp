@@ -231,7 +231,7 @@ public:
      * @brief Executes an action by name
      * @return True if action was found and executed
      */
-    bool execute(const std::string& name, const ActionContext& context) const;
+    bool execute(const std::string& name, const ActionContext& ctx) const;
 
     /**
      * @brief Gets all registered actions

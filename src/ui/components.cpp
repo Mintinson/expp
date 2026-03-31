@@ -1,11 +1,11 @@
 #include "expp/ui/components.hpp"
 
-#include <algorithm>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/terminal.hpp>
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <format>
 #include <memory>
 #include <ranges>
@@ -18,7 +18,6 @@
 
 #include <expp/core/filesystem.hpp>
 #include <expp/ui/theme.hpp>
-
 
 namespace expp::ui {
 
@@ -383,6 +382,66 @@ HelpViewport clamp_help_viewport(HelpViewport viewport, std::size_t entry_count)
     return viewport;
 }
 
+HelpViewport clamp_help_viewport(HelpViewport viewport, std::span<const HelpEntry> entries) {
+    viewport.viewportRows = std::max(1, viewport.viewportRows);
+    if (entries.empty()) {
+        viewport.selectedIndex = 0;
+        viewport.scrollOffset = 0;
+        return viewport;
+    }
+
+    const int last_index = static_cast<int>(entries.size()) - 1;
+    viewport.selectedIndex = std::clamp(viewport.selectedIndex, 0, last_index);
+
+    viewport.scrollOffset = std::clamp(viewport.scrollOffset, 0, viewport.selectedIndex);
+
+    // calculate the number of visual rows from scrollOffset to selectedIndex, considering category headers
+    auto get_visual_rows_to_selection = [&]() {
+        int rows = 0;
+        for (int i = viewport.scrollOffset; i <= viewport.selectedIndex; ++i) {
+            bool has_header = (i == viewport.scrollOffset) || (entries[static_cast<size_t>(i - 1)].category !=
+                                                               entries[static_cast<size_t>(i)].category);
+            rows += has_header ? 2 : 1;
+        }
+        return rows;
+    };
+
+    const int top_margin_rows = viewport.viewportRows / 4;
+    const int bottom_margin_rows = (viewport.viewportRows * 3) / 4;
+
+    // FIXED 1: Bottom Margin Scrolling Logic
+    // If the cursor has visually exceeded the bottom margin, increase scrollOffset until the cursor is back within the
+    // margin while (viewport.scrollOffset < viewport.selectedIndex) {
+    //     if (get_visual_rows_to_selection() > bottom_margin_rows) {
+    //         viewport.scrollOffset++;
+    //     } else {
+    //         break;
+    //     }
+    // }
+    if (viewport.scrollOffset < viewport.selectedIndex) {
+        int visual_rows = get_visual_rows_to_selection();
+        if (visual_rows > bottom_margin_rows) {
+            viewport.scrollOffset =
+                std::min(viewport.selectedIndex - 1, viewport.scrollOffset + visual_rows - bottom_margin_rows);
+        }
+    }
+
+    // FIXED 2: Top Margin Scrolling Logic
+    // This logic can remain simple: if the selected index is within the top margin of the offset, pull it up
+    while (viewport.scrollOffset > 0 && (viewport.selectedIndex - viewport.scrollOffset) < top_margin_rows) {
+        viewport.scrollOffset--;
+    }
+
+    // FIXED 3: Hard guarantee (Hard guarantee)
+    // After the above adjustments, we may still be in a state where the selected index is not visible due to category
+    // headers.
+    while (viewport.scrollOffset < viewport.selectedIndex && get_visual_rows_to_selection() > viewport.viewportRows) {
+        viewport.scrollOffset++;
+    }
+
+    return viewport;
+}
+
 struct HelpMenuComponent::Impl {
 public:
     static constexpr int kCursorWidth = 3;
@@ -420,15 +479,16 @@ public:
                                         HelpViewport viewport) const {
         using namespace ftxui;
 
-        const HelpViewport clamped = clamp_help_viewport(viewport, entries.size());
+        // const HelpViewport clamped = clamp_help_viewport(viewport, entries.size());
+        const HelpViewport clamped = clamp_help_viewport(viewport, entries);
         const int visible_begin = clamped.scrollOffset;
 
         // Compute visible_end dynamically: category headers consume a row each
         int rows_remaining = clamped.viewportRows;
         int visible_end = visible_begin;
         for (int i = visible_begin; i < static_cast<int>(entries.size()) && rows_remaining > 0; ++i) {
-            bool has_header =
-                (i == visible_begin) || (entries[static_cast<size_t>(i - 1)].category != entries[static_cast<size_t>(i)].category);
+            bool has_header = (i == visible_begin) || (entries[static_cast<size_t>(i - 1)].category !=
+                                                       entries[static_cast<size_t>(i)].category);
             int cost = has_header ? 2 : 1;
             if (rows_remaining < cost && visible_end > visible_begin) {
                 break;
@@ -436,14 +496,14 @@ public:
             rows_remaining -= cost;
             visible_end = i + 1;
         }
-
         // Count actual visual rows for sizing
-        int body_rows = clamped.viewportRows - rows_remaining;
+        // int body_rows = clamped.viewportRows - rows_remaining;
 
         Elements body;
         if (entries.empty()) {
             body.push_back(text("[No matching shortcuts]") | dim | center | color(theme->getForegroundColor()));
         } else {
+            // body.reserve(static_cast<size_t>(visible_end - visible_begin));
             for (int index = visible_begin; index < visible_end; ++index) {
                 const auto& entry = entries[static_cast<size_t>(index)];
                 const bool show_category =
@@ -461,8 +521,8 @@ public:
 
                 // Show category badge on first entry of each group
                 if (show_category) {
-                    row.push_back(
-                        makeCell(text(entry.category) | bold | color(theme->getSearchHighlightColor()), kCategoryWidth));
+                    row.push_back(makeCell(text(entry.category) | bold | color(theme->getSearchHighlightColor()),
+                                           kCategoryWidth));
                 } else {
                     row.push_back(makeCell(text(""), kCategoryWidth));
                 }
@@ -526,13 +586,13 @@ public:
                            bgcolor(theme->getStatusBarColor()),
                    }) | bgcolor(theme->getStatusBarColor()),
                    themedSeparator(),
-                   vbox(std::move(body)) | flex | bgcolor(theme->getBackgroundColor()),
+                   vbox(std::move(body)) | flex,
                    themedSeparator(),
                    text("[j/k] Move  [f] Filter  [Enter] Done  [Esc/~] Close") | dim |
                        color(theme->getForegroundColor()) | bgcolor(theme->getStatusBarColor()) | center,
                }) |
                borderRounded | color(theme->getBorderColor()) | bgcolor(theme->getBackgroundColor()) |
-               size(WIDTH, EQUAL, 104) | size(HEIGHT, EQUAL, body_rows + kChromeRows);
+               size(WIDTH, EQUAL, 104) | size(HEIGHT, EQUAL, clamped.viewportRows + kChromeRows);
     }
 };
 

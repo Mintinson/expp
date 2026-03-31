@@ -253,13 +253,14 @@ private:
 
     void applyHelpFilter() {
         filteredHelpEntries_ = ui::filter_help_entries(helpEntries_, helpState_.filterText);
-        helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_.size());
+        // helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_.size());
+        helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_);
     }
 
     void openHelp() {
         helpState_ = {};
         helpState_.open = true;
-        helpState_.viewport.viewportRows = std::clamp(screen_.dimy() - kHelpViewportPaddingRows, 12, 28);
+        helpState_.viewport.viewportRows = std::clamp(screen_.dimy() - kHelpViewportPaddingRows, 8, 28);
         helpFilterInputComponent_->TakeFocus();
         applyHelpFilter();
     }
@@ -289,7 +290,8 @@ private:
 
         helpState_.viewport.selectedIndex =
             std::clamp(helpState_.viewport.selectedIndex + delta, 0, static_cast<int>(filteredHelpEntries_.size()) - 1);
-        helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_.size());
+        // helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_.size());
+        helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_);
     }
 
     [[nodiscard]] bool navigateToHomeDirectory() {
@@ -1105,8 +1107,8 @@ private:
         using namespace ftxui;
 
         if (helpState_.open) {
-            helpState_.viewport.viewportRows = std::clamp(screen_.dimy() - kHelpViewportPaddingRows, 12, 28);
-            helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_.size());
+            helpState_.viewport.viewportRows = std::clamp(screen_.dimy() - kHelpViewportPaddingRows, 8, 28);
+            // helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_.size());
 
             auto help_elem = helpMenu_->render(filteredHelpEntries_, helpState_.filterText, helpState_.filterMode,
                                                helpState_.viewport);

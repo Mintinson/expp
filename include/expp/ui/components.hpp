@@ -207,6 +207,9 @@ struct HelpViewport {
  */
 [[nodiscard]] HelpViewport clamp_help_viewport(HelpViewport viewport, std::size_t entry_count);
 
+[[nodiscard]] HelpViewport clamp_help_viewport(HelpViewport viewport, std::span<const HelpEntry> entries);
+
+
 class HelpMenuComponent {
 public:
     explicit HelpMenuComponent(const Theme* theme = &global_theme());

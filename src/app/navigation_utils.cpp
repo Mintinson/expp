@@ -85,12 +85,12 @@ core::Result<std::filesystem::path> resolve_home_directory() {
 
 #ifdef _WIN32
     if (const std::string user_profile = readEnvironmentVariable("USERPROFILE"); !user_profile.empty()) {
-        return validateDirectoryPath(fs::path{user_profile});
+        return validate_directory_path(fs::path{user_profile});
     }
     const std::string home_drive = readEnvironmentVariable("HOMEDRIVE");
     const std::string home_path = readEnvironmentVariable("HOMEPATH");
     if (!home_drive.empty() && !home_path.empty()) {
-        return validateDirectoryPath(fs::path{home_drive + home_path});
+        return validate_directory_path(fs::path{home_drive + home_path});
     }
 #else
     if (const char* home = std::getenv("HOME")) {
