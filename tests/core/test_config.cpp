@@ -112,7 +112,7 @@ TEST_CASE("Notification config defaults are stable", "[core][config]") {
     CHECK(defaults.notifications.showInfo);
 }
 
-TEST_CASE("Notification config save and load round-trip", "[core][config]") {
+TEST_CASE("Config scalar sections save and load round-trip", "[core][config]") {
     TempDirectory tmp;
 
 #ifdef _WIN32
@@ -123,6 +123,15 @@ TEST_CASE("Notification config save and load round-trip", "[core][config]") {
 
     expp::core::ConfigManager manager;
     auto config = expp::core::ConfigManager::defaults();
+    config.preview.enabled = false;
+    config.preview.maxLines = 18;
+    config.preview.maxLineLength = 120;
+    config.layout.parentPanelWidth = 31;
+    config.layout.previewPanelWidth = 52;
+    config.layout.showStatusBar = false;
+    config.behavior.showHiddenFiles = true;
+    config.behavior.confirmDelete = false;
+    config.behavior.keyTimeoutMs = 1750;
     config.notifications.durationMs = 1800;
     config.notifications.showSuccess = false;
     config.notifications.showInfo = true;
@@ -135,6 +144,15 @@ TEST_CASE("Notification config save and load round-trip", "[core][config]") {
     auto load_result = reloaded.loadFrom(expp::core::ConfigManager::userConfigPath());
     REQUIRE(load_result.has_value());
 
+    CHECK_FALSE(reloaded.config().preview.enabled);
+    CHECK(reloaded.config().preview.maxLines == 18);
+    CHECK(reloaded.config().preview.maxLineLength == 120);
+    CHECK(reloaded.config().layout.parentPanelWidth == 31);
+    CHECK(reloaded.config().layout.previewPanelWidth == 52);
+    CHECK_FALSE(reloaded.config().layout.showStatusBar);
+    CHECK(reloaded.config().behavior.showHiddenFiles);
+    CHECK_FALSE(reloaded.config().behavior.confirmDelete);
+    CHECK(reloaded.config().behavior.keyTimeoutMs == 1750);
     CHECK(reloaded.config().notifications.durationMs == 1800);
     CHECK_FALSE(reloaded.config().notifications.showSuccess);
     CHECK(reloaded.config().notifications.showInfo);

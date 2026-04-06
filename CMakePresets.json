@@ -23,8 +23,8 @@
             "inherits": "base",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "PLAYFXTUI_ENABLE_SANITIZERS": "ON",
-                "PLAYFXTUI_BUILD_TESTS": "ON"
+                "EXPP_ENABLE_SANITIZERS": "ON",
+                "EXPP_BUILD_TESTS": "ON"
             }
         },
         {
@@ -34,8 +34,8 @@
             "inherits": "base",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "PLAYFXTUI_ENABLE_SANITIZERS": "OFF",
-                "PLAYFXTUI_BUILD_TESTS": "OFF"
+                "EXPP_ENABLE_SANITIZERS": "OFF",
+                "EXPP_BUILD_TESTS": "OFF"
             }
         },
         {
@@ -45,8 +45,8 @@
             "inherits": "base",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "PLAYFXTUI_ENABLE_SANITIZERS": "OFF",
-                "PLAYFXTUI_BUILD_TESTS": "ON"
+                "EXPP_ENABLE_SANITIZERS": "OFF",
+                "EXPP_BUILD_TESTS": "ON"
             }
         },
         {
@@ -55,7 +55,7 @@
             "description": "Debug build with AddressSanitizer",
             "inherits": "debug",
             "cacheVariables": {
-                "PLAYFXTUI_ENABLE_SANITIZERS": "ON"
+                "EXPP_ENABLE_SANITIZERS": "ON"
             }
         },
         {
@@ -67,7 +67,7 @@
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_CXX_FLAGS": "-fsanitize=thread -g",
                 "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread",
-                "PLAYFXTUI_ENABLE_SANITIZERS": "OFF"
+                "EXPP_ENABLE_SANITIZERS": "OFF"
             },
             "condition": {
                 "type": "notEquals",
@@ -81,7 +81,7 @@
             "description": "Build with clang-tidy analysis",
             "inherits": "debug",
             "cacheVariables": {
-                "PLAYFXTUI_ENABLE_CLANG_TIDY": "ON"
+                "EXPP_ENABLE_CLANG_TIDY": "ON"
             }
         },
         {
@@ -95,7 +95,7 @@
             },
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "PLAYFXTUI_BUILD_TESTS": "ON",
+                "EXPP_BUILD_TESTS": "ON",
                 "CMAKE_CXX_COMPILER": "cl.exe"
             },
             "condition": {

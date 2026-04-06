@@ -1,0 +1,182 @@
+#ifndef EXPP_APP_EXPLORER_PRESENTER_HPP
+#define EXPP_APP_EXPLORER_PRESENTER_HPP
+
+/**
+ * @file explorer_presenter.hpp
+ * @brief Declarative screen-model types for explorer rendering.
+ *
+ * The presenter translates domain state plus transient overlay state into a
+ * compact rendering model so view code stays focused on FTXUI composition.
+ */
+
+#include "expp/app/explorer.hpp"
+#include "expp/ui/help_menu_model.hpp"
+#include "expp/ui/key_handler.hpp"
+
+#include <filesystem>
+#include <string>
+#include <string_view>
+#include <variant>
+#include <vector>
+
+namespace expp::app {
+
+namespace fs = std::filesystem;
+
+/**
+ * @brief Preview state when no target is selected.
+ */
+struct PreviewIdle {};
+
+/**
+ * @brief Preview state while a request is in flight.
+ */
+struct PreviewLoading {
+    fs::path target;
+};
+
+/**
+ * @brief Preview state after content has been loaded successfully.
+ */
+struct PreviewReady {
+    fs::path target;
+    std::vector<std::string> lines;
+};
+
+/**
+ * @brief Preview state after a request fails.
+ */
+struct PreviewError {
+    fs::path target;
+    std::string message;
+};
+
+/**
+ * @brief Discriminated preview model consumed by the UI layer.
+ */
+using PreviewModel = std::variant<PreviewIdle, PreviewLoading, PreviewReady, PreviewError>;
+
+/**
+ * @brief Overlay state for the help dialog.
+ */
+struct HelpOverlayState {
+    bool filterMode{false};
+    std::string filterText;
+    ui::HelpMenuModel model;
+    ui::HelpViewport viewport;
+};
+
+/**
+ * @brief Overlay state for path-entry navigation.
+ */
+struct DirectoryJumpOverlayState {
+    std::string input;
+};
+
+/**
+ * @brief Overlay state for file or directory creation.
+ */
+struct CreateOverlayState {
+    std::string input;
+};
+
+/**
+ * @brief Overlay state for renaming the selected entry.
+ */
+struct RenameOverlayState {
+    std::string input;
+};
+
+/**
+ * @brief Overlay state for text search entry.
+ */
+struct SearchOverlayState {
+    std::string input;
+};
+
+/**
+ * @brief Overlay state for permanent deletion confirmation.
+ */
+struct DeleteConfirmOverlayState {
+    std::string targetName;
+    int selectionCount{0};
+};
+
+/**
+ * @brief Overlay state for trash confirmation.
+ */
+struct TrashConfirmOverlayState {
+    std::string targetName;
+    int selectionCount{0};
+};
+
+/**
+ * @brief All mutually exclusive overlays that the explorer view can show.
+ */
+using ExplorerOverlayState = std::variant<std::monostate,
+                                          HelpOverlayState,
+                                          DirectoryJumpOverlayState,
+                                          CreateOverlayState,
+                                          RenameOverlayState,
+                                          SearchOverlayState,
+                                          DeleteConfirmOverlayState,
+                                          TrashConfirmOverlayState>;
+
+/**
+ * @brief List-specific rendering state after viewport projection.
+ */
+struct ExplorerListModel {
+    /// Absolute offset into the full entry list.
+    int offset{0};
+    /// Absolute end offset for the visible slice.
+    int visibleEnd{0};
+    /// Selection index relative to the visible slice.
+    int selectedIndex{-1};
+    /// Search matches relative to the visible slice.
+    std::vector<int> searchMatches;
+    /// Active search-match index inside `searchMatches`.
+    int currentMatchIndex{-1};
+    /// Visual selections relative to the visible slice.
+    std::vector<int> visualSelectedIndices;
+};
+
+/**
+ * @brief Complete rendering model for the main explorer screen.
+ */
+struct ExplorerScreenModel {
+    ExplorerListModel currentList;
+    std::string parentTitle;
+    std::string currentTitle;
+    std::string statusPath;
+    std::string searchStatus;
+    std::string helpText;
+};
+
+/**
+ * @brief Presenter that derives screen models from explorer state.
+ */
+class ExplorerPresenter {
+public:
+    static constexpr int kPageStep = 10;
+
+    /**
+     * @brief Computes the list viewport height from the current terminal height.
+     */
+    [[nodiscard]] static int listViewportRows(int screen_rows) noexcept;
+    /**
+     * @brief Computes the help overlay viewport height from the terminal height.
+     */
+    [[nodiscard]] static int helpViewportRows(int screen_rows) noexcept;
+
+    /**
+     * @brief Projects explorer state into a render-friendly screen model.
+     */
+    [[nodiscard]] ExplorerScreenModel present(const ExplorerState& state,
+                                              const ExplorerOverlayState& overlay,
+                                              std::string_view key_buffer,
+                                              ui::Mode mode) const;
+};
+
+}  // namespace expp::app
+
+#endif  // EXPP_APP_EXPLORER_PRESENTER_HPP

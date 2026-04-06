@@ -1,5 +1,7 @@
 #include "expp/ui/components.hpp"
 
+#include "expp/ui/help_menu_model.hpp"
+
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/terminal.hpp>
 
@@ -11,15 +13,35 @@
 #include <ranges>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include <expp/core/filesystem.hpp>
-#include <expp/ui/theme.hpp>
-
 namespace expp::ui {
+namespace {
+/**
+ * @brief Returns the properly formatted display name for a file entry and whether it should be highlighted as an error.
+ *
+ * @param entry The file entry for which to generate a display name.
+ * @return std::pair<std::string, bool> The formatted display name and a boolean indicating whether it should be
+ * highlighted as an error.
+ */
+[[nodiscard]] std::pair<std::string, bool> proper_display_name(const core::filesystem::FileEntry& entry) {
+    std::string name = entry.filename();
+    if (entry.isSymlink()) {
+        if (!entry.symlinkTarget.empty()) {
+            name += " -> " + entry.symlinkTarget.string();
+        }
+        if (entry.isRecursiveSymlink || entry.isBrokenSymlink) {
+            name += entry.isRecursiveSymlink ? " [loop]" : " [broken]";
+            return {name, true};
+        }
+    }
+    return {name, false};
+}
+}  // namespace
 
 struct FileListComponent::Impl {
     explicit Impl(FileListConfig file_config) : config(std::move(file_config)) {}
@@ -34,72 +56,55 @@ struct FileListComponent::Impl {
         using namespace ftxui;
 
         Elements elements;
-
         std::unordered_set<int> search_match_set(search_matches.begin(), search_matches.end());
         std::unordered_set<int> selected_index_set(selected_indices.begin(), selected_indices.end());
 
-        for (std::size_t i = 0; i < entries.size(); ++i) {
-            const auto& entry = entries[i];
-            bool is_selected = static_cast<int>(i) == selected;
-            bool is_visual_selected = selected_index_set.contains(static_cast<int>(i));
-            bool is_search_match = !search_matches.empty() && search_match_set.contains(static_cast<int>(i));
-            bool is_current_match = is_search_match && (current_match_index != -1) &&
-                                    (search_matches[static_cast<size_t>(current_match_index)] == static_cast<int>(i));
+        elements.reserve(entries.size());
+        for (std::size_t index = 0; index < entries.size(); ++index) {
+            const auto& entry = entries[index];
+            const bool is_selected = static_cast<int>(index) == selected;
+            const bool is_visual_selected = selected_index_set.contains(static_cast<int>(index));
+            const bool is_search_match = !search_matches.empty() && search_match_set.contains(static_cast<int>(index));
+            const bool is_current_match =
+                is_search_match && current_match_index >= 0 &&
+                search_matches[static_cast<std::size_t>(current_match_index)] == static_cast<int>(index);
 
-            auto base_color = config.theme->getFileEntryColor(entry);
+            std::string prefix = is_selected ? config.selectionPrefix : config.normalPrefix;
+            const auto [display_name, should_highlight] = proper_display_name(entry);
+            // std::string display_name = entry.filename();
 
-            // Build display text with prefix
-            std::string prefix = (static_cast<int>(i) == selected) ? config.selectionPrefix : config.normalPrefix;
-            std::string display_name = entry.filename();
-            if (entry.isSymlink()) {
-                if (!entry.symlinkTarget.empty()) {
-                    display_name += " -> " + entry.symlinkTarget.string();
-                }
-                if (entry.isRecursiveSymlink) {
-                    display_name += " [loop]";
-                    base_color = ftxui::Color::Red;
-                } else if (entry.isBrokenSymlink) {
-                    display_name += " [broken]";
-                    base_color = ftxui::Color::Red;
-                }
-            }
+            auto base_color = should_highlight ? Color::Red : config.theme->getFileEntryColor(entry);
 
-            // Create basic element
             auto element =
                 text(std::format("{}{} {}", prefix, config.showIcons ? config.theme->getFileTypeIcon(entry) : "",
                                  display_name)) |
                 color(base_color);
 
-            // Apply directory bold styling
             if (config.boldDirectories && entry.isDirectory()) {
                 element |= bold;
             }
-
-            // Highlight search matches
             if (config.enableHighlight && is_current_match) {
                 element |= bgcolor(config.theme->getSearchHighlightColor()) | color(Color::Black);
             }
-
-            // Apply selection inversion
             if (is_selected) {
                 element |= inverted;
             } else if (is_visual_selected) {
-                // TODO: the color may be configurable, and should also consider theme contrast
                 element |= bgcolor(Color::Blue) | color(Color::White);
             }
+
             elements.push_back(std::move(element));
         }
 
         if (elements.empty()) {
             elements.push_back(text("[Empty]") | dim | center);
         }
+
         return vbox(std::move(elements));
     }
 };
 
 FileListComponent::FileListComponent(const FileListConfig& config) : impl_(std::make_unique<Impl>(config)) {}
 FileListComponent::~FileListComponent() = default;
-
 FileListComponent::FileListComponent(FileListComponent&&) noexcept = default;
 FileListComponent& FileListComponent::operator=(FileListComponent&&) noexcept = default;
 
@@ -119,8 +124,8 @@ void FileListComponent::setConfig(FileListConfig config) {
 // StatusBarComponent Implementation
 // ============================================================================
 struct StatusBarComponent::Impl {
-public:
     explicit Impl(const Theme* in_theme) : theme(in_theme) {}
+
     const Theme* theme;
 
     [[nodiscard]] ftxui::Element render(const StatusBarInfo& info) const {
@@ -134,41 +139,24 @@ public:
             left_elements.push_back(text(" Path: ") | bold);
             left_elements.push_back(text(info.currentPath) | color(theme->getForegroundColor()) | dim);
         }
-
         // Right side: Search status, key buffer, help text
         if (!info.searchStatus.empty()) {
             right_elements.push_back(text(info.searchStatus) | color(theme->getSearchHighlightColor()) | bold);
         }
-
         if (!info.keyBuffer.empty()) {
             right_elements.push_back(text(" [" + info.keyBuffer + "] ") | color(Color::Cyan) | bold);
         }
-
         if (info.showHelp && !info.helpText.empty()) {
             right_elements.push_back(text(info.helpText) | color(theme->getForegroundColor()) | dim);
         }
 
-        // combine left and right with filler in between
         return hbox({hbox(std::move(left_elements)), filler(), hbox(std::move(right_elements))}) |
                bgcolor(theme->getStatusBarColor());
-
-        // TODO: which one is better.
-        // Elements combined;
-        // for (auto& elem : left_elements) {
-        //     combined.push_back(std::move(elem));
-        // }
-        // combined.push_back(filler());
-        // for (auto& elem : right_elements) {
-        //     combined.push_back(std::move(elem));
-        // }
-
-        // return hbox(std::move(combined));
     }
 };
+
 StatusBarComponent::StatusBarComponent(const Theme* theme) : impl_(std::make_unique<Impl>(theme)) {}
-
 StatusBarComponent::~StatusBarComponent() = default;
-
 StatusBarComponent::StatusBarComponent(StatusBarComponent&&) noexcept = default;
 StatusBarComponent& StatusBarComponent::operator=(StatusBarComponent&&) noexcept = default;
 
@@ -184,14 +172,12 @@ void StatusBarComponent::setTheme(const Theme* theme) {
 // ToastComponent Implementation
 // ============================================================================
 struct ToastComponent::Impl {
-public:
     explicit Impl(const Theme* in_theme) : theme(in_theme) {}
 
     const Theme* theme;
 
     [[nodiscard]] static ftxui::Color severityColor(ToastSeverity severity) {
         using ftxui::Color;
-
         switch (severity) {
             case ToastSeverity::Info:
                 return Color::BlueLight;
@@ -236,9 +222,7 @@ public:
 };
 
 ToastComponent::ToastComponent(const Theme* theme) : impl_(std::make_unique<Impl>(theme)) {}
-
 ToastComponent::~ToastComponent() = default;
-
 ToastComponent::ToastComponent(ToastComponent&&) noexcept = default;
 ToastComponent& ToastComponent::operator=(ToastComponent&&) noexcept = default;
 
@@ -253,43 +237,32 @@ void ToastComponent::setTheme(const Theme* theme) {
 // ============================================================================
 // HelpMenu helpers and component
 // ============================================================================
-
 namespace {
 
-[[nodiscard]] std::string key_sequence_to_string(const expp::ui::KeyBinding& binding) {
-    std::string rendered;
-    for (const auto& key : binding.sequence) {
-        rendered += expp::ui::key_to_string(key);
-    }
-    return rendered;
-}
-
 /**
- * @brief Converts a string to lowercase
+ * @brief Convert a key binding sequence to a human-readable string representation.
  *
- * @param text Input string
- * @return std::string Lowercase copy of the input string
+ * @param binding
+ * @return std::string
  */
-[[nodiscard]] std::string lowercase_copy(std::string_view text) {
-    return text | std::views::transform([](auto ch) { return static_cast<char>(std::tolower(ch)); }) |
-           std::ranges::to<std::string>();
+[[nodiscard]] std::string key_sequence_to_string(const KeyBinding& binding) {
+    return binding.sequence | std::views::transform(key_to_string) | std::views::join | std::ranges::to<std::string>();
 }
 
 }  // namespace
 
 std::vector<HelpEntry> build_help_entries(std::span<const Action> actions, std::span<const KeyBinding> bindings) {
-    std::unordered_map<std::string_view, const Action*> action_index;
-    action_index.reserve(actions.size());
+    std::unordered_map<CommandId, const Action*> actions_by_id;
+    actions_by_id.reserve(actions.size());
     for (const auto& action : actions) {
-        action_index.emplace(action.name, std::addressof(action));
+        actions_by_id.emplace(action.commandId, std::addressof(action));
     }
 
     std::vector<HelpEntry> entries;
     entries.reserve(bindings.size());
-
     for (const auto& binding : bindings) {
-        const auto action_it = action_index.find(binding.actionName);
-        if (action_it == action_index.end()) {
+        const auto action_it = actions_by_id.find(binding.commandId);
+        if (action_it == actions_by_id.end()) {
             continue;
         }
 
@@ -297,9 +270,7 @@ std::vector<HelpEntry> build_help_entries(std::span<const Action> actions, std::
         entries.push_back(HelpEntry{
             .category = action.category,
             .shortcut = key_sequence_to_string(binding),
-            .description = binding.description.empty()
-                               ? action.description
-                               : binding.description,  // override with binding description if provided
+            .description = binding.description.empty() ? action.description : binding.description,
             .mode = binding.mode,
         });
     }
@@ -320,130 +291,7 @@ std::vector<HelpEntry> build_help_entries(std::span<const Action> actions, std::
     return entries;
 }
 
-std::vector<HelpEntry> filter_help_entries(std::span<const HelpEntry> entries, std::string_view filter) {
-    // TODO: it is necessary to have entries copy? Can we do lazy filtering with views instead?
-    const std::string normalized_filter = lowercase_copy(filter);
-    if (normalized_filter.empty()) {
-        return {entries.begin(), entries.end()};
-    }
-    auto filter_pred = [&normalized_filter](const HelpEntry& entry) {
-        const std::string normalized_shortcut = lowercase_copy(entry.shortcut);
-        const std::string normalized_description = lowercase_copy(entry.description);
-        return normalized_shortcut.contains(normalized_filter) || normalized_description.contains(normalized_filter);
-    };
-    return entries | std::views::filter(filter_pred) | std::ranges::to<std::vector>();
-
-    // std::vector<HelpEntry> filtered;
-    // filtered.reserve(entries.size());
-    // for (const auto& entry : entries) {
-    //     const std::string normalized_shortcut = lowercase_copy(entry.shortcut);
-    //     const std::string normalized_description = lowercase_copy(entry.description);
-    //     if (normalized_shortcut.contains(normalized_filter) || normalized_description.contains(normalized_filter)) {
-    //         filtered.push_back(entry);
-    //     }
-    // }
-    // return filtered;
-}
-
-HelpViewport clamp_help_viewport(HelpViewport viewport, std::size_t entry_count) {
-    viewport.viewportRows = std::max(1, viewport.viewportRows);
-    if (entry_count == 0U) {
-        viewport.selectedIndex = 0;
-        viewport.scrollOffset = 0;
-        return viewport;
-    }
-
-    const int last_index = static_cast<int>(entry_count) - 1;
-    viewport.selectedIndex = std::clamp(viewport.selectedIndex, 0, last_index);
-
-    const int max_offset = std::max(0, static_cast<int>(entry_count) - viewport.viewportRows);
-
-    // Keep selection within the visible window using 25/75 thresholds
-    const int top_margin = viewport.viewportRows / 4;
-    const int bottom_margin = (viewport.viewportRows * 3) / 4;
-
-    // If selection is above the visible top margin, scroll up
-    if (viewport.selectedIndex < viewport.scrollOffset + top_margin) {
-        viewport.scrollOffset = std::max(0, viewport.selectedIndex - top_margin);
-    }
-
-    // If selection is below the visible bottom margin, scroll down
-    if (viewport.selectedIndex >= viewport.scrollOffset + bottom_margin) {
-        viewport.scrollOffset = viewport.selectedIndex - bottom_margin + 1;
-    }
-
-    // Hard guarantee: selected index must be within [scrollOffset, scrollOffset + viewportRows)
-    viewport.scrollOffset = std::min(viewport.selectedIndex, viewport.scrollOffset);
-    if (viewport.selectedIndex >= viewport.scrollOffset + viewport.viewportRows) {
-        viewport.scrollOffset = viewport.selectedIndex - viewport.viewportRows + 1;
-    }
-
-    viewport.scrollOffset = std::clamp(viewport.scrollOffset, 0, max_offset);
-    return viewport;
-}
-
-HelpViewport clamp_help_viewport(HelpViewport viewport, std::span<const HelpEntry> entries) {
-    viewport.viewportRows = std::max(1, viewport.viewportRows);
-    if (entries.empty()) {
-        viewport.selectedIndex = 0;
-        viewport.scrollOffset = 0;
-        return viewport;
-    }
-
-    const int last_index = static_cast<int>(entries.size()) - 1;
-    viewport.selectedIndex = std::clamp(viewport.selectedIndex, 0, last_index);
-
-    viewport.scrollOffset = std::clamp(viewport.scrollOffset, 0, viewport.selectedIndex);
-
-    // calculate the number of visual rows from scrollOffset to selectedIndex, considering category headers
-    auto get_visual_rows_to_selection = [&]() {
-        int rows = 0;
-        for (int i = viewport.scrollOffset; i <= viewport.selectedIndex; ++i) {
-            bool has_header = (i == viewport.scrollOffset) || (entries[static_cast<size_t>(i - 1)].category !=
-                                                               entries[static_cast<size_t>(i)].category);
-            rows += has_header ? 2 : 1;
-        }
-        return rows;
-    };
-
-    const int top_margin_rows = viewport.viewportRows / 4;
-    const int bottom_margin_rows = (viewport.viewportRows * 3) / 4;
-
-    // FIXED 1: Bottom Margin Scrolling Logic
-    // If the cursor has visually exceeded the bottom margin, increase scrollOffset until the cursor is back within the
-    // margin while (viewport.scrollOffset < viewport.selectedIndex) {
-    //     if (get_visual_rows_to_selection() > bottom_margin_rows) {
-    //         viewport.scrollOffset++;
-    //     } else {
-    //         break;
-    //     }
-    // }
-    if (viewport.scrollOffset < viewport.selectedIndex) {
-        int visual_rows = get_visual_rows_to_selection();
-        if (visual_rows > bottom_margin_rows) {
-            viewport.scrollOffset =
-                std::min(viewport.selectedIndex - 1, viewport.scrollOffset + visual_rows - bottom_margin_rows);
-        }
-    }
-
-    // FIXED 2: Top Margin Scrolling Logic
-    // This logic can remain simple: if the selected index is within the top margin of the offset, pull it up
-    while (viewport.scrollOffset > 0 && (viewport.selectedIndex - viewport.scrollOffset) < top_margin_rows) {
-        viewport.scrollOffset--;
-    }
-
-    // FIXED 3: Hard guarantee (Hard guarantee)
-    // After the above adjustments, we may still be in a state where the selected index is not visible due to category
-    // headers.
-    while (viewport.scrollOffset < viewport.selectedIndex && get_visual_rows_to_selection() > viewport.viewportRows) {
-        viewport.scrollOffset++;
-    }
-
-    return viewport;
-}
-
 struct HelpMenuComponent::Impl {
-public:
     static constexpr int kCursorWidth = 3;
     static constexpr int kCategoryWidth = 16;
     static constexpr int kShortcutWidth = 14;
@@ -473,121 +321,143 @@ public:
         return ftxui::separator() | ftxui::color(theme->getBorderColor());
     }
 
-    [[nodiscard]] ftxui::Element render(std::span<const HelpEntry> entries,
-                                        std::string_view filter_text,
-                                        bool filter_mode,
-                                        HelpViewport viewport) const {
-        using namespace ftxui;
-
-        // const HelpViewport clamped = clamp_help_viewport(viewport, entries.size());
-        const HelpViewport clamped = clamp_help_viewport(viewport, entries);
-        const int visible_begin = clamped.scrollOffset;
-
-        // Compute visible_end dynamically: category headers consume a row each
+    [[nodiscard]] static std::pair<int, int> calculateVisibleRange(const HelpMenuModel& model,
+                                                                   const HelpViewport& clamped) {
         int rows_remaining = clamped.viewportRows;
-        int visible_end = visible_begin;
-        for (int i = visible_begin; i < static_cast<int>(entries.size()) && rows_remaining > 0; ++i) {
-            bool has_header = (i == visible_begin) || (entries[static_cast<size_t>(i - 1)].category !=
-                                                       entries[static_cast<size_t>(i)].category);
-            int cost = has_header ? 2 : 1;
-            if (rows_remaining < cost && visible_end > visible_begin) {
+        int visible_end = clamped.scrollOffset;
+
+        for (int index = clamped.scrollOffset; index < static_cast<int>(model.filteredCount()) && rows_remaining > 0;
+             ++index) {
+            const auto& entry = model.filteredEntry(static_cast<std::size_t>(index));
+            const bool has_header = index == clamped.scrollOffset ||
+                                    model.filteredEntry(static_cast<std::size_t>(index - 1)).category != entry.category;
+
+            const int cost = has_header ? 2 : 1;
+            if (rows_remaining < cost && visible_end > clamped.scrollOffset) {
                 break;
             }
             rows_remaining -= cost;
-            visible_end = i + 1;
+            visible_end = index + 1;
         }
-        // Count actual visual rows for sizing
-        // int body_rows = clamped.viewportRows - rows_remaining;
+        return {clamped.scrollOffset, visible_end};
+    }
+
+    [[nodiscard]] ftxui::Element renderShortcutRow(const HelpEntry& entry, bool show_category, bool is_selected) const {
+        using namespace ftxui;
+
+        Elements row;
+
+        row.push_back(
+            makeCell(text(is_selected ? " > " : "   ") | bold | color(theme->getBorderColor()), kCursorWidth));
+
+        if (show_category) {
+            row.push_back(
+                makeCell(text(entry.category) | bold | color(theme->getSearchHighlightColor()), kCategoryWidth));
+        } else {
+            row.push_back(makeCell(text(""), kCategoryWidth));
+        }
+
+        // shortcut
+        row.push_back(makeCell(text(entry.shortcut) | bold | color(theme->getForegroundColor()), kShortcutWidth));
+
+        // mode
+        const std::string mode_label = modeLabel(entry.mode);
+        row.push_back(makeCell(text(mode_label) | (mode_label.empty() ? nothing : dim) | color(theme->getBorderColor()),
+                               kModeWidth));
+
+        // description
+        row.push_back(text(" "));
+        row.push_back(text(entry.description) | color(theme->getForegroundColor()) | flex);
+
+        return hbox(std::move(row)) | bgcolor(is_selected ? theme->getSelectionColor() : theme->getBackgroundColor());
+    }
+
+    [[nodiscard]] ftxui::Element renderBody(const HelpMenuModel& model,
+                                            int visible_begin,
+                                            int visible_end,
+                                            int selected_index) const {
+        using namespace ftxui;
+
+        if (model.filteredCount() == 0U) {
+            return text("[No matching shortcuts]") | dim | center | color(theme->getForegroundColor());
+        }
 
         Elements body;
-        if (entries.empty()) {
-            body.push_back(text("[No matching shortcuts]") | dim | center | color(theme->getForegroundColor()));
-        } else {
-            // body.reserve(static_cast<size_t>(visible_end - visible_begin));
-            for (int index = visible_begin; index < visible_end; ++index) {
-                const auto& entry = entries[static_cast<size_t>(index)];
-                const bool show_category =
-                    index == visible_begin || entries[static_cast<size_t>(index - 1)].category != entry.category;
-                const bool is_selected = index == clamped.selectedIndex;
+        for (int index = visible_begin; index < visible_end; ++index) {
+            const auto& entry = model.filteredEntry(static_cast<std::size_t>(index));
+            const bool show_category =
+                index == visible_begin ||
+                model.filteredEntry(static_cast<std::size_t>(index - 1)).category != entry.category;
 
-                if (show_category) {
-                    body.push_back(separatorLight() | color(theme->getBorderColor()));
-                    // Category label overlaid on the separator line — not an extra row
-                }
-
-                Elements row;
-                row.push_back(
-                    makeCell(text(is_selected ? " > " : "   ") | bold | color(theme->getBorderColor()), kCursorWidth));
-
-                // Show category badge on first entry of each group
-                if (show_category) {
-                    row.push_back(makeCell(text(entry.category) | bold | color(theme->getSearchHighlightColor()),
-                                           kCategoryWidth));
-                } else {
-                    row.push_back(makeCell(text(""), kCategoryWidth));
-                }
-
-                row.push_back(
-                    makeCell(text(entry.shortcut) | bold | color(theme->getForegroundColor()), kShortcutWidth));
-
-                const std::string mode_label = modeLabel(entry.mode);
-                if (!mode_label.empty()) {
-                    row.push_back(makeCell(text(mode_label) | dim | color(theme->getBorderColor()), kModeWidth));
-                } else {
-                    row.push_back(makeCell(text(""), kModeWidth));
-                }
-
-                row.push_back(text(" "));
-                row.push_back(text(entry.description) | color(theme->getForegroundColor()) | flex);
-
-                auto row_element = hbox(std::move(row));
-                if (is_selected) {
-                    row_element |= bgcolor(theme->getSelectionColor());
-                } else {
-                    row_element |= bgcolor(theme->getBackgroundColor());
-                }
-
-                body.push_back(std::move(row_element));
+            if (show_category) {
+                body.push_back(separatorLight() | color(theme->getBorderColor()));
             }
+            body.push_back(renderShortcutRow(entry, show_category, index == selected_index));
         }
+        return vbox(std::move(body));
+    }
 
-        const std::string filter_label = filter_text.empty() ? "<none>" : std::string{filter_text};
+    [[nodiscard]] ftxui::Element renderFilterBar(const HelpMenuModel& model,
+                                                 bool filter_mode,
+                                                 int selected_index) const {
+        using namespace ftxui;
+
+        const std::string filter_label = model.filter().empty() ? "<none>" : std::string{model.filter()};
         const std::string selection_label =
-            entries.empty() ? "0/0" : std::format("{}/{}", clamped.selectedIndex + 1, entries.size());
-        auto filter_value = text(filter_label);
-        if (filter_mode) {
-            filter_value = std::move(filter_value) | color(theme->getBorderColor()) | bold;
-        } else {
-            filter_value = std::move(filter_value) | color(theme->getForegroundColor()) | dim;
-        }
+            model.filteredCount() == 0U ? "0/0" : std::format("{}/{}", selected_index + 1, model.filteredCount());
 
-        auto header_row = hbox({
-                              makeCell(text(""), kCursorWidth),
-                              makeCell(text("Category") | bold | color(theme->getForegroundColor()), kCategoryWidth),
-                              makeCell(text("Shortcut") | bold | color(theme->getForegroundColor()), kShortcutWidth),
-                              makeCell(text("Mode") | bold | color(theme->getForegroundColor()), kModeWidth),
-                              text(" Description") | bold | color(theme->getForegroundColor()),
-                          }) |
-                          bgcolor(theme->getStatusBarColor());
+        auto filter_value = text(filter_label) | (filter_mode ? (color(theme->getBorderColor()) | bold)
+                                                              : (color(theme->getForegroundColor()) | dim));
+
+        return hbox({
+                   text(" Filter: ") | bold | color(theme->getForegroundColor()),
+                   std::move(filter_value),
+                   filler(),
+                   text(selection_label) | color(theme->getForegroundColor()) | dim,
+               }) |
+               bgcolor(theme->getStatusBarColor());
+    }
+
+    [[nodiscard]] ftxui::Element renderHeaderRow() const {
+        using namespace ftxui;
+        return hbox({
+                   makeCell(text(""), kCursorWidth),
+                   makeCell(text("Category") | bold, kCategoryWidth),
+                   makeCell(text("Shortcut") | bold, kShortcutWidth),
+                   makeCell(text("Mode") | bold, kModeWidth),
+                   text(" Description") | bold,
+               }) |
+               color(theme->getForegroundColor()) | bgcolor(theme->getStatusBarColor());
+    }
+
+    [[nodiscard]] ftxui::Element render(const HelpMenuModel& model, bool filter_mode, HelpViewport viewport) const {
+        using namespace ftxui;
+
+        const HelpViewport clamped = clamp_help_viewport(viewport, model);
+        const auto [visible_begin, visible_end] = calculateVisibleRange(model, clamped);  // C++17 结构化绑定
 
         static constexpr int kChromeRows = 8;
+
+        // combine all the pieces together
         return vbox({
+                   // title
                    text("Keyboard Shortcuts") | bold | center | color(theme->getForegroundColor()) |
                        bgcolor(theme->getStatusBarColor()),
                    themedSeparator(),
-                   std::move(header_row),
+
+                   // header
+                   renderHeaderRow(),
                    themedSeparator(),
-                   hbox({
-                       text(" Filter: ") | bold | color(theme->getForegroundColor()) |
-                           bgcolor(theme->getStatusBarColor()),
-                       std::move(filter_value),
-                       filler(),
-                       text(selection_label) | color(theme->getForegroundColor()) | dim |
-                           bgcolor(theme->getStatusBarColor()),
-                   }) | bgcolor(theme->getStatusBarColor()),
+
+                   // filter bar
+                   renderFilterBar(model, filter_mode, clamped.selectedIndex),
                    themedSeparator(),
-                   vbox(std::move(body)) | flex,
+
+                   // help menu body
+                   renderBody(model, visible_begin, visible_end, clamped.selectedIndex) | flex,
                    themedSeparator(),
+
+                   // footer
                    text("[j/k] Move  [f] Filter  [Enter] Done  [Esc/~] Close") | dim |
                        color(theme->getForegroundColor()) | bgcolor(theme->getStatusBarColor()) | center,
                }) |
@@ -597,17 +467,12 @@ public:
 };
 
 HelpMenuComponent::HelpMenuComponent(const Theme* theme) : impl_(std::make_unique<Impl>(theme)) {}
-
 HelpMenuComponent::~HelpMenuComponent() = default;
-
 HelpMenuComponent::HelpMenuComponent(HelpMenuComponent&&) noexcept = default;
 HelpMenuComponent& HelpMenuComponent::operator=(HelpMenuComponent&&) noexcept = default;
 
-ftxui::Element HelpMenuComponent::render(std::span<const HelpEntry> entries,
-                                         std::string_view filter_text,
-                                         bool filter_mode,
-                                         HelpViewport viewport) const {
-    return impl_->render(entries, filter_text, filter_mode, viewport);
+ftxui::Element HelpMenuComponent::render(const HelpMenuModel& model, bool filter_mode, HelpViewport viewport) const {
+    return impl_->render(model, filter_mode, viewport);
 }
 
 void HelpMenuComponent::setTheme(const Theme* theme) {
@@ -618,7 +483,6 @@ void HelpMenuComponent::setTheme(const Theme* theme) {
 // DialogComponent Implementation
 // ============================================================================
 struct DialogComponent::Impl {
-public:
     const Theme* theme = &global_theme();
 
     [[nodiscard]] static ftxui::Element renderConfirmation(const std::string& title,
@@ -644,25 +508,15 @@ public:
         Elements elements;
         elements.push_back(text(title) | bold | center);
         elements.push_back(separator());
-
-        // Add message lines
         elements.push_back(text(message) | center);
         elements.push_back(separator());
-
-        // Add input field
-        elements.push_back(hbox({
-                               text(" > "),
-                               std::move(input_component) | flex,
-                           }) |
-                           border);
-
+        elements.push_back(hbox({text(" > "), std::move(input_component) | flex}) | border);
         elements.push_back(separator());
         elements.push_back(text("[Enter] Confirm  [Esc] Cancel") | dim | center);
-
         return vbox(std::move(elements)) | border | size(WIDTH, EQUAL, 55) | center;
     }
 
-    [[nodiscard]] ftxui::Element renderMessage(const std::string& title, const std::string& message) const {
+    [[nodiscard]] static ftxui::Element renderMessage(const std::string& title, const std::string& message) {
         using namespace ftxui;
         return vbox({
                    text(title) | bold | center,
@@ -674,10 +528,9 @@ public:
                border | size(WIDTH, EQUAL, 50) | center;
     }
 };
+
 DialogComponent::DialogComponent() : impl_(std::make_unique<Impl>()) {}
-
 DialogComponent::~DialogComponent() = default;
-
 DialogComponent::DialogComponent(DialogComponent&&) noexcept = default;
 DialogComponent& DialogComponent::operator=(DialogComponent&&) noexcept = default;
 
@@ -685,17 +538,17 @@ ftxui::Element DialogComponent::renderConfirmation(const std::string& title,
                                                    const std::string& message,
                                                    const std::string& target_name,
                                                    ftxui::Color target_color) const {
-    return expp::ui::DialogComponent::Impl::renderConfirmation(title, message, target_name, target_color);
+    return Impl::renderConfirmation(title, message, target_name, target_color);
 }
 
 ftxui::Element DialogComponent::renderInput(const std::string& title,
                                             const std::string& message,
                                             ftxui::Element input_component) const {
-    return impl_->renderInput(title, message, std::move(input_component));
+    return Impl::renderInput(title, message, std::move(input_component));
 }
 
 ftxui::Element DialogComponent::renderMessage(const std::string& title, const std::string& message) const {
-    return impl_->renderMessage(title, message);
+    return Impl::renderMessage(title, message);
 }
 
 void DialogComponent::setTheme(const Theme* theme) {
@@ -706,8 +559,8 @@ void DialogComponent::setTheme(const Theme* theme) {
 // PanelComponent Implementation
 // ============================================================================
 struct PanelComponent::Impl {
-public:
     explicit Impl(const PanelConfig& in_config) : config(in_config) {}
+
     PanelConfig config;
 
     [[nodiscard]] ftxui::Element render(const std::string& parent_title,
@@ -719,34 +572,28 @@ public:
         using namespace ftxui;
 
         Elements columns;
-
-        // Parent column (optional)
         if (config.showParent) {
             columns.push_back(
                 vbox({text(parent_title) | bold | center, separator(), std::move(parent_content) | frame | flex}) |
                 border | size(WIDTH, EQUAL, config.parentWidth));
         }
 
-        // Current directory column (always shown)
         columns.push_back(
             vbox({text(current_title) | bold | center, separator(), std::move(current_content) | frame | flex}) |
             border | flex);
 
-        // Preview column (optional)
         if (config.showPreview) {
             columns.push_back(
                 vbox({text(preview_title) | bold | center, separator(), std::move(preview_content) | frame | flex}) |
                 border | size(WIDTH, EQUAL, config.previewWidth));
         }
 
-        // return hbox(std::move(columns)) | border | color(config.theme->getBorderColor());
         return hbox(std::move(columns));
     }
 };
+
 PanelComponent::PanelComponent(const PanelConfig& config) : impl_(std::make_unique<Impl>(config)) {}
-
 PanelComponent::~PanelComponent() = default;
-
 PanelComponent::PanelComponent(PanelComponent&&) noexcept = default;
 PanelComponent& PanelComponent::operator=(PanelComponent&&) noexcept = default;
 
@@ -768,7 +615,6 @@ void PanelComponent::setConfig(const PanelConfig& config) {
 // PreviewComponent Implementation
 // ============================================================================
 struct PreviewComponent::Impl {
-public:
     explicit Impl(PreviewConfig in_config) : config(std::move(in_config)) {}
 
     PreviewConfig config;
@@ -784,62 +630,61 @@ public:
         return std::max(1, max_lines);
     }
 
-    [[nodiscard]] ftxui::Element render(const core::filesystem::FileEntry& entry) const {
-        using namespace ftxui;
-        const int max_lines = resolveMaxLines();
-
-        auto preview_result = core::filesystem::read_preview(entry.path, max_lines);
-
-        if (preview_result) {
-            return renderLines(*preview_result, max_lines);
-        }
-        // Show error message
-        std::string err_msg = config.errorPrefix + preview_result.error().message() + "]";
-        return text(err_msg) | color(Color::Red) | dim;
-    }
-
-    [[nodiscard]] ftxui::Element renderLines(const std::vector<std::string>& lines) const {
-        return renderLines(lines, resolveMaxLines());
-    }
-
     [[nodiscard]] ftxui::Element renderLines(const std::vector<std::string>& lines, int max_lines) const {
         using namespace ftxui;
         if (lines.empty()) {
             return text(config.emptyMessage) | dim | center;
         }
 
-        ftxui::Elements elements;
+        Elements elements;
         const int line_count = std::min(static_cast<int>(lines.size()), max_lines);
-
-        for (int i = 0; i < line_count; ++i) {
-            elements.push_back(text(lines[static_cast<size_t>(i)]));
+        for (int index = 0; index < line_count; ++index) {
+            elements.push_back(text(lines[static_cast<std::size_t>(index)]));
         }
-
-        if (lines.size() > static_cast<size_t>(max_lines)) {
+        if (lines.size() > static_cast<std::size_t>(max_lines)) {
             elements.push_back(
-                text("... (" + std::to_string(lines.size() - static_cast<size_t>(max_lines)) + " more lines)") | dim);
+                text("... (" + std::to_string(lines.size() - static_cast<std::size_t>(max_lines)) + " more lines)") |
+                dim);
         }
-
         return vbox(std::move(elements));
+    }
+
+    [[nodiscard]] ftxui::Element render(const PreviewModel& model) const {
+        using namespace ftxui;
+        const int max_lines = resolveMaxLines();
+
+        return std::visit(
+            [&](const auto& state) -> Element {
+                using State = std::decay_t<decltype(state)>;
+                if constexpr (std::is_same_v<State, PreviewIdleState>) {
+                    return text(config.emptyMessage) | dim | center;
+                } else if constexpr (std::is_same_v<State, PreviewLoadingState>) {
+                    return text(std::format("[Loading: {}]", state.target.filename().string())) | dim | center;
+                } else if constexpr (std::is_same_v<State, PreviewReadyState>) {
+                    return renderLines(state.lines, max_lines);
+                } else {
+                    return text(config.errorPrefix + state.message + "]") | color(Color::Red) | dim;
+                }
+            },
+            model);
     }
 };
 
 PreviewComponent::PreviewComponent(const PreviewConfig& config) : impl_(std::make_unique<Impl>(config)) {}
-
 PreviewComponent::~PreviewComponent() = default;
-
 PreviewComponent::PreviewComponent(PreviewComponent&&) noexcept = default;
 PreviewComponent& PreviewComponent::operator=(PreviewComponent&&) noexcept = default;
 
-ftxui::Element PreviewComponent::render(const core::filesystem::FileEntry& entry) const {
-    return impl_->render(entry);
+ftxui::Element PreviewComponent::render(const PreviewModel& model) const {
+    return impl_->render(model);
 }
 
 ftxui::Element PreviewComponent::renderLines(const std::vector<std::string>& lines) const {
-    return impl_->renderLines(lines);
+    return impl_->renderLines(lines, impl_->resolveMaxLines());
 }
 
 void PreviewComponent::setConfig(const PreviewConfig& config) {
     impl_->config = config;
 }
+
 }  // namespace expp::ui

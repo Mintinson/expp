@@ -7,20 +7,17 @@
 
 #include "expp/ui/key_handler.hpp"
 
-#include "expp/core/error.hpp"
-
 #include <ftxui/component/event.hpp>
 
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstddef>
 #include <expected>
 #include <filesystem>
 #include <format>
-#include <functional>
 #include <memory>
 #include <numeric>
-#include <optional>
 #include <ranges>
 #include <string>
 #include <string_view>
@@ -33,27 +30,23 @@
 namespace expp::ui {
 namespace rng = std::ranges;
 
-// ============================================================================
-// Key Parsing
-// ============================================================================
 namespace {
 
 const std::unordered_map<std::string_view, SpecialKey> kSpecialKeyNames = {
 #define X(name, str) {str, SpecialKey::name},
     EXPP_SPECIAL_KEYS(X)
 #undef X
-
 #define X(str, name) {str, SpecialKey::name},
         EXPP_KEY_ALIASES(X)
 #undef X
 };
-const std::unordered_map<SpecialKey, std::string_view> kSpecialKeyStrings = {
 
+const std::unordered_map<SpecialKey, std::string_view> kSpecialKeyStrings = {
 #define X(name, str) {SpecialKey::name, str},
     EXPP_SPECIAL_KEYS(X)
 #undef X
 };
-// constexpr
+
 }  // namespace
 
 core::Result<Key> parse_key(std::string_view desc) {
@@ -63,7 +56,6 @@ core::Result<Key> parse_key(std::string_view desc) {
 
     Modifier mods = Modifier::None;
 
-    // Parse modifier prefixes (C-, M-, S-, A-)
     while (desc.size() >= 2 && desc[1] == '-') {
         switch (desc[0]) {
             case 'C':
@@ -95,10 +87,8 @@ core::Result<Key> parse_key(std::string_view desc) {
         return core::make_error(core::ErrorCategory::InvalidArgument, "Key description ends with modifier prefix");
     }
 
-    // Handle <Special> key notation
     if (desc.front() == '<' && desc.back() == '>') {
-        std::string_view key_name = desc.substr(1, desc.size() - 2);
-
+        const std::string_view key_name = desc.substr(1, desc.size() - 2);
         if (auto it = kSpecialKeyNames.find(key_name); it != kSpecialKeyNames.end()) {
             return Key::fromSpecial(it->second, mods);
         }
@@ -106,12 +96,10 @@ core::Result<Key> parse_key(std::string_view desc) {
                                 std::format("Unknown special key '<{}>'", key_name));
     }
 
-    // Single character
     if (desc.size() == 1) {
         return Key::fromChar(desc[0], mods);
     }
 
-    // Multi-char without <> might be a special key name
     if (auto it = kSpecialKeyNames.find(desc); it != kSpecialKeyNames.end()) {
         return Key::fromSpecial(it->second, mods);
     }
@@ -121,7 +109,6 @@ core::Result<Key> parse_key(std::string_view desc) {
 
 std::string key_to_string(const Key& key) {
     std::string result;
-
     if (has_modifier(key.modifiers, Modifier::Ctrl)) {
         result += "C-";
     }
@@ -150,7 +137,6 @@ std::string key_to_string(const Key& key) {
 }
 
 std::optional<Key> event_to_key(const ftxui::Event& event) {
-    // Handle special keys first
 #define X(name, str)                               \
     if (event == ftxui::Event::name) {             \
         return Key::fromSpecial(SpecialKey::name); \
@@ -160,15 +146,11 @@ std::optional<Key> event_to_key(const ftxui::Event& event) {
 
     if (event.is_character()) {
         const std::string& s = event.character();
-
         if (!s.empty()) {
-            char c = s[0];
-
-            // Check for Ctrl key (control characters are 1-26)
+            const char c = s[0];
             if (c >= 1 && c <= 26) {
                 return Key::fromChar(static_cast<char>('a' + c - 1), Modifier::Ctrl);
             }
-
             return Key::fromChar(c);
         }
     }
@@ -178,13 +160,13 @@ std::optional<Key> event_to_key(const ftxui::Event& event) {
 
 std::string_view mode_to_name(Mode mode) noexcept {
     switch (mode) {
-        case expp::ui::Mode::Normal:
+        case Mode::Normal:
             return "normal";
-        case expp::ui::Mode::Insert:
+        case Mode::Insert:
             return "insert";
-        case expp::ui::Mode::Visual:
+        case Mode::Visual:
             return "visual";
-        case expp::ui::Mode::Command:
+        case Mode::Command:
             return "command";
         default:
             return "unknown";
@@ -207,13 +189,9 @@ std::optional<Mode> parse_mode(std::string_view name) noexcept {
     return std::nullopt;
 }
 
-// ============================================================================
-// ActionRegistry
-// ============================================================================
-
 struct ActionRegistry::Impl {
     std::vector<Action> actions;
-    std::unordered_map<std::string, size_t> nameIndex;
+    std::unordered_map<CommandId, std::size_t> indexById;
 };
 
 ActionRegistry::ActionRegistry() : impl_(std::make_unique<Impl>()) {}
@@ -222,39 +200,34 @@ ActionRegistry::ActionRegistry(ActionRegistry&&) noexcept = default;
 ActionRegistry& ActionRegistry::operator=(ActionRegistry&&) noexcept = default;
 
 void ActionRegistry::registerAction(
-    std::string name, ActionHandler handler, std::string description, std::string category, bool repeatable) {
-    // Remove existing if present
-    unregisterAction(name);
-
-    impl_->nameIndex[name] = impl_->actions.size();
-    impl_->actions.push_back(Action{.name = std::move(name),
-                                    .handler = std::move(handler),
-                                    .description = std::move(description),
-                                    .category = std::move(category),
-                                    .repeatable = repeatable});
+    CommandId command_id, ActionHandler handler, std::string description, std::string category, bool repeatable) {
+    unregisterAction(command_id);
+    impl_->indexById[command_id] = impl_->actions.size();
+    impl_->actions.push_back(Action{
+        .commandId = command_id,
+        .handler = std::move(handler),
+        .description = std::move(description),
+        .category = std::move(category),
+        .repeatable = repeatable,
+    });
 }
 
-bool ActionRegistry::unregisterAction(const std::string& name) {
-    auto it = impl_->nameIndex.find(name);
-    if (it == impl_->nameIndex.end()) {
+bool ActionRegistry::unregisterAction(CommandId command_id) {
+    const auto it = impl_->indexById.find(command_id);
+    if (it == impl_->indexById.end()) {
         return false;
     }
 
-    size_t idx = it->second;
-    impl_->actions.erase(impl_->actions.begin() + static_cast<ptrdiff_t>(idx));
-    impl_->nameIndex.erase(it);
-
-    // Rebuild index
-    impl_->nameIndex.clear();
-    for (size_t i = 0; i < impl_->actions.size(); ++i) {
-        impl_->nameIndex[impl_->actions[i].name] = i;
+    impl_->actions.erase(impl_->actions.begin() + static_cast<std::ptrdiff_t>(it->second));
+    impl_->indexById.clear();
+    for (std::size_t index = 0; index < impl_->actions.size(); ++index) {
+        impl_->indexById[impl_->actions[index].commandId] = index;
     }
-
     return true;
 }
 
-bool ActionRegistry::execute(const std::string& name, const ActionContext& ctx) const {
-    const Action* action = find(name);
+bool ActionRegistry::execute(CommandId command_id, const ActionContext& ctx) const {
+    const Action* action = find(command_id);
     if (action == nullptr || !action->handler) {
         return false;
     }
@@ -268,94 +241,140 @@ bool ActionRegistry::execute(const std::string& name, const ActionContext& ctx) 
     return true;
 }
 
-const Action* ActionRegistry::find(const std::string& name) const {
-    auto it = impl_->nameIndex.find(name);
-    if (it == impl_->nameIndex.end()) {
-        return nullptr;
-    }
-    return &impl_->actions[it->second];
-}
-
 const std::vector<Action>& ActionRegistry::actions() const {
     return impl_->actions;
+}
+
+const Action* ActionRegistry::find(CommandId command_id) const {
+    const auto it = impl_->indexById.find(command_id);
+    return it != impl_->indexById.end() ? &impl_->actions[it->second] : nullptr;
 }
 
 std::vector<const Action*> ActionRegistry::byCategory(const std::string& category) const {
     std::vector<const Action*> result;
     for (const auto& action : impl_->actions) {
         if (action.category == category) {
-            result.push_back(&action);
+            result.push_back(std::addressof(action));
         }
     }
     return result;
 }
 
-// ============================================================================
-// Keymap
-// ============================================================================
 struct KeyMap::Impl {
     std::vector<KeyBinding> bindings;
 
-    /**
-     * @brief Helper function to parse key sequence string into Key vector
-     * @param keys
-     * @return
-     */
-    [[nodiscard]] core::Result<std::vector<Key>> parseKeySequence(std::string_view keys) {
-        std::vector<Key> sequence;
+    // [[nodiscard]] static core::Result<std::vector<Key>> parseKeySequence(std::string_view keys) {
+    //     std::vector<Key> sequence;
+    //     std::size_t pos = 0;
 
-        std::size_t pos = 0;
-        while (pos < keys.size()) {
-            // skip spaces
-            while (pos < keys.size() && keys[pos] == ' ') {
-                ++pos;
+    //     while (pos < keys.size()) {
+    //         while (pos < keys.size() && keys[pos] == ' ') {
+    //             ++pos;
+    //         }
+    //         if (pos >= keys.size()) {
+    //             break;
+    //         }
+
+    //         std::size_t end = pos;
+    //         if (keys[pos] == '<') {
+    //             end = keys.find('>', pos);
+    //             if (end == std::string_view::npos) {
+    //                 return core::make_error(core::ErrorCategory::InvalidArgument,
+    //                                         std::format("Unmatched '<' in key sequence '{}'", keys));
+    //             }
+    //             ++end;
+    //         } else {
+    //             while (end + 1 < keys.size() && keys[end + 1] == '-' &&
+    //                    (keys[end] == 'C' || keys[end] == 'c' || keys[end] == 'M' || keys[end] == 'm' ||
+    //                     keys[end] == 'A' || keys[end] == 'a' || keys[end] == 'S' || keys[end] == 's' ||
+    //                     keys[end] == 'W' || keys[end] == 'w')) {
+    //                 end += 2;
+    //             }
+
+    //             if (end < keys.size()) {
+    //                 if (keys[end] == '<') {
+    //                     const std::size_t close_pos = keys.find('>', end);
+    //                     if (close_pos == std::string_view::npos) {
+    //                         return core::make_error(core::ErrorCategory::InvalidArgument,
+    //                                                 "Unclosed '<' in key sequence");
+    //                     }
+    //                     end = close_pos + 1;
+    //                 } else {
+    //                     ++end;
+    //                 }
+    //             }
+    //         }
+
+    //         auto key_result = parse_key(keys.substr(pos, end - pos));
+    //         if (!key_result) {
+    //             return std::unexpected(key_result.error());
+    //         }
+    //         sequence.push_back(*key_result);
+    //         pos = end;
+    //     }
+
+    //     if (sequence.empty()) {
+    //         return core::make_error(core::ErrorCategory::InvalidArgument, "Empty key sequence");
+    //     }
+
+    //     return sequence;
+    // }
+    [[nodiscard]] static core::Result<std::string_view> extractNextToken(std::string_view keys) {
+        constexpr auto kIsModifier = [](char c) { return std::string_view("CcMmAaSsWw").contains(c); };
+        std::size_t len = 0;
+
+        if (keys.front() == '<') {
+            len = keys.find('>');
+            if (len == std::string_view::npos) {
+                return core::make_error(core::ErrorCategory::InvalidArgument,
+                                        std::format("Unmatched '<' in key sequence '{}'", keys));
             }
-            if (pos >= keys.size()) {
-                break;
-            }
-
-            std::size_t end = pos;
-
-            if (keys[pos] == '<') {
-                end = keys.find('>', pos);
-                if (end == std::string_view::npos) {
-                    return core::make_error(core::ErrorCategory::InvalidArgument,
-                                            std::format("Unmatched '<' in key sequence '{}'", keys));
-                }
-                ++end;  // include '>'
-            } else {
-                // Regular char or modifier prefix
-                // Check for modifier (X-...)
-                while (end < keys.size() && end + 1 < keys.size() && keys[end + 1] == '-' &&
-                       (keys[end] == 'C' || keys[end] == 'c' || keys[end] == 'M' || keys[end] == 'm' ||
-                        keys[end] == 'A' || keys[end] == 'a' || keys[end] == 'S' || keys[end] == 's')) {
-                    end += 2;
-                }
-
-                // Now the actual key
-                if (end < keys.size()) {
-                    if (keys[end] == '<') {
-                        // Special key with modifiers
-                        size_t close_pos = keys.find('>', end);
-                        if (close_pos == std::string_view::npos) {
-                            return core::make_error(core::ErrorCategory::InvalidArgument,
-                                                    "Unclosed '<' in key sequence");
-                        }
-                        end = close_pos + 1;
-                    } else {
-                        ++end;  // Single char
-                    }
-                }
-            }
-
-            auto key_result = parse_key(keys.substr(pos, end - pos));
-            if (!key_result) {
-                return core::make_error(core::ErrorCategory::InvalidArgument, key_result.error().message());
-            }
-            sequence.push_back(*key_result);
-            pos = end;
+            return keys.substr(0, len + 1);
         }
 
+        while (len + 1 < keys.size() && keys[len + 1] == '-' && kIsModifier(keys[len])) {
+            len += 2;
+        }
+
+        if (len < keys.size()) {
+            if (keys[len] == '<') {
+                const std::size_t close_pos = keys.find('>', len);
+                if (close_pos == std::string_view::npos) {
+                    return core::make_error(core::ErrorCategory::InvalidArgument, "Unclosed '<' in key sequence");
+                }
+                len = close_pos + 1;
+            } else {
+                ++len;
+            }
+        }
+
+        return keys.substr(0, len);
+    }
+
+    [[nodiscard]] static core::Result<std::vector<Key>> parseKeySequence(std::string_view keys) {
+        std::vector<Key> sequence;
+
+        while (true) {
+            const std::size_t first_non_space = keys.find_first_not_of(' ');
+            if (first_non_space == std::string_view::npos) {
+                break;
+            }
+            keys.remove_prefix(first_non_space);
+
+            auto token_result = Impl::extractNextToken(keys);
+            if (!token_result) {
+                return std::unexpected(token_result.error());
+            }
+
+            const std::string_view token = *token_result;
+            keys.remove_prefix(token.size());
+
+            auto key_result = parse_key(token);
+            if (!key_result) {
+                return std::unexpected(key_result.error());
+            }
+            sequence.push_back(*key_result);
+        }
         if (sequence.empty()) {
             return core::make_error(core::ErrorCategory::InvalidArgument, "Empty key sequence");
         }
@@ -364,110 +383,108 @@ struct KeyMap::Impl {
     }
 };
 
-KeyMap::KeyMap() : impl_{std::make_unique<Impl>()} {}
+KeyMap::KeyMap() : impl_(std::make_unique<Impl>()) {}
 KeyMap::~KeyMap() = default;
 KeyMap::KeyMap(KeyMap&&) noexcept = default;
 KeyMap& KeyMap::operator=(KeyMap&&) noexcept = default;
 
-core::VoidResult expp::ui::KeyMap::bind(std::string_view keys,
-                                        std::string action_name,
-                                        Mode mode,
-                                        std::string description) {
-    // Parse key sequence using helper
-    auto sequence_result = impl_->parseKeySequence(keys);
-
+core::VoidResult KeyMap::bind(std::string_view keys, CommandId command_id, Mode mode, std::string description) {
+    auto sequence_result = KeyMap::Impl::parseKeySequence(keys);
     if (!sequence_result) {
         return std::unexpected(sequence_result.error());
     }
 
-    auto sequence = std::move(sequence_result.value());
-
-    // Remove existing binding for same sequence in same mode
+    auto sequence = std::move(*sequence_result);
     auto& bindings = impl_->bindings;
-    auto remove_it =
-        rng::remove_if(bindings, [&](const KeyBinding& b) { return b.mode == mode && b.sequence == sequence; });
+    auto remove_it = rng::remove_if(
+        bindings, [&](const KeyBinding& binding) { return binding.mode == mode && binding.sequence == sequence; });
     bindings.erase(remove_it.begin(), bindings.end());
 
-    // Add new binding
-    bindings.push_back(KeyBinding{.sequence = std::move(sequence),
-                                  .actionName = std::move(action_name),
-                                  .mode = mode,
-                                  .description = std::move(description)});
-
+    bindings.push_back(KeyBinding{
+        .sequence = std::move(sequence),
+        .commandId = command_id,
+        .mode = mode,
+        .description = std::move(description),
+    });
     return {};
 }
 
 bool KeyMap::unbind(std::string_view keys, Mode mode) {
-    auto sequence_result = impl_->parseKeySequence(keys);
-
+    auto sequence_result = KeyMap::Impl::parseKeySequence(keys);
     if (!sequence_result) {
         return false;
     }
 
-    const auto& sequence = sequence_result.value();
-
-    // Find and remove matching binding
     auto& bindings = impl_->bindings;
-
-    auto it = rng::find_if(bindings, [&](const KeyBinding& b) { return b.mode == mode && b.sequence == sequence; });
-
-    if (it != bindings.end()) {
-        bindings.erase(it);
-        return true;
+    const auto it = rng::find_if(bindings, [&](const KeyBinding& binding) {
+        return binding.mode == mode && binding.sequence == *sequence_result;
+    });
+    if (it == bindings.end()) {
+        return false;
     }
-    return false;
+
+    bindings.erase(it);
+    return true;
 }
 
-core::Result<KeyLoadReport> KeyMap::loadFromFile(const std::filesystem::path& path) {
-    toml::table tbl;
+core::Result<KeyLoadReport> KeyMap::loadFromFile(const std::filesystem::path& path,
+                                                 const CommandResolver& resolve_command) {
+    toml::table table;
     try {
-        tbl = toml::parse_file(path.string());
-    } catch (const toml::parse_error& err) {
+        table = toml::parse_file(path.string());
+    } catch (const toml::parse_error& error) {
         return core::make_error(core::ErrorCategory::Config, std::format("Failed to parse keybinding config '{}': {}",
-                                                                         path.string(), err.description()));
+                                                                         path.string(), error.description()));
     }
 
     KeyLoadReport report;
-    auto* keys = tbl["keys"].as_table();
-    if (!keys) {
-        return report;  // No [keys] section — not an error, just use defaults
+    auto* keys = table["keys"].as_table();
+    if (keys == nullptr) {
+        return report;
     }
 
-    for (auto&& [modeName, modeTable] : *keys) {
-        auto mode = parse_mode(modeName);
+    for (auto&& [mode_name, mode_value] : *keys) {
+        const auto mode = parse_mode(mode_name);
         if (!mode) {
             report.warnings.push_back(
-                KeyLoadWarning{std::format("Skipped unknown keybinding mode '{}'", std::string{modeName})});
-            continue;  // Skip unknown mode names
-        }
-
-        auto* bindings = modeTable.as_table();
-        if (!bindings) {
-            report.warnings.push_back(
-                KeyLoadWarning{std::format("Skipped non-table keybinding mode '{}'", std::string{modeName})});
+                KeyLoadWarning{std::format("Skipped unknown keybinding mode '{}'", std::string{mode_name})});
             continue;
         }
 
-        for (auto&& [actionName, keyValue] : *bindings) {
-            auto key_str = keyValue.value<std::string>();
-            if (!key_str) {
+        auto* bindings = mode_value.as_table();
+        if (bindings == nullptr) {
+            report.warnings.push_back(
+                KeyLoadWarning{std::format("Skipped non-table keybinding mode '{}'", std::string{mode_name})});
+            continue;
+        }
+
+        for (auto&& [command_name, key_value] : *bindings) {
+            const auto key_string = key_value.value<std::string>();
+            if (!key_string) {
                 report.warnings.push_back(
                     KeyLoadWarning{std::format("Skipped binding '{}' in mode '{}' because the key is not a string",
-                                               std::string{actionName}, std::string{modeName})});
-                continue;  // Skip non-string values
+                                               std::string{command_name}, std::string{mode_name})});
+                continue;
+            }
+
+            const auto command_id = resolve_command(command_name);
+            if (!command_id.has_value()) {
+                report.warnings.push_back(KeyLoadWarning{std::format("Skipped binding '{}' -> '{}': unknown command",
+                                                                     *key_string, std::string{command_name})});
+                continue;
             }
 
             KeyLoadEntry entry{
-                .keys = *key_str,
-                .actionName = std::string{actionName},
+                .keys = *key_string,
+                .commandName = std::string{command_name},
                 .mode = *mode,
                 .description = {},
             };
-            auto result = bind(entry.keys, entry.actionName, entry.mode);
-            if (!result) {
+            auto bind_result = bind(entry.keys, *command_id, entry.mode, entry.description);
+            if (!bind_result) {
                 report.warnings.push_back(
                     KeyLoadWarning{std::format("Skipped binding '{}' -> '{}' in mode '{}': {}", entry.keys,
-                                               entry.actionName, mode_to_name(*mode), result.error().message())});
+                                               entry.commandName, mode_to_name(*mode), bind_result.error().message())});
                 continue;
             }
 
@@ -478,75 +495,33 @@ core::Result<KeyLoadReport> KeyMap::loadFromFile(const std::filesystem::path& pa
     return report;
 }
 
-void KeyMap::loadDefaults() {
-    // Navigation
-    (void)bind("j", "move_down", Mode::Normal);
-    (void)bind("k", "move_up", Mode::Normal);
-    (void)bind("h", "go_parent", Mode::Normal);
-    (void)bind("l", "enter_selected", Mode::Normal);
-    (void)bind("<Down>", "move_down", Mode::Normal);
-    (void)bind("<Up>", "move_up", Mode::Normal);
-    (void)bind("<Left>", "go_parent", Mode::Normal);
-    (void)bind("<Right>", "enter_selected", Mode::Normal);
-
-    // Jump
-    (void)bind("gg", "go_top", Mode::Normal);
-    (void)bind("gh", "go_home_directory", Mode::Normal);
-    (void)bind("gc", "go_config_directory", Mode::Normal);
-    (void)bind("gl", "go_link_target_directory", Mode::Normal);
-    (void)bind("g:", "prompt_directory_jump", Mode::Normal);
-    (void)bind("G", "go_bottom", Mode::Normal);
-    (void)bind("C-d", "page_down", Mode::Normal);
-    (void)bind("C-u", "page_up", Mode::Normal);
-    (void)bind("<PageDown>", "page_down", Mode::Normal);
-    (void)bind("<PageUp>", "page_up", Mode::Normal);
-    (void)bind("<Home>", "go_top", Mode::Normal);
-    (void)bind("<End>", "go_bottom", Mode::Normal);
-
-    // File operations
-    (void)bind("o", "open_file", Mode::Normal);
-    (void)bind("<Enter>", "enter_selected", Mode::Normal);
-    (void)bind("a", "create", Mode::Normal);
-    (void)bind("r", "rename", Mode::Normal);
-    (void)bind("d", "trash", Mode::Normal);
-    (void)bind("D", "delete", Mode::Normal);
-
-    // Search
-    (void)bind("/", "search", Mode::Normal);
-    (void)bind("n", "next_match", Mode::Normal);
-    (void)bind("N", "prev_match", Mode::Normal);
-    (void)bind("\\", "clear_search", Mode::Normal);
-
-    // Mode switching
-    (void)bind("<Esc>", "quit", Mode::Normal);
-    (void)bind("~", "open_help", Mode::Normal);
-    (void)bind("q", "quit", Mode::Normal);
-
-    // Insert mode
-    (void)bind("<Esc>", "enter_normal_mode", Mode::Insert);
-}
-
 const std::vector<KeyBinding>& KeyMap::bindings() const {
     return impl_->bindings;
 }
 
 std::vector<const KeyBinding*> KeyMap::bindingsForMode(Mode mode) const {
-    return impl_->bindings | rng::views::filter([mode](const KeyBinding& b) { return b.mode == mode; }) |
-           rng::views::transform([](const KeyBinding& b) { return std::addressof(b); }) | rng::to<std::vector>();
+    std::vector<const KeyBinding*> result;
+    for (const auto& binding : impl_->bindings) {
+        if (binding.mode == mode) {
+            result.push_back(std::addressof(binding));
+        }
+    }
+    return result;
 }
 
 const KeyBinding* KeyMap::findExact(const std::vector<Key>& sequence, Mode mode) const {
-    auto it =
-        rng::find_if(impl_->bindings, [&](const KeyBinding& b) { return b.mode == mode && b.sequence == sequence; });
-    return it != impl_->bindings.end() ? &(*it) : nullptr;
+    const auto it = rng::find_if(impl_->bindings, [&](const KeyBinding& binding) {
+        return binding.mode == mode && binding.sequence == sequence;
+    });
+    return it != impl_->bindings.end() ? std::addressof(*it) : nullptr;
 }
 
 bool KeyMap::isPrefix(const std::vector<Key>& sequence, Mode mode) const {
-    return rng::any_of(impl_->bindings, [&](const KeyBinding& b) {
-        if (b.mode != mode || b.sequence.size() <= sequence.size()) {
+    return rng::any_of(impl_->bindings, [&](const KeyBinding& binding) {
+        if (binding.mode != mode || binding.sequence.size() <= sequence.size()) {
             return false;
         }
-        return std::equal(sequence.begin(), sequence.end(), b.sequence.begin());
+        return std::equal(sequence.begin(), sequence.end(), binding.sequence.begin());
     });
 }
 
@@ -554,34 +529,19 @@ void KeyMap::clear() {
     impl_->bindings.clear();
 }
 
-// ============================================================================
-// KeyHandler
-// ============================================================================
-
 struct KeyHandler::Impl {
     ActionRegistry actions;
     KeyMap keymap;
-
     std::vector<Key> buffer;
-
     int numericPrefix{0};
     bool hasNumericPrefix{false};
     Mode currentMode{Mode::Normal};
     int timeoutMs{1000};
     std::chrono::steady_clock::time_point lastKeyTime;
 
-    struct _LegacyBinding {
-        std::string sequence;
-        std::function<void(int)> action;
-    };
-
-    // TODO: remove it when possible, this is just to keep backward compatibility with existing code that uses the old
-    // bind() API
-    std::vector<_LegacyBinding> legacyBindings;
-
     void reset() {
         buffer.clear();
-        hasNumericPrefix = 0;
+        numericPrefix = 0;
         hasNumericPrefix = false;
     }
 
@@ -590,37 +550,6 @@ struct KeyHandler::Impl {
                                hasNumericPrefix ? std::to_string(numericPrefix) : std::string{},
                                [](const std::string& acc, const Key& key) { return acc + key_to_string(key); });
     }
-
-    bool tryLegacyBindings() {
-        std::string seq = bufferToString();
-        // Strip numeric prefix for matching
-        size_t start = 0;
-        while (start < seq.size() && std::isdigit(seq[start]) != 0) {
-            ++start;
-        }
-        std::string key_seq = seq.substr(start);
-
-        return rng::any_of(legacyBindings, [&key_seq, this](const _LegacyBinding& b) {
-            if (b.sequence == key_seq) {
-                int count = hasNumericPrefix ? numericPrefix : 1;
-                b.action(count);
-                reset();
-                return true;
-            }
-            return false;
-        });
-    }
-    
-    [[nodiscard]] bool isLegacyPrefix() const {
-        std::string seq;
-        for (const auto& key : buffer) {
-            seq += key_to_string(key);
-        }
-
-        return rng::any_of(legacyBindings, [&seq](const _LegacyBinding& b) {
-            return b.sequence.starts_with(seq) && b.sequence != seq;
-        });
-    }
 };
 
 KeyHandler::KeyHandler(int timeout_ms) : impl_(std::make_unique<Impl>()) {
@@ -628,16 +557,17 @@ KeyHandler::KeyHandler(int timeout_ms) : impl_(std::make_unique<Impl>()) {
 }
 
 KeyHandler::~KeyHandler() = default;
-
 KeyHandler::KeyHandler(KeyHandler&&) noexcept = default;
 KeyHandler& KeyHandler::operator=(KeyHandler&&) noexcept = default;
 
 ActionRegistry& KeyHandler::actions() {
     return impl_->actions;
 }
+
 const ActionRegistry& KeyHandler::actions() const {
     return impl_->actions;
 }
+
 KeyMap& KeyHandler::keymap() {
     return impl_->keymap;
 }
@@ -656,78 +586,53 @@ void KeyHandler::setMode(Mode mode) {
 }
 
 bool KeyHandler::handle(const ftxui::Event& event) {
-    auto keyOpt = event_to_key(event);
-    if (!keyOpt) {
+    const auto key = event_to_key(event);
+    if (!key) {
         return false;
     }
 
-    Key key = keyOpt.value();
-
-    auto now = std::chrono::steady_clock::now();
-
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - impl_->lastKeyTime).count();
-
+    const auto now = std::chrono::steady_clock::now();
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - impl_->lastKeyTime).count();
     if (elapsed > impl_->timeoutMs && !impl_->buffer.empty()) {
         impl_->reset();
     }
-
     impl_->lastKeyTime = now;
 
-    // Handle numeric prefix (digits without modifiers)
-    if (key.isCharacter() && key.modifiers == Modifier::None && std::isdigit(key.character) != 0 &&
+    if (key->isCharacter() && key->modifiers == Modifier::None && std::isdigit(key->character) != 0 &&
         impl_->buffer.empty()) {
-        // '0' is only a prefix if we already have digits
-        if (key.character != '0' || impl_->hasNumericPrefix) {
-            impl_->numericPrefix = (impl_->numericPrefix * 10) + (key.character - '0');  // NOLINT
+        if (key->character != '0' || impl_->hasNumericPrefix) {
+            impl_->numericPrefix = (impl_->numericPrefix *
+                                    10) +  // NOLINT(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
+                                   (key->character - '0');
             impl_->hasNumericPrefix = true;
-            return true;  // Consume numeric prefix input
+            return true;
         }
     }
 
-    // add key to buffer
-    impl_->buffer.push_back(key);
-
-    // try new keymap system first
+    impl_->buffer.push_back(*key);
     if (const auto* binding = impl_->keymap.findExact(impl_->buffer, impl_->currentMode)) {
-        int count = impl_->hasNumericPrefix ? impl_->numericPrefix : 1;
-        bool executed = impl_->actions.execute(
-            binding->actionName, ActionContext{.count = count, .currentMode = impl_->currentMode, .argument = {}});
+        const int count = impl_->hasNumericPrefix ? impl_->numericPrefix : 1;
+        const bool executed = impl_->actions.execute(
+            binding->commandId, ActionContext{.count = count, .currentMode = impl_->currentMode, .argument = {}});
         impl_->reset();
         return executed;
     }
 
-    // Check if it's a valid prefix in new system
     if (impl_->keymap.isPrefix(impl_->buffer, impl_->currentMode)) {
-        return true;  // Wait for more keys
-    }
-
-    // Try legacy bindings
-    if (impl_->tryLegacyBindings()) {
         return true;
     }
 
-    // Check legacy prefix
-    if (impl_->isLegacyPrefix()) {
-        return true;
-    }
-
-    // No match - reset
     impl_->reset();
     return false;
 }
 
 bool KeyHandler::flush() {
     if (const auto* binding = impl_->keymap.findExact(impl_->buffer, impl_->currentMode)) {
-        int count = impl_->hasNumericPrefix ? impl_->numericPrefix : 1;
-        bool executed = impl_->actions.execute(
-            binding->actionName, ActionContext{.count = count, .currentMode = impl_->currentMode, .argument = {}});
+        const int count = impl_->hasNumericPrefix ? impl_->numericPrefix : 1;
+        const bool executed = impl_->actions.execute(
+            binding->commandId, ActionContext{.count = count, .currentMode = impl_->currentMode, .argument = {}});
         impl_->reset();
         return executed;
-    }
-
-    // Try legacy
-    if (impl_->tryLegacyBindings()) {
-        return true;
     }
 
     impl_->reset();
@@ -752,14 +657,6 @@ bool KeyHandler::hasPendingSequence() const {
 
 void KeyHandler::setTimeout(int timeout_ms) {
     impl_->timeoutMs = timeout_ms;
-}
-
-void KeyHandler::bind(std::string sequence,
-                      std::function<void(int)> action,
-                      [[maybe_unused]] std::string description,  // NOLINT
-                      [[maybe_unused]] std::string category)     // NOLINT
-{
-    impl_->legacyBindings.push_back({.sequence = std::move(sequence), .action = std::move(action)});
 }
 
 }  // namespace expp::ui

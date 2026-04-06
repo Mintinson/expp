@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 project(Expp
-    VERSION 0.14.1
+    VERSION 0.15.0
     DESCRIPTION "Cross-platform TUI file manager built with C++23"
     HOMEPAGE_URL "https://github.com/yourusername/Expp"
     LANGUAGES CXX
@@ -187,6 +187,7 @@ add_library(expp_ui STATIC
     src/ui/key_handler.cpp
     src/ui/theme.cpp
     src/ui/components.cpp
+    src/ui/help_menu_model.cpp
 )
 target_include_directories(expp_ui
     PUBLIC
@@ -212,6 +213,11 @@ add_library(expp_app STATIC
     src/app/navigation_utils.cpp
     src/app/explorer.cpp
     src/app/explorer_view.cpp
+    src/app/explorer_services.cpp
+    src/app/explorer_commands.cpp
+    src/app/explorer_presenter.cpp
+    src/app/explorer_sort.cpp
+    src/app/explorer_state_helpers.cpp
 )
 target_include_directories(expp_app
     PUBLIC
@@ -306,6 +312,3 @@ message(STATUS "Build examples:    ${EXPP_BUILD_EXAMPLES}")
 message(STATUS "Sanitizers:        ${EXPP_ENABLE_SANITIZERS}")
 message(STATUS "clang-tidy:        ${EXPP_ENABLE_CLANG_TIDY}")
 message(STATUS "")
-
-
-add_executable(draft test.cpp)

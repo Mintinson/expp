@@ -1,14 +1,6 @@
 /**
  * @file components.hpp
- * @brief Reusable FTXUI components for the file explorer
- *
- * These components provide a modular, composable architecture for the UI:
- * - FileListComponent: Displays lists of files with proper styling
- * - PreviewComponent: Shows file content previews
- * - StatusBarComponent: Display status information
- * - DialogComponent: Base for modals and confirmations
- *
- * EXTENSION POINT: Custom components can be created following these patterns
+ * @brief Reusable FTXUI view components and rendering models for the explorer UI.
  *
  * @copyright Copyright (c) 2026
  */
@@ -17,6 +9,7 @@
 #define EXPP_UI_COMPONENTS_HPP
 
 #include "expp/core/filesystem.hpp"
+#include "expp/ui/help_menu_model.hpp"
 #include "expp/ui/key_handler.hpp"
 #include "expp/ui/theme.hpp"
 
@@ -24,56 +17,62 @@
 #include <ftxui/screen/color.hpp>
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <span>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace expp::ui {
 
-// ============================================================================
-// FileListComponent: Renders a list of files with styling
-// ============================================================================
-
 /**
- * @brief Configuration for FileListComponent
+ * @brief Configuration for file-list rendering.
  */
 struct FileListConfig {
+    /// Theme used to derive colors and icons.
     const Theme* theme{&global_theme()};
+    /// Whether file-type icons are shown before names.
     bool showIcons{true};
+    /// Whether directory entries are rendered in bold.
     bool boldDirectories{true};
+    /// Whether search and selection highlighting is applied.
     bool enableHighlight{true};
-    std::string selectionPrefix{"➤ "};  // support unicode icons or custom markers
+    /// Prefix inserted before the selected row.
+    std::string selectionPrefix{"➤ "};
+    /// Prefix inserted before non-selected rows.
     std::string normalPrefix{"  "};
 };
 
+/**
+ * @brief Renders a scrollable list of filesystem entries.
+ */
 class FileListComponent {
 public:
     explicit FileListComponent(const FileListConfig& config = {});
     ~FileListComponent();
 
-    // Non-copyable, movable
     FileListComponent(FileListComponent&&) noexcept;
     FileListComponent& operator=(FileListComponent&&) noexcept;
     FileListComponent(const FileListComponent&) = delete;
     FileListComponent& operator=(const FileListComponent&) = delete;
 
     /**
-     * @brief Renders the file list
-     * @param entries File entries to display
-     * @param selected Index of selected entry
-     * @param searchMatches Optional indices of search matches
-     * @param currentMatchIndex Currently highlighted match index (-1 if none)
-     * @return FTXUI Element
+     * @brief Renders the visible file list.
+     * @param entries Visible entry slice to render.
+     * @param selected Selection index relative to `entries`.
+     * @param search_matches Relative indices that should be marked as search matches.
+     * @param current_match_index Active entry inside `search_matches`.
+     * @param selected_indices Relative indices participating in visual selection.
+     * @return FTXUI element for the file list.
      */
     [[nodiscard]] ftxui::Element render(std::span<const core::filesystem::FileEntry> entries,
                                         int selected,
                                         const std::vector<int>& search_matches = {},
                                         int current_match_index = -1,
                                         const std::vector<int>& selected_indices = {}) const;
-
     /**
-     * @brief Updates configuration
+     * @brief Replaces the rendering configuration.
      */
     void setConfig(FileListConfig config);
 
@@ -82,44 +81,44 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// ============================================================================
-// StatusBarComponent: Status and info bar
-// ============================================================================
-
 /**
- * @brief Status bar information
+ * @brief Data rendered in the explorer status bar.
  */
-// TODO: make it more generic and extensible for future features (e.g. git status, notifications)
 struct StatusBarInfo {
+    /// Current filesystem path shown on the left side.
     std::string currentPath;
+    /// Pending key sequence buffer shown to the user.
     std::string keyBuffer;
+    /// Search and sort status summary.
     std::string searchStatus;
+    /// Default help text for the current mode.
     std::string helpText{"j/k to move, h/l to navigate, q to quit"};
+    /// Whether the path segment is rendered.
     bool showPath{true};
+    /// Whether the help text segment is rendered.
     bool showHelp{true};
 };
 
 /**
- * @brief Displays status bar at bottom of the screen
+ * @brief Displays the bottom status line for the explorer.
  */
 class StatusBarComponent {
 public:
     explicit StatusBarComponent(const Theme* theme = &global_theme());
     ~StatusBarComponent();
 
-    // Non-copyable, movable
     StatusBarComponent(StatusBarComponent&&) noexcept;
     StatusBarComponent& operator=(StatusBarComponent&&) noexcept;
     StatusBarComponent(const StatusBarComponent&) = delete;
     StatusBarComponent& operator=(const StatusBarComponent&) = delete;
 
     /**
-     * @brief Renders the status bar
-     * @param info Status information to display
-     * @return FTXUI Element
+     * @brief Renders the status bar.
      */
     [[nodiscard]] ftxui::Element render(const StatusBarInfo& info) const;
-
+    /**
+     * @brief Changes the theme used by the status bar.
+     */
     void setTheme(const Theme* theme);
 
 private:
@@ -127,10 +126,9 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// ============================================================================
-// ToastComponent: Transient notifications
-// ============================================================================
-
+/**
+ * @brief Severity levels for transient toast notifications.
+ */
 enum class ToastSeverity : std::uint8_t {
     Info,
     Success,
@@ -138,11 +136,17 @@ enum class ToastSeverity : std::uint8_t {
     Error,
 };
 
+/**
+ * @brief Data rendered by the toast component.
+ */
 struct ToastInfo {
     ToastSeverity severity{ToastSeverity::Info};
     std::string message;
 };
 
+/**
+ * @brief Renders transient notification toasts.
+ */
 class ToastComponent {
 public:
     explicit ToastComponent(const Theme* theme = &global_theme());
@@ -153,8 +157,13 @@ public:
     ToastComponent(const ToastComponent&) = delete;
     ToastComponent& operator=(const ToastComponent&) = delete;
 
+    /**
+     * @brief Renders a toast message.
+     */
     [[nodiscard]] ftxui::Element render(const ToastInfo& toast) const;
-
+    /**
+     * @brief Changes the theme used by the toast renderer.
+     */
     void setTheme(const Theme* theme);
 
 private:
@@ -162,54 +171,17 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// ============================================================================
-// HelpMenuComponent: Keyboard shortcut reference
-// ============================================================================
-
-struct HelpEntry {
-    std::string category;
-    std::string shortcut;
-    std::string description;
-    Mode mode{Mode::Normal};
-};
-
-struct HelpViewport {
-    int selectedIndex{0};
-    int scrollOffset{0};
-    int viewportRows{12};
-};
-
 /**
- * @brief Builds help entries from actions and key bindings
+ * @brief Builds help entries by joining command metadata with key bindings.
  *
- * @param actions List of actions
- * @param bindings List of key bindings
- * @return std::vector<HelpEntry> List of help entries
+ * Bindings without a matching registered action are omitted.
  */
 [[nodiscard]] std::vector<HelpEntry> build_help_entries(std::span<const Action> actions,
                                                         std::span<const KeyBinding> bindings);
 
 /**
- * @brief Filters help entries based on a search term
- * @param entries List of help entries
- * @param filter Search term
- * @return std::vector<HelpEntry> Filtered list of help entries
- *
- * @todo it is necessary to have entries copy? Can we do lazy filtering with views instead?
+ * @brief Renders the keyboard shortcut help overlay.
  */
-[[nodiscard]] std::vector<HelpEntry> filter_help_entries(std::span<const HelpEntry> entries, std::string_view filter);
-
-/**
- * @brief Clamps the help viewport to the valid range
- * @param viewport The current viewport
- * @param entry_count The total number of help entries
- * @return HelpViewport The clamped viewport
- */
-[[nodiscard]] HelpViewport clamp_help_viewport(HelpViewport viewport, std::size_t entry_count);
-
-[[nodiscard]] HelpViewport clamp_help_viewport(HelpViewport viewport, std::span<const HelpEntry> entries);
-
-
 class HelpMenuComponent {
 public:
     explicit HelpMenuComponent(const Theme* theme = &global_theme());
@@ -220,11 +192,17 @@ public:
     HelpMenuComponent(const HelpMenuComponent&) = delete;
     HelpMenuComponent& operator=(const HelpMenuComponent&) = delete;
 
-    [[nodiscard]] ftxui::Element render(std::span<const HelpEntry> entries,
-                                        std::string_view filter_text,
-                                        bool filter_mode,
-                                        HelpViewport viewport) const;
-
+    /**
+     * @brief Renders the help overlay from the filtered help model.
+     * @param model Filtered help data to display.
+     * @param filter_mode Whether the filter input is currently active.
+     * @param viewport Selection and scroll state for the overlay body.
+     * @return FTXUI element for the help overlay.
+     */
+    [[nodiscard]] ftxui::Element render(const HelpMenuModel& model, bool filter_mode, HelpViewport viewport) const;
+    /**
+     * @brief Changes the theme used by the help overlay.
+     */
     void setTheme(const Theme* theme);
 
 private:
@@ -232,21 +210,17 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// ============================================================================
-// DialogComponent: Modal dialogs
-// ============================================================================
-
 /**
- * @brief Dialog button configuration
+ * @brief Visual configuration for a dialog button.
  */
 struct DialogButton {
     std::string label;
     ftxui::Color color{ftxui::Color::White};
-    bool primary{false};  // primary button gets focused by default
+    bool primary{false};
 };
 
 /**
- * @brief Dialog types
+ * @brief Supported dialog presentation styles.
  */
 enum class DialogType : std::uint8_t {
     Confirmation,
@@ -255,7 +229,7 @@ enum class DialogType : std::uint8_t {
 };
 
 /**
- * @brief Dialog configuration
+ * @brief Generic dialog configuration container.
  */
 struct DialogConfig {
     DialogType type{DialogType::Message};
@@ -267,12 +241,7 @@ struct DialogConfig {
 };
 
 /**
- * @brief Generic dialog component
- *
- * Can be used for:
- * - Confirmation dialogs (delete, trash)
- * - Input dialogs (create, rename, search)
- * - Message dialogs (errors, info)
+ * @brief Renders modal dialog variants used by the explorer.
  */
 class DialogComponent {
 public:
@@ -284,38 +253,20 @@ public:
     DialogComponent(const DialogComponent&) = delete;
     DialogComponent& operator=(const DialogComponent&) = delete;
 
-    /**
-     * @brief Renders a confirmation dialog
-     * @param title Dialog title
-     * @param message Confirmation message
-     * @param target_name Name of target (e.g., file being deleted)
-     * @param target_color Color to highlight target name
-     * @return FTXUI Element
-     */
+    /// Renders a confirmation dialog for destructive actions.
     [[nodiscard]] ftxui::Element renderConfirmation(const std::string& title,
                                                     const std::string& message,
                                                     const std::string& target_name,
                                                     ftxui::Color target_color) const;
 
-    /**
-     * @brief Renders an input dialog with a text input component
-     * @param title Dialog title
-     * @param message Prompt message
-     * @param input_component FTXUI input component
-     * @return FTXUI Element
-     */
+    /// Renders an input dialog around an existing FTXUI input element.
     [[nodiscard]] ftxui::Element renderInput(const std::string& title,
                                              const std::string& message,
                                              ftxui::Element input_component) const;
 
-    /**
-     * @brief Renders a message dialog
-     * @param title Dialog title
-     * @param message Message content
-     * @return FTXUI Element
-     */
+    /// Renders a simple informational message dialog.
     [[nodiscard]] ftxui::Element renderMessage(const std::string& title, const std::string& message) const;
-
+    /// Changes the theme used by dialogs.
     void setTheme(const Theme* theme);
 
 private:
@@ -323,25 +274,23 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// ============================================================================
-// PanelComponent: Three-column panel layout
-// ============================================================================
-
 /**
- * @brief Configuration for the three-column panel layout
+ * @brief Layout configuration for the three-panel explorer view.
  */
 struct PanelConfig {
+    /// Whether the parent directory panel is shown.
     bool showParent{true};
+    /// Whether the preview panel is shown.
     bool showPreview{true};
+    /// Fixed width for the parent panel when enabled.
     int parentWidth{};
+    /// Fixed width for the preview panel when enabled.
     int previewWidth{};
     const Theme* theme{&global_theme()};
 };
 
 /**
- * @brief Three-column panel layout component
- *
- * Manages the parent | current | preview layout
+ * @brief Renders the parent/current/preview panel layout.
  */
 class PanelComponent {
 public:
@@ -353,17 +302,13 @@ public:
     PanelComponent(const PanelComponent&) = delete;
     PanelComponent& operator=(const PanelComponent&) = delete;
 
+    /**
+     * @brief Replaces the panel layout configuration.
+     */
     void setConfig(const PanelConfig& config);
 
     /**
-     * @brief Renders the three-column panel layout
-     * @param parent_title Title for parent column
-     * @param parent_content Content for parent column
-     * @param current_title Title for current column
-     * @param current_content Content for current column
-     * @param preview_title Title for preview column
-     * @param preview_content Content for preview column
-     * @return FTXUI Element
+     * @brief Renders the configured panel layout.
      */
     [[nodiscard]] ftxui::Element render(const std::string& parent_title,
                                         ftxui::Element parent_content,
@@ -377,30 +322,46 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// ============================================================================
-// PreviewComponent: File content preview
-// ============================================================================
-
 /**
- * @brief Configuration for PreviewComponent
+ * @brief Preview rendering configuration.
  */
 struct PreviewConfig {
     const Theme* theme{&global_theme()};
+    /// Maximum number of preview lines to display.
     int maxLines{};
+    /// Message rendered when no preview is available.
     std::string emptyMessage{"[Empty]"};
+    /// Prefix used for preview error output.
     std::string errorPrefix{"[Error: "};
 };
 
+/// Preview state when there is no active preview target.
+struct PreviewIdleState {};
+
+/// Preview state while content is being loaded.
+struct PreviewLoadingState {
+    std::filesystem::path target;
+};
+
+/// Preview state after successful content loading.
+struct PreviewReadyState {
+    std::filesystem::path target;
+    std::vector<std::string> lines;
+};
+
+/// Preview state after a loading error.
+struct PreviewErrorState {
+    std::filesystem::path target;
+    std::string message;
+};
+
 /**
- * @brief Displays file content preview
- *
- * Handles:
- * - Text file previews
- * - Directory content lists
- * - Binary file indicators
- * - Error messages
- * - TODO: future support for image previews, git status, etc.
- * - TODO: using async component with loading state for large files or slow operations
+ * @brief Preview state model consumed by the preview component.
+ */
+using PreviewModel = std::variant<PreviewIdleState, PreviewLoadingState, PreviewReadyState, PreviewErrorState>;
+
+/**
+ * @brief Renders preview content from a precomputed preview model.
  */
 class PreviewComponent {
 public:
@@ -413,25 +374,23 @@ public:
     PreviewComponent& operator=(const PreviewComponent&) = delete;
 
     /**
-     * @brief Renders preview for the selected file
-     * @param entry File entry to preview
-     * @return FTXUI Element
+     * @brief Renders the current preview model.
      */
-    [[nodiscard]] ftxui::Element render(const core::filesystem::FileEntry& entry) const;
-
+    [[nodiscard]] ftxui::Element render(const PreviewModel& model) const;
     /**
-     * @brief Renders custom preview lines
-     * @param lines Custom preview lines
-     * @return FTXUI Element
+     * @brief Renders raw preview lines directly.
      */
     [[nodiscard]] ftxui::Element renderLines(const std::vector<std::string>& lines) const;
-
+    /**
+     * @brief Replaces the preview rendering configuration.
+     */
     void setConfig(const PreviewConfig& config);
 
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
 }  // namespace expp::ui
 
 #endif  // EXPP_UI_COMPONENTS_HPP

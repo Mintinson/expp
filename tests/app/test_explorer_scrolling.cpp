@@ -49,8 +49,8 @@ TEST_CASE("Explorer bottom selection shows last page", "[app][explorer][scroll]"
 
     const auto& state = explorer->state();
     REQUIRE(state.entries.size() == 30);
-    CHECK(state.currentSelected == 29);
-    CHECK(state.currentScrollOffset == 23);
+    CHECK(state.selection.currentSelected == 29);
+    CHECK(state.selection.currentScrollOffset == 23);
 }
 
 TEST_CASE("Explorer scroll offset clamps after viewport expansion", "[app][explorer][scroll]") {
@@ -65,15 +65,15 @@ TEST_CASE("Explorer scroll offset clamps after viewport expansion", "[app][explo
 
     {
         const auto& state = explorer->state();
-        CHECK(state.currentSelected == 23);
-        CHECK(state.currentScrollOffset == 19);
+        CHECK(state.selection.currentSelected == 23);
+        CHECK(state.selection.currentScrollOffset == 19);
     }
 
     explorer->setViewportRows(40);
 
     const auto& state = explorer->state();
-    CHECK(state.currentSelected == 23);
-    CHECK(state.currentScrollOffset == 0);
+    CHECK(state.selection.currentSelected == 23);
+    CHECK(state.selection.currentScrollOffset == 0);
 }
 
 TEST_CASE("Explorer create fails for missing startup directory", "[app][explorer][errors]") {
@@ -111,7 +111,8 @@ TEST_CASE("Explorer follows selected symlink target directory", "[app][explorer]
     std::error_code ec;
     fs::create_directory_symlink("../target", links_dir / "dir_link", ec);
     if (ec) {
-        SKIP("Directory symlink creation is not available in this environment");
+        SUCCEED("Directory symlink creation is not available in this environment");
+        return;
     }
 
     auto explorer_result = expp::app::Explorer::create(links_dir);
@@ -123,45 +124,93 @@ TEST_CASE("Explorer follows selected symlink target directory", "[app][explorer]
     CHECK(explorer->state().currentDir == fs::weakly_canonical(target_dir));
 }
 
-TEST_CASE("Explorer rejects invalid selected symlink targets", "[app][explorer][symlink]") {
+TEST_CASE("Explorer rejects broken selected symlink targets", "[app][explorer][symlink]") {
+    TempDirectory tmp;
+    const auto links_dir = tmp.path() / "broken_links";
+    fs::create_directories(links_dir);
+
+    std::error_code ec;
+    fs::create_directory_symlink("../missing", links_dir / "broken_link", ec);
+    if (ec) {
+        SUCCEED("Directory symlink creation is not available in this environment");
+        return;
+    }
+
+    auto explorer_result = expp::app::Explorer::create(links_dir);
+    REQUIRE(explorer_result.has_value());
+
+    auto result = (*explorer_result)->navigateToSelectedLinkTargetDirectory();
+    CHECK_FALSE(result.has_value());
+}
+
+TEST_CASE("Explorer rejects selected symlink targets that resolve to files", "[app][explorer][symlink]") {
+    TempDirectory tmp;
+    const auto links_dir = tmp.path() / "file_links";
+    const auto file_target = tmp.path() / "target.txt";
+    fs::create_directories(links_dir);
+
+    std::ofstream out(file_target);
+    out << "data\n";
+    out.close();
+
+    std::error_code ec;
+    fs::create_symlink("../target.txt", links_dir / "file_link", ec);
+    if (ec) {
+        SUCCEED("Symlink creation is not available in this environment");
+        return;
+    }
+
+    auto explorer_result = expp::app::Explorer::create(links_dir);
+    REQUIRE(explorer_result.has_value());
+
+    auto result = (*explorer_result)->navigateToSelectedLinkTargetDirectory();
+    CHECK_FALSE(result.has_value());
+}
+
+TEST_CASE("Explorer keeps the same entry selected across sort changes", "[app][explorer][sort]") {
     TempDirectory tmp;
 
-    SECTION("broken symlink returns an error") {
-        const auto links_dir = tmp.path() / "broken_links";
-        fs::create_directories(links_dir);
-
-        std::error_code ec;
-        fs::create_directory_symlink("../missing", links_dir / "broken_link", ec);
-        if (ec) {
-            SKIP("Directory symlink creation is not available in this environment");
-        }
-
-        auto explorer_result = expp::app::Explorer::create(links_dir);
-        REQUIRE(explorer_result.has_value());
-
-        auto result = (*explorer_result)->navigateToSelectedLinkTargetDirectory();
-        CHECK_FALSE(result.has_value());
+    {
+        std::ofstream out(tmp.path() / "small.txt");
+        out << "x\n";
+    }
+    {
+        std::ofstream out(tmp.path() / "large.txt");
+        out << "this file is intentionally larger than the other one\n";
     }
 
-    SECTION("symlink to file returns an error") {
-        const auto links_dir = tmp.path() / "file_links";
-        const auto file_target = tmp.path() / "target.txt";
-        fs::create_directories(links_dir);
+    auto explorer_result = expp::app::Explorer::create(tmp.path());
+    REQUIRE(explorer_result.has_value());
+    auto explorer = *explorer_result;
 
-        std::ofstream out(file_target);
-        out << "data\n";
-        out.close();
+    explorer->moveDown();
+    REQUIRE_FALSE(explorer->state().entries.empty());
+    const auto selected_before =
+        explorer->state().entries[static_cast<std::size_t>(explorer->state().selection.currentSelected)].path;
 
-        std::error_code ec;
-        fs::create_symlink("../target.txt", links_dir / "file_link", ec);
-        if (ec) {
-            SKIP("Symlink creation is not available in this environment");
-        }
+    explorer->setSortOrder(expp::app::SortOrder::Field::Size, expp::app::SortOrder::Direction::Descending);
 
-        auto explorer_result = expp::app::Explorer::create(links_dir);
-        REQUIRE(explorer_result.has_value());
+    const auto& state = explorer->state();
+    REQUIRE_FALSE(state.entries.empty());
+    CHECK(state.entries[static_cast<std::size_t>(state.selection.currentSelected)].path == selected_before);
+}
 
-        auto result = (*explorer_result)->navigateToSelectedLinkTargetDirectory();
-        CHECK_FALSE(result.has_value());
-    }
+TEST_CASE("Explorer yanks the full visual selection into clipboard state", "[app][explorer][clipboard]") {
+    TempDirectory tmp;
+    tmp.createFiles(4);
+
+    auto explorer_result = expp::app::Explorer::create(tmp.path());
+    REQUIRE(explorer_result.has_value());
+    auto explorer = *explorer_result;
+
+    explorer->enterVisualMode();
+    explorer->moveDown(2);
+
+    auto yank_result = explorer->yankSelected();
+    REQUIRE(yank_result.has_value());
+
+    const auto& state = explorer->state();
+    CHECK_FALSE(state.selection.visualModeActive);
+    CHECK(state.clipboard.operation == expp::app::ClipboardState::Operation::Copy);
+    CHECK(state.clipboard.paths.size() == 3);
 }

@@ -39,6 +39,8 @@ CheckOptions:
     value: 'lower_case'
   - key: readability-identifier-naming.PublicMethodCase
     value: 'camelBack'
+  - key: readability-identifier-naming.PrivateMethodCase
+    value: 'camelBack'
   - key: readability-identifier-naming.PrivateMemberSuffix
     value: '_'
   - key: readability-identifier-naming.ConstexprVariableCase
@@ -55,6 +57,10 @@ CheckOptions:
     value: 'UPPER_CASE'
   - key: readability-identifier-naming.NamespaceCase
     value: 'lower_case'
+  - key: readability-identifier-naming.ConceptCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConceptSuffix
+    value: 'Cnc'
   
   # Other options
   - key: modernize-use-override.IgnoreDestructors

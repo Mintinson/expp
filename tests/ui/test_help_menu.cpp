@@ -1,3 +1,4 @@
+#include "expp/app/explorer_commands.hpp"
 #include "expp/ui/components.hpp"
 #include "expp/ui/key_handler.hpp"
 
@@ -5,14 +6,31 @@
 
 TEST_CASE("buildHelpEntries groups bindings by action metadata", "[ui][help]") {
     expp::ui::ActionRegistry actions;
-    actions.registerAction("move_down", [](const expp::ui::ActionContext&) {}, "Move cursor down", "Navigation",
+    actions.registerAction(expp::app::to_command_id(expp::app::ExplorerCommand::MoveDown),
+                           [](const expp::ui::ActionContext&) {},
+                           "Move cursor down",
+                           "Navigation",
                            true);
-    actions.registerAction("search", [](const expp::ui::ActionContext&) {}, "Search files", "Search", false);
+    actions.registerAction(expp::app::to_command_id(expp::app::ExplorerCommand::Search),
+                           [](const expp::ui::ActionContext&) {},
+                           "Search files",
+                           "Search",
+                           false);
 
     expp::ui::KeyMap keymap;
-    REQUIRE(keymap.bind("j", "move_down", expp::ui::Mode::Normal, "Move down").has_value());
-    REQUIRE(keymap.bind("/", "search", expp::ui::Mode::Normal).has_value());
-    REQUIRE(keymap.bind("J", "move_down", expp::ui::Mode::Visual, "Move down (visual)").has_value());
+    REQUIRE(keymap.bind("j",
+                        expp::app::to_command_id(expp::app::ExplorerCommand::MoveDown),
+                        expp::ui::Mode::Normal,
+                        "Move down")
+                .has_value());
+    REQUIRE(
+        keymap.bind("/", expp::app::to_command_id(expp::app::ExplorerCommand::Search), expp::ui::Mode::Normal)
+            .has_value());
+    REQUIRE(keymap.bind("J",
+                        expp::app::to_command_id(expp::app::ExplorerCommand::MoveDown),
+                        expp::ui::Mode::Visual,
+                        "Move down (visual)")
+                .has_value());
 
     const auto entries = expp::ui::build_help_entries(actions.actions(), keymap.bindings());
 
@@ -25,22 +43,25 @@ TEST_CASE("buildHelpEntries groups bindings by action metadata", "[ui][help]") {
     CHECK(entries[2].category == "Search");
 }
 
-TEST_CASE("filterHelpEntries matches shortcuts and descriptions", "[ui][help]") {
-    const std::vector<expp::ui::HelpEntry> entries{
+TEST_CASE("HelpMenuModel filters shortcuts and descriptions", "[ui][help]") {
+    expp::ui::HelpMenuModel model;
+    model.setEntries({
         {.category = "Navigation", .shortcut = "gh", .description = "Go home", .mode = expp::ui::Mode::Normal},
         {.category = "Help", .shortcut = "~", .description = "Open help menu", .mode = expp::ui::Mode::Normal},
-    };
+    });
 
     SECTION("filter matches shortcut text") {
-        const auto filtered = expp::ui::filter_help_entries(entries, "gh");
-        REQUIRE(filtered.size() == 1);
-        CHECK(filtered.front().description == "Go home");
+        model.setFilter("gh");
+        REQUIRE(model.filteredCount() == 1);
+        CHECK(model.filteredEntry(0).description == "Go home");
+        CHECK(model.filteredSourceIndex(0) == 0);
     }
 
     SECTION("filter matches description text") {
-        const auto filtered = expp::ui::filter_help_entries(entries, "help");
-        REQUIRE(filtered.size() == 1);
-        CHECK(filtered.front().shortcut == "~");
+        model.setFilter("help");
+        REQUIRE(model.filteredCount() == 1);
+        CHECK(model.filteredEntry(0).shortcut == "~");
+        CHECK(model.filteredSourceIndex(0) == 1);
     }
 }
 
@@ -79,5 +100,26 @@ TEST_CASE("clampHelpViewport keeps selection and scroll valid", "[ui][help]") {
         const auto clamped = expp::ui::clamp_help_viewport(viewport, 40);
         CHECK(clamped.selectedIndex == 39);
         CHECK(clamped.scrollOffset == 28);
+    }
+
+    SECTION("category headers are accounted for in filtered help viewports") {
+        expp::ui::HelpMenuModel model;
+        model.setEntries({
+            {.category = "Navigation", .shortcut = "j", .description = "Move down", .mode = expp::ui::Mode::Normal},
+            {.category = "Navigation", .shortcut = "k", .description = "Move up", .mode = expp::ui::Mode::Normal},
+            {.category = "Search", .shortcut = "/", .description = "Search", .mode = expp::ui::Mode::Normal},
+            {.category = "Search", .shortcut = "n", .description = "Next match", .mode = expp::ui::Mode::Normal},
+            {.category = "View", .shortcut = ",n", .description = "Natural sort", .mode = expp::ui::Mode::Normal},
+        });
+
+        expp::ui::HelpViewport viewport{
+            .selectedIndex = 4,
+            .scrollOffset = 0,
+            .viewportRows = 4,
+        };
+
+        const auto clamped = expp::ui::clamp_help_viewport(viewport, model);
+        CHECK(clamped.selectedIndex == 4);
+        CHECK(clamped.scrollOffset > 0);
     }
 }

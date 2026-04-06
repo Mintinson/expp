@@ -2,20 +2,13 @@
  * @file explorer_view.cpp
  * @brief TUI view implementation for the file explorer
  *
- * Refactored to use modular UI components:
- * - FileListComponent for file display
- * - PanelComponent for three-column layout
- * - PreviewComponent for file preview
- * - StatusBarComponent for status display
- * - DialogComponent for modals
- * - ui::KeyHandler with ActionRegistry for key bindings
- * - Theme system for consistent colors
- *
  * @copyright Copyright (c) 2026
  */
 
 #include "expp/app/explorer_view.hpp"
 
+#include "expp/app/explorer_commands.hpp"
+#include "expp/app/explorer_presenter.hpp"
 #include "expp/app/navigation_utils.hpp"
 #include "expp/app/notification_center.hpp"
 #include "expp/core/config.hpp"
@@ -26,71 +19,48 @@
 // don't change this include order, otherwise it causes weird compilation errors
 // on MSVC
 // clang-format off
-#include <ftxui/component/event.hpp>
 #include <ftxui/component/component.hpp>
+#include <ftxui/component/event.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
 // clang-format on
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <format>
-#include <iterator>
 #include <memory>
 #include <optional>
 #include <print>
-#include <ranges>
 #include <span>
 #include <stop_token>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace expp::app {
 
 class ExplorerView::Impl {
 public:
-    static constexpr int kPageStep = 10;
-    static constexpr int kRootLayoutRows = 2;  // Main separator + status bar
-    static constexpr int kPanelDecorRows = 4;  // Border(top/bottom) + title + separator
     static constexpr auto kRefreshInterval = std::chrono::milliseconds(120);
-    static constexpr int kHelpViewportPaddingRows = 10;
-    constexpr static int kKeyTimeoutMs = 1000;
-
-    struct HelpState {
-        bool open{false};
-        bool filterMode{false};
-        std::string filterText;
-        ui::HelpViewport viewport;
-    };
 
     explicit Impl(std::shared_ptr<Explorer> explorer)
-        : explorer_{std::move(explorer)}
-        , screen_{ftxui::ScreenInteractive::Fullscreen()}
-        , theme_{&ui::global_theme()}
-        , keyHandler_{core::global_config().config().behavior.keyTimeoutMs}
-        , notifications_{make_notification_options(core::global_config().config().notifications)} {
+        : explorer_(std::move(explorer))
+        , screen_(ftxui::ScreenInteractive::Fullscreen())
+        , theme_(&ui::global_theme())
+        , keyHandler_(core::global_config().config().behavior.keyTimeoutMs)
+        , notifications_(make_notification_options(core::global_config().config().notifications)) {
         setupComponents();
         setupActions();
-
-        // Load default key bindings first, then override with user config if available
-        setupKeyBindings();
-        auto config_path = core::ConfigManager::userConfigPath();
-        if (std::filesystem::exists(config_path)) {
-            auto result = keyHandler_.keymap().loadFromFile(config_path);
-            if (!result) {
-                initError_ = result.error();
-                return;
-            }
-            applyUserKeyBindings(*result);
-        }
-
-        setupInputComponents();
+        installDefaultBindings();
+        loadUserBindings();
         rebuildHelpEntries();
+        syncDerivedState(true);
     }
 
     int run() {
@@ -102,20 +72,20 @@ public:
         }
 
         auto component = Renderer([this] { return render(); });
-
         component = CatchEvent(component, [this](const Event& event) { return handleEvent(event); });
+
         publishStartupWarnings();
         running_.store(true);
-        refreshTicker_ = std::jthread([this](std::stop_token stop_token) {
+        refreshTicker_ = std::jthread([this](const std::stop_token& stop_token) {
             while (!stop_token.stop_requested()) {
                 std::this_thread::sleep_for(kRefreshInterval);
                 if (!running_.load()) {
                     break;
                 }
-
                 screen_.PostEvent(Event::Custom);
             }
         });
+
         screen_.Loop(component);
         running_.store(false);
         if (refreshTicker_.joinable()) {
@@ -133,16 +103,9 @@ public:
     }
 
 private:
-    /**
-     * @brief Handle the result of an operation, publishing notifications as appropriate
-     * @param result The result of the operation
-     * @param success_message The message to display on success
-     * @param success_severity The severity of the success notification
-     * @return True if the operation was successful, false otherwise
-     */
     [[nodiscard]] bool handleResult(core::VoidResult result,
                                     std::string success_message = {},
-                                    ui::ToastSeverity success_severity = ui::ToastSeverity::Success) {
+                                    const ui::ToastSeverity success_severity = ui::ToastSeverity::Success) {
         if (!result) {
             notifications_.publish(severity_for_error(result.error()), result.error().message());
             return false;
@@ -164,10 +127,7 @@ private:
         if (state.entries.empty()) {
             return 0;
         }
-        if (state.visualModeActive) {
-            return std::max(1, explorer_->visualSelectionCount());
-        }
-        return 1;
+        return state.selection.visualModeActive ? std::max(1, explorer_->visualSelectionCount()) : 1;
     }
 
     /**
@@ -180,118 +140,364 @@ private:
         return std::format("{} {}{}", count, singular, count == 1 ? "" : "s");
     }
 
-    /**
-     * @brief Publish startup warnings to the notification center
-     */
-    void publishStartupWarnings() {
-        if (startupWarnings_.empty()) {
-            return;
-        }
-        notifications_.publish(ui::ToastSeverity::Warning, summarizeWarnings(startupWarnings_));
-        startupWarnings_.clear();
-    }
-
-    /// Apply user-loaded key bindings and collect any warnings for display
-    void applyUserKeyBindings(const ui::KeyLoadReport& report) {
-        auto& keymap = keyHandler_.keymap();
-        keymap.clear();
-        setupKeyBindings();
-
-        for (const auto& warning : report.warnings) {
-            startupWarnings_.push_back(warning.message);
-        }
-
-        for (const auto& binding : report.loadedBindings) {
-            if (keyHandler_.actions().find(binding.actionName) == nullptr) {
-                startupWarnings_.push_back(
-                    std::format("Skipped binding '{}' -> '{}': unknown action", binding.keys, binding.actionName));
-                continue;
-            }
-
-            auto bind_result = keymap.bind(binding.keys, binding.actionName, binding.mode, binding.description);
-            if (!bind_result) {
-                startupWarnings_.push_back(std::format("Skipped binding '{}' -> '{}': {}", binding.keys,
-                                                       binding.actionName, bind_result.error().message()));
-            }
-        }
-    }
-
-    /**
-     * @brief Summarize a list of warnings into a single string for display
-     * @param warnings
-     * @return
-     */
-    [[nodiscard]] static std::string summarizeWarnings(const std::vector<std::string>& warnings) {
-        if (warnings.empty()) {
-            return {};
-        }
-        if (warnings.size() == 1) {
-            return warnings.front();
-        }
-
-        constexpr size_t kPreviewCount = 2;
-        // std::string summary = std::format("Skipped {} key bindings: ", warnings.size());
-
-        using namespace std::string_view_literals;
-        auto preview =
-            warnings | std::views::take(kPreviewCount) | std::views::join_with("; "sv) | std::ranges::to<std::string>();
-        if (warnings.size() > kPreviewCount) {
-            return std::format("Skipped {} key bindings: {}; +{} more", warnings.size(), preview,
-                               warnings.size() - kPreviewCount);
-        }
-        return std::format("Skipped {} key bindings: {}", warnings.size(), preview);
-    }
-
     [[nodiscard]] static bool isBlank(std::string_view text) {
         return std::ranges::all_of(text, [](unsigned char ch) { return std::isspace(ch) != 0; });
     }
 
-    void rebuildHelpEntries() {
-        helpEntries_ = ui::build_help_entries(keyHandler_.actions().actions(), keyHandler_.keymap().bindings());
-        applyHelpFilter();
+    void setupComponents() {
+        const auto& cfg = core::global_config().config();
+
+        fileList_ = std::make_unique<ui::FileListComponent>(ui::FileListConfig{.theme = theme_});
+        preview_ = std::make_unique<ui::PreviewComponent>(ui::PreviewConfig{
+            .theme = theme_,
+            .maxLines = cfg.preview.maxLines,
+        });
+        statusBar_ = std::make_unique<ui::StatusBarComponent>(theme_);
+        toast_ = std::make_unique<ui::ToastComponent>(theme_);
+        helpMenu_ = std::make_unique<ui::HelpMenuComponent>(theme_);
+        dialog_ = std::make_unique<ui::DialogComponent>();
+        dialog_->setTheme(theme_);
+        panel_ = std::make_unique<ui::PanelComponent>(ui::PanelConfig{
+            .showParent = cfg.layout.showParentPanel,
+            .showPreview = cfg.layout.showPreviewPanel,
+            .parentWidth = cfg.layout.parentPanelWidth,
+            .previewWidth = cfg.layout.previewPanelWidth,
+            .theme = theme_,
+        });
     }
 
-    void applyHelpFilter() {
-        filteredHelpEntries_ = ui::filter_help_entries(helpEntries_, helpState_.filterText);
-        // helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_.size());
-        helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_);
+    void setupActions() {
+        auto& actions = keyHandler_.actions();
+        for (const auto& spec : command_specs()) {
+            // Register every command from the declarative catalog so help text,
+            // repeatability, and runtime dispatch stay in lockstep.
+            actions.registerAction(
+                to_command_id(spec.command),
+                [this, command = spec.command](const ui::ActionContext& ctx) {
+                    executeCommand(command, ctx);
+                    if (exits_visual_mode(command) && keyHandler_.mode() == ui::Mode::Visual) {
+                        explorer_->exitVisualMode();
+                        keyHandler_.setMode(ui::Mode::Normal);
+                    }
+                    syncDerivedState();
+                },
+                std::string{spec.description}, std::string{spec.category}, spec.repeatable);
+        }
     }
 
-    void openHelp() {
-        helpState_ = {};
-        helpState_.open = true;
-        helpState_.viewport.viewportRows = std::clamp(screen_.dimy() - kHelpViewportPaddingRows, 8, 28);
-        helpFilterInputComponent_->TakeFocus();
-        applyHelpFilter();
+    void installDefaultBindings() {
+        auto& keymap = keyHandler_.keymap();
+        for (const auto& [keys, command, mode, description] : default_bindings()) {
+            auto result = keymap.bind(keys, to_command_id(command), mode, std::string{description});
+            if (!result && !initError_.has_value()) {
+                initError_ = result.error();
+                return;
+            }
+        }
     }
 
-    void closeHelp() {
-        helpState_ = {};
-        filteredHelpEntries_.clear();
-    }
-
-    void openDirectoryJumpDialog() {
-        showDirectoryJumpDialog_ = true;
-        directoryJumpInput_.clear();
-        directoryJumpInputComponent_->TakeFocus();
-    }
-
-    void closeDirectoryJumpDialog() {
-        showDirectoryJumpDialog_ = false;
-        directoryJumpInput_.clear();
-    }
-
-    void moveHelpSelection(int delta) {
-        if (filteredHelpEntries_.empty()) {
-            helpState_.viewport.selectedIndex = 0;
-            helpState_.viewport.scrollOffset = 0;
+    void loadUserBindings() {
+        const auto config_path = core::ConfigManager::userConfigPath();
+        if (!std::filesystem::exists(config_path)) {
             return;
         }
 
-        helpState_.viewport.selectedIndex =
-            std::clamp(helpState_.viewport.selectedIndex + delta, 0, static_cast<int>(filteredHelpEntries_.size()) - 1);
-        // helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_.size());
-        helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_);
+        // User bindings are layered on top of catalog defaults. Rebuild from the
+        // default set first so unknown or partial user config files do not leave
+        // the keymap half-empty.
+        keyHandler_.keymap().clear();
+        installDefaultBindings();
+        if (initError_.has_value()) {
+            return;
+        }
+
+        auto result =
+            keyHandler_.keymap().loadFromFile(config_path, [](std::string_view name) -> std::optional<ui::CommandId> {
+                if (const auto command = command_from_name(name)) {
+                    return to_command_id(*command);
+                }
+                return std::nullopt;
+            });
+        if (!result) {
+            initError_ = result.error();
+            return;
+        }
+
+        for (const auto& warning : result->warnings) {
+            startupWarnings_.push_back(warning.message);
+        }
+    }
+
+    void executeCommand(ExplorerCommand command, const ui::ActionContext& ctx) {
+        switch (command) {
+            case ExplorerCommand::MoveDown:
+                explorer_->moveDown(ctx.count);
+                return;
+            case ExplorerCommand::MoveUp:
+                explorer_->moveUp(ctx.count);
+                return;
+            case ExplorerCommand::GoParent:
+                (void)handleResult(explorer_->goParent());
+                return;
+            case ExplorerCommand::EnterSelected:
+                (void)handleResult(explorer_->enterSelected(true));
+                return;
+            case ExplorerCommand::GoTop:
+                explorer_->goToTop();
+                return;
+            case ExplorerCommand::GoBottom:
+                if (!explorer_->state().entries.empty()) {
+                    if (ctx.count > 1) {
+                        explorer_->goToLine(ctx.count);
+                    } else {
+                        explorer_->goToBottom();
+                    }
+                }
+                return;
+            case ExplorerCommand::PageDown:
+                explorer_->moveDown(ExplorerPresenter::kPageStep * ctx.count);
+                return;
+            case ExplorerCommand::PageUp:
+                explorer_->moveUp(ExplorerPresenter::kPageStep * ctx.count);
+                return;
+            case ExplorerCommand::GoHomeDirectory:
+                (void)navigateToHomeDirectory();
+                return;
+            case ExplorerCommand::GoConfigDirectory:
+                (void)navigateToConfigDirectory();
+                return;
+            case ExplorerCommand::GoLinkTargetDirectory:
+                (void)handleResult(explorer_->navigateToSelectedLinkTargetDirectory());
+                return;
+            case ExplorerCommand::PromptDirectoryJump:
+                openDirectoryJumpOverlay();
+                return;
+            case ExplorerCommand::EnterVisualMode:
+                explorer_->enterVisualMode();
+                if (explorer_->state().selection.visualModeActive) {
+                    keyHandler_.setMode(ui::Mode::Visual);
+                }
+                return;
+            case ExplorerCommand::ExitVisualMode:
+                explorer_->exitVisualMode();
+                keyHandler_.setMode(ui::Mode::Normal);
+                return;
+            case ExplorerCommand::OpenFile: {
+                const auto& state = explorer_->state();
+                const bool can_open =
+                    !state.entries.empty() &&
+                    !state.entries[static_cast<std::size_t>(state.selection.currentSelected)].isDirectory();
+                (void)handleResult(explorer_->openSelected(), can_open ? "Opened with default application" : "");
+                return;
+            }
+            case ExplorerCommand::Create:
+                openCreateOverlay();
+                return;
+            case ExplorerCommand::Rename:
+                openRenameOverlay();
+                return;
+            case ExplorerCommand::Yank: {
+                const int count = selectedCount();
+                (void)handleResult(explorer_->yankSelected(),
+                                   count > 0 ? std::format("Copied {}", nounWithCount(count, "item")) : "");
+                return;
+            }
+            case ExplorerCommand::Cut: {
+                const int count = selectedCount();
+                (void)handleResult(explorer_->cutSelected(),
+                                   count > 0 ? std::format("Cut {}", nounWithCount(count, "item")) : "");
+                return;
+            }
+            case ExplorerCommand::DiscardYank:
+                (void)handleResult(explorer_->discardYank(), "Clipboard cleared", ui::ToastSeverity::Info);
+                return;
+            case ExplorerCommand::Paste: {
+                const int item_count = static_cast<int>(explorer_->state().clipboard.paths.size());
+                (void)handleResult(explorer_->pasteYanked(false),
+                                   item_count > 0 ? std::format("Pasted {}", nounWithCount(item_count, "item")) : "");
+                return;
+            }
+            case ExplorerCommand::PasteOverwrite: {
+                const int item_count = static_cast<int>(explorer_->state().clipboard.paths.size());
+                (void)handleResult(
+                    explorer_->pasteYanked(true),
+                    item_count > 0 ? std::format("Pasted {} with overwrite", nounWithCount(item_count, "item")) : "");
+                return;
+            }
+            case ExplorerCommand::CopyEntryPathRelative:
+                (void)handleResult(explorer_->copySelectedPathToSystemClipboard(false), "Copied relative path",
+                                   ui::ToastSeverity::Info);
+                return;
+            case ExplorerCommand::CopyCurrentDirRelative:
+                (void)handleResult(explorer_->copyCurrentDirectoryPathToSystemClipboard(false),
+                                   "Copied relative directory path", ui::ToastSeverity::Info);
+                return;
+            case ExplorerCommand::CopyEntryPathAbsolute:
+                (void)handleResult(explorer_->copySelectedPathToSystemClipboard(true), "Copied absolute path",
+                                   ui::ToastSeverity::Info);
+                return;
+            case ExplorerCommand::CopyCurrentDirAbsolute:
+                (void)handleResult(explorer_->copyCurrentDirectoryPathToSystemClipboard(true),
+                                   "Copied absolute directory path", ui::ToastSeverity::Info);
+                return;
+            case ExplorerCommand::CopyFileName:
+                (void)handleResult(explorer_->copySelectedFileNameToSystemClipboard(), "Copied file name",
+                                   ui::ToastSeverity::Info);
+                return;
+            case ExplorerCommand::CopyNameWithoutExtension:
+                (void)handleResult(explorer_->copySelectedNameWithoutExtensionToSystemClipboard(),
+                                   "Copied name without extension", ui::ToastSeverity::Info);
+                return;
+            case ExplorerCommand::Trash:
+                openTrashOverlay();
+                return;
+            case ExplorerCommand::Delete:
+                openDeleteOverlay();
+                return;
+            case ExplorerCommand::Search:
+                openSearchOverlay();
+                return;
+            case ExplorerCommand::NextMatch:
+                for (int index = 0; index < ctx.count; ++index) {
+                    explorer_->nextMatch();
+                }
+                return;
+            case ExplorerCommand::PrevMatch:
+                for (int index = 0; index < ctx.count; ++index) {
+                    explorer_->prevMatch();
+                }
+                return;
+            case ExplorerCommand::ClearSearch:
+                explorer_->clearSearch();
+                return;
+            case ExplorerCommand::ToggleHidden:
+                (void)handleResult(explorer_->toggleShowHidden());
+                return;
+            case ExplorerCommand::SortModified:
+            case ExplorerCommand::SortModifiedDesc:
+            case ExplorerCommand::SortBirth:
+            case ExplorerCommand::SortBirthDesc:
+            case ExplorerCommand::SortExtension:
+            case ExplorerCommand::SortExtensionDesc:
+            case ExplorerCommand::SortAlpha:
+            case ExplorerCommand::SortAlphaDesc:
+            case ExplorerCommand::SortNatural:
+            case ExplorerCommand::SortNaturalDesc:
+            case ExplorerCommand::SortSize:
+            case ExplorerCommand::SortSizeDesc:
+                applySortCommand(command);
+                return;
+            case ExplorerCommand::OpenHelp:
+                openHelpOverlay();
+                return;
+            case ExplorerCommand::Quit:
+                requestExit();
+                return;
+            default:
+                return;
+        }
+    }
+
+    void applySortCommand(ExplorerCommand command) {
+        for (const auto& spec : sort_specs()) {
+            if (spec.ascendingCommand == command) {
+                explorer_->setSortOrder(spec.field, SortOrder::Direction::Ascending);
+                return;
+            }
+            if (spec.descendingCommand == command) {
+                explorer_->setSortOrder(spec.field, SortOrder::Direction::Descending);
+                return;
+            }
+        }
+    }
+
+    void rebuildHelpEntries() {
+        helpEntries_ = ui::build_help_entries(keyHandler_.actions().actions(), keyHandler_.keymap().bindings());
+        if (auto* help = std::get_if<HelpOverlayState>(&overlayState_)) {
+            // Keep an already-open help overlay live-updated if bindings change.
+            help->model.setEntries(helpEntries_);
+            help->model.setFilter(help->filterText);
+            help->viewport = ui::clamp_help_viewport(help->viewport, help->model);
+        }
+    }
+
+    void rebuildInputComponents() {
+        using namespace ftxui;
+
+        const auto make_input_option = [](Color focused_color) {
+            auto option = InputOption::Default();
+            option.multiline = false;
+            option.transform = [focused_color](InputState state) {
+                if (state.is_placeholder) {
+                    state.element |= dim;
+                }
+                if (state.focused) {
+                    state.element |= color(focused_color);
+                }
+                return state.element;
+            };
+            return option;
+        };
+
+        // createInputComponent_ = {};
+        // renameInputComponent_ = {};
+        // searchInputComponent_ = {};
+        // directoryJumpInputComponent_ = {};
+        // helpFilterInputComponent_ = {};
+
+        // if (auto* overlay = std::get_if<CreateOverlayState>(&overlayState_)) {
+        //     createInputComponent_ = Input(&overlay->input, "filename or path/to/dir/",
+        //     make_input_option(Color::Cyan2)); createInputComponent_->TakeFocus();
+        // }
+        // if (auto* overlay = std::get_if<RenameOverlayState>(&overlayState_)) {
+        //     renameInputComponent_ = Input(&overlay->input, "new name", make_input_option(Color::DarkCyan));
+        //     renameInputComponent_->TakeFocus();
+        // }
+        // if (auto* overlay = std::get_if<SearchOverlayState>(&overlayState_)) {
+        //     searchInputComponent_ = Input(&overlay->input, "pattern", make_input_option(Color::Yellow));
+        //     searchInputComponent_->TakeFocus();
+        // }
+        // if (auto* overlay = std::get_if<DirectoryJumpOverlayState>(&overlayState_)) {
+        //     directoryJumpInputComponent_ =
+        //         Input(&overlay->input, "~/path/to/dir", make_input_option(Color::GreenLight));
+        //     directoryJumpInputComponent_->TakeFocus();
+        // }
+        // if (auto* overlay = std::get_if<HelpOverlayState>(&overlayState_)) {
+        //     helpFilterInputComponent_ =
+        //         Input(&overlay->filterText, "shortcut or description", make_input_option(Color::Yellow));
+        //     if (overlay->filterMode) {
+        //         helpFilterInputComponent_->TakeFocus();
+        //     }
+        // }
+
+        activeInputComponent_ = nullptr;
+
+        std::visit(
+            [&]<typename T0>(T0& overlay) {
+                using T = std::decay_t<T0>;
+                if constexpr (std::is_same_v<T, CreateOverlayState>) {
+                    activeInputComponent_ =
+                        Input(&overlay.input, "filename or path/to/dir/", make_input_option(Color::Cyan2));
+                    activeInputComponent_->TakeFocus();
+                } else if constexpr (std::is_same_v<T, RenameOverlayState>) {
+                    activeInputComponent_ = Input(&overlay.input, "new name", make_input_option(Color::DarkCyan));
+                    activeInputComponent_->TakeFocus();
+                } else if constexpr (std::is_same_v<T, SearchOverlayState>) {
+                    activeInputComponent_ = Input(&overlay.input, "pattern", make_input_option(Color::Yellow));
+                    activeInputComponent_->TakeFocus();
+                } else if constexpr (std::is_same_v<T, DirectoryJumpOverlayState>) {
+                    activeInputComponent_ =
+                        Input(&overlay.input, "~/path/to/dir", make_input_option(Color::GreenLight));
+                    activeInputComponent_->TakeFocus();
+                } else if constexpr (std::is_same_v<T, HelpOverlayState>) {
+                    activeInputComponent_ =
+                        Input(&overlay.filterText, "shortcut or description", make_input_option(Color::Yellow));
+                    if (overlay.filterMode) {
+                        activeInputComponent_->TakeFocus();
+                    }
+                }
+            },
+            overlayState_);
     }
 
     [[nodiscard]] bool navigateToHomeDirectory() {
@@ -300,7 +506,6 @@ private:
             notifications_.publish(severity_for_error(home_result.error()), home_result.error().message());
             return false;
         }
-
         return handleResult(explorer_->navigateTo(*home_result));
     }
 
@@ -313,8 +518,8 @@ private:
         return handleResult(explorer_->navigateTo(config_dir));
     }
 
-    [[nodiscard]] bool navigateToTypedDirectory() {
-        auto resolved_path = resolve_directory_input(directoryJumpInput_, explorer_->state().currentDir);
+    [[nodiscard]] bool navigateToTypedDirectory(const std::string& input) {
+        auto resolved_path = resolve_directory_input(input, explorer_->state().currentDir);
         if (!resolved_path) {
             notifications_.publish(severity_for_error(resolved_path.error()), resolved_path.error().message());
             return false;
@@ -322,735 +527,211 @@ private:
         return handleResult(explorer_->navigateTo(*resolved_path));
     }
 
-    [[nodiscard]] bool handleDirectoryJumpDialogEvent(const ftxui::Event& event) {
-        using namespace ftxui;
-
-        if (event == Event::Return) {
-            if (isBlank(directoryJumpInput_)) {
-                closeDirectoryJumpDialog();
-                return true;
-            }
-
-            if (navigateToTypedDirectory()) {
-                closeDirectoryJumpDialog();
-            }
-            return true;
-        }
-        if (event == Event::Escape) {
-            closeDirectoryJumpDialog();
-            return true;
-        }
-        return directoryJumpInputComponent_->OnEvent(event);
+    void openHelpOverlay() {
+        HelpOverlayState overlay;
+        overlay.model.setEntries(helpEntries_);
+        overlay.viewport.viewportRows = ExplorerPresenter::helpViewportRows(screen_.dimy());
+        overlay.viewport = ui::clamp_help_viewport(overlay.viewport, overlay.model);
+        overlayState_ = std::move(overlay);
+        rebuildInputComponents();
     }
 
-    [[nodiscard]] bool handleHelpEvent(const ftxui::Event& event) {
-        using namespace ftxui;
-
-        if (event == Event::Custom) {
-            return false;
-        }
-
-        if (helpState_.filterMode) {
-            if (event == Event::Return) {
-                helpState_.filterMode = false;
-                return true;
-            }
-            if (event == Event::Escape) {
-                helpState_.filterMode = false;
-                return true;
-            }
-
-            const bool handled = helpFilterInputComponent_->OnEvent(event);
-            if (handled) {
-                applyHelpFilter();
-            }
-            return handled;
-        }
-
-        if (event == Event::Character('~') || event == Event::Escape) {
-            closeHelp();
-            return true;
-        }
-        if (event == Event::Character('j') || event == Event::ArrowDown) {
-            moveHelpSelection(1);
-            return true;
-        }
-        if (event == Event::Character('k') || event == Event::ArrowUp) {
-            moveHelpSelection(-1);
-            return true;
-        }
-        if (event == Event::Character('f')) {
-            helpState_.filterMode = true;
-            helpFilterInputComponent_->TakeFocus();
-            return true;
-        }
-        return true;
+    void openDirectoryJumpOverlay() {
+        overlayState_ = DirectoryJumpOverlayState{};
+        rebuildInputComponents();
     }
 
-    /**
-     * @brief Setup reusable UI components
-     */
-    void setupComponents() {
-        const auto& cfg = core::global_config().config();
-
-        ui::FileListConfig file_list_config{};
-        file_list_config.theme = theme_;
-
-        fileList_ = std::make_unique<ui::FileListComponent>(file_list_config);
-
-        ui::PreviewConfig preview_config{};
-        preview_config.theme = theme_;
-        preview_config.maxLines = cfg.preview.maxLines;
-        preview_ = std::make_unique<ui::PreviewComponent>(preview_config);
-
-        statusBar_ = std::make_unique<ui::StatusBarComponent>(theme_);
-        toast_ = std::make_unique<ui::ToastComponent>(theme_);
-        helpMenu_ = std::make_unique<ui::HelpMenuComponent>(theme_);
-
-        dialog_ = std::make_unique<ui::DialogComponent>();
-        dialog_->setTheme(theme_);
-
-        ui::PanelConfig panel_config{};
-        panel_config.theme = theme_;
-        panel_config.showParent = cfg.layout.showParentPanel;
-        panel_config.showPreview = cfg.layout.showPreviewPanel;
-        panel_config.parentWidth = cfg.layout.parentPanelWidth;
-        panel_config.previewWidth = cfg.layout.previewPanelWidth;
-        panel_ = std::make_unique<ui::PanelComponent>(panel_config);
+    void openCreateOverlay() {
+        overlayState_ = CreateOverlayState{};
+        rebuildInputComponents();
     }
 
-    /**
-     * @brief Register all actions using the ActionRegistry
-     */
-    void setupActions() {
-        auto& actions = keyHandler_.actions();
-
-        // Navigation actions
-        actions.registerAction(
-            "move_down", [this](const ui::ActionContext& ctx) { explorer_->moveDown(ctx.count); }, "Move cursor down",
-            "Navigation", true);
-        actions.registerAction(
-            "move_up", [this](const ui::ActionContext& ctx) { explorer_->moveUp(ctx.count); }, "Move cursor up",
-            "Navigation", true);
-        actions.registerAction(
-            "go_parent",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                (void)handleResult(explorer_->goParent());
-                if (keyHandler_.mode() == ui::Mode::Visual) {
-                    keyHandler_.setMode(ui::Mode::Normal);
-                }
-            },
-            "Move cursor up", "Navigation", false);
-        actions.registerAction(
-            "enter_selected",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                (void)handleResult(explorer_->enterSelected(true));
-                if (keyHandler_.mode() == ui::Mode::Visual) {
-                    keyHandler_.setMode(ui::Mode::Normal);
-                }
-            },
-            "Enter directory or open file", "Navigation", false);
-        actions.registerAction(
-            "go_top", [this]([[maybe_unused]] const ui::ActionContext& ctx) { explorer_->goToTop(); },
-            "Go to first item", "Navigation", false);
-        actions.registerAction(
-            "go_bottom",
-            [this](const ui::ActionContext& ctx) {
-                const auto& st = explorer_->state();
-                if (!st.entries.empty()) {
-                    if (ctx.count > 1) {
-                        explorer_->goToLine(ctx.count);
-                    } else {
-                        explorer_->goToBottom();
-                    }
-                }
-            },
-            "Go to last item or line N", "Navigation", true);
-        actions.registerAction(
-            "page_down", [this](const ui::ActionContext& ctx) { explorer_->moveDown(kPageStep * ctx.count); },
-            "Scroll down half page", "Navigation", true);
-        actions.registerAction(
-            "page_up", [this](const ui::ActionContext& ctx) { explorer_->moveUp(kPageStep * ctx.count); },
-            "Scroll up half page", "Navigation", true);
-        actions.registerAction(
-            "go_home_directory",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                (void)navigateToHomeDirectory();
-                if (keyHandler_.mode() == ui::Mode::Visual) {
-                    keyHandler_.setMode(ui::Mode::Normal);
-                }
-            },
-            "Navigate to home directory", "Navigation", false);
-        actions.registerAction(
-            "go_config_directory",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                (void)navigateToConfigDirectory();
-                if (keyHandler_.mode() == ui::Mode::Visual) {
-                    keyHandler_.setMode(ui::Mode::Normal);
-                }
-            },
-            "Navigate to expp config directory", "Navigation", false);
-        actions.registerAction(
-            "go_link_target_directory",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                (void)handleResult(explorer_->navigateToSelectedLinkTargetDirectory());
-                if (keyHandler_.mode() == ui::Mode::Visual) {
-                    keyHandler_.setMode(ui::Mode::Normal);
-                }
-            },
-            "Navigate to selected link target directory", "Navigation", false);
-        actions.registerAction(
-            "prompt_directory_jump",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) { openDirectoryJumpDialog(); },
-            "Open directory jump prompt", "Navigation", false);
-
-        actions.registerAction(
-            "enter_visual_mode",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                explorer_->enterVisualMode();
-                if (explorer_->state().visualModeActive) {
-                    keyHandler_.setMode(ui::Mode::Visual);
-                }
-            },
-            "Enter visual mode", "Navigation", false);
-
-        actions.registerAction(
-            "exit_visual_mode",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                explorer_->exitVisualMode();
-                keyHandler_.setMode(ui::Mode::Normal);
-            },
-            "Exit visual mode", "Navigation", false);
-
-        // File operations
-        actions.registerAction(
-            "open_file",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                const auto& state = explorer_->state();
-                const bool can_open_file =
-                    !state.entries.empty() && !state.entries[static_cast<size_t>(state.currentSelected)].isDirectory();
-                (void)handleResult(explorer_->openSelected(), can_open_file ? "Opened with default application" : "");
-            },
-            "Open file with default application", "File Operations", false);
-
-        actions.registerAction(
-            "create",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                explorer_->showCreateDialog();
-                newNameInput_.clear();
-            },
-            "Create new file or directory", "File Operations", false);
-
-        actions.registerAction(
-            "rename",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                explorer_->showRenameDialog();
-                const auto& st = explorer_->state();
-                if (!st.entries.empty()) {
-                    renameInput_ = st.entries[static_cast<size_t>(st.currentSelected)].filename();
-                }
-            },
-            "Rename current item", "File Operations", false);
-        actions.registerAction(
-            "yank",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                const int count = selectedCount();
-                (void)handleResult(explorer_->yankSelected(),
-                                   count > 0 ? std::format("Copied {}", nounWithCount(count, "item")) : "");
-                if (keyHandler_.mode() == ui::Mode::Visual) {
-                    keyHandler_.setMode(ui::Mode::Normal);
-                }
-            },
-            "Yank current item", "File Operations", false);
-
-        actions.registerAction(
-            "cut",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                const int count = selectedCount();
-                (void)handleResult(explorer_->cutSelected(),
-                                   count > 0 ? std::format("Cut {}", nounWithCount(count, "item")) : "");
-                if (keyHandler_.mode() == ui::Mode::Visual) {
-                    keyHandler_.setMode(ui::Mode::Normal);
-                }
-            },
-            "Cut current item", "File Operations", false);
-
-        actions.registerAction(
-            "discard_yank",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                (void)handleResult(explorer_->discardYank(), "Clipboard cleared", ui::ToastSeverity::Info);
-            },
-            "Clear clipboard", "File Operations", false);
-
-        actions.registerAction(
-            "paste",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                const auto item_count = static_cast<int>(explorer_->state().clipboardPaths.size());
-                (void)handleResult(explorer_->pasteYanked(false),
-                                   item_count > 0 ? std::format("Pasted {}", nounWithCount(item_count, "item")) : "");
-            },
-            "Paste yanked item into current directory", "File Operations", false);
-
-        actions.registerAction(
-            "paste_overwrite",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                const auto item_count = static_cast<int>(explorer_->state().clipboardPaths.size());
-                (void)handleResult(
-                    explorer_->pasteYanked(true),
-                    item_count > 0 ? std::format("Pasted {} with overwrite", nounWithCount(item_count, "item")) : "");
-            },
-            "Paste into current directory with overwrite", "File Operations", false);
-
-        actions.registerAction(
-            "copy_entry_path_relative",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                (void)handleResult(explorer_->copySelectedPathToSystemClipboard(false), "Copied relative path",
-                                   ui::ToastSeverity::Info);
-            },
-            "Copy selected entry relative path to system clipboard", "File Operations", false);
-
-        actions.registerAction(
-            "copy_current_dir_relative",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                (void)handleResult(explorer_->copyCurrentDirectoryPathToSystemClipboard(false),
-                                   "Copied relative directory path", ui::ToastSeverity::Info);
-            },
-            "Copy current directory relative path to system clipboard", "File Operations", false);
-
-        actions.registerAction(
-            "copy_entry_path_absolute",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                (void)handleResult(explorer_->copySelectedPathToSystemClipboard(true), "Copied absolute path",
-                                   ui::ToastSeverity::Info);
-            },
-            "Copy selected entry absolute path to system clipboard", "File Operations", false);
-
-        actions.registerAction(
-            "copy_current_dir_absolute",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                (void)handleResult(explorer_->copyCurrentDirectoryPathToSystemClipboard(true),
-                                   "Copied absolute directory path", ui::ToastSeverity::Info);
-            },
-            "Copy current directory absolute path to system clipboard", "File Operations", false);
-
-        actions.registerAction(
-            "copy_file_name",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                (void)handleResult(explorer_->copySelectedFileNameToSystemClipboard(), "Copied file name",
-                                   ui::ToastSeverity::Info);
-            },
-            "Copy selected file name to system clipboard", "File Operations", false);
-
-        actions.registerAction(
-            "copy_name_without_extension",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                (void)handleResult(explorer_->copySelectedNameWithoutExtensionToSystemClipboard(),
-                                   "Copied name without extension", ui::ToastSeverity::Info);
-            },
-            "Copy selected name without extension to system clipboard", "File Operations", false);
-
-        actions.registerAction(
-            "trash", [this]([[maybe_unused]] const ui::ActionContext& ctx) { explorer_->showTrashDialog(); },
-            "Move to trash", "File Operations", false);
-
-        actions.registerAction(
-            "delete", [this]([[maybe_unused]] const ui::ActionContext& ctx) { explorer_->showDeleteDialog(); },
-            "Delete permanently", "File Operations", false);
-
-        // Search actions
-        actions.registerAction(
-            "search",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                explorer_->showSearchDialog();
-                searchInput_.clear();
-            },
-            "Open search dialog", "Search", false);
-
-        actions.registerAction(
-            "next_match",
-            [this](const ui::ActionContext& ctx) {
-                for (int i = 0; i < ctx.count; ++i) {
-                    explorer_->nextMatch();
-                }
-            },
-            "Jump to next search match", "Search", true);
-
-        actions.registerAction(
-            "prev_match",
-            [this](const ui::ActionContext& ctx) {
-                for (int i = 0; i < ctx.count; ++i) {
-                    explorer_->prevMatch();
-                }
-            },
-            "Jump to previous search match", "Search", true);
-
-        actions.registerAction(
-            "clear_search", [this]([[maybe_unused]] const ui::ActionContext& ctx) { explorer_->clearSearch(); },
-            "Clear search highlighting", "Search", false);
-
-        // View actions
-        actions.registerAction(
-            "toggle_hidden",
-            [this]([[maybe_unused]] const ui::ActionContext& ctx) {
-                (void)handleResult(explorer_->toggleShowHidden());
-            },
-            "Toggle the visibility of hidden files", "View", false);
-
-        registerSortAction(actions, "sort_modified", "Sort by modified time", ExplorerState::SortField::ModifiedTime,
-                           ExplorerState::SortDirection::Ascending);
-        registerSortAction(actions, "sort_modified_desc", "Sort by modified time (desc)",
-                           ExplorerState::SortField::ModifiedTime, ExplorerState::SortDirection::Descending);
-        registerSortAction(actions, "sort_birth", "Sort by birth time", ExplorerState::SortField::BirthTime,
-                           ExplorerState::SortDirection::Ascending);
-        registerSortAction(actions, "sort_birth_desc", "Sort by birth time (desc)", ExplorerState::SortField::BirthTime,
-                           ExplorerState::SortDirection::Descending);
-        registerSortAction(actions, "sort_extension", "Sort by extension", ExplorerState::SortField::Extension,
-                           ExplorerState::SortDirection::Ascending);
-        registerSortAction(actions, "sort_extension_desc", "Sort by extension (desc)",
-                           ExplorerState::SortField::Extension, ExplorerState::SortDirection::Descending);
-        registerSortAction(actions, "sort_alpha", "Sort alphabetically", ExplorerState::SortField::Alphabetical,
-                           ExplorerState::SortDirection::Ascending);
-        registerSortAction(actions, "sort_alpha_desc", "Sort alphabetically (desc)",
-                           ExplorerState::SortField::Alphabetical, ExplorerState::SortDirection::Descending);
-        registerSortAction(actions, "sort_natural", "Sort naturally", ExplorerState::SortField::Natural,
-                           ExplorerState::SortDirection::Ascending);
-        registerSortAction(actions, "sort_natural_desc", "Sort naturally (desc)", ExplorerState::SortField::Natural,
-                           ExplorerState::SortDirection::Descending);
-        registerSortAction(actions, "sort_size", "Sort by size", ExplorerState::SortField::Size,
-                           ExplorerState::SortDirection::Ascending);
-        registerSortAction(actions, "sort_size_desc", "Sort by size (desc)", ExplorerState::SortField::Size,
-                           ExplorerState::SortDirection::Descending);
-
-        // Application control
-        actions.registerAction(
-            "open_help", [this]([[maybe_unused]] const ui::ActionContext& ctx) { openHelp(); }, "Open help menu",
-            "Help", false);
-        actions.registerAction(
-            "quit", [this]([[maybe_unused]] const ui::ActionContext& ctx) { screen_.Exit(); }, "Quit application",
-            "Application", false);
+    void openRenameOverlay() {
+        RenameOverlayState overlay;
+        const auto& state = explorer_->state();
+        if (!state.entries.empty()) {
+            overlay.input = state.entries[static_cast<std::size_t>(state.selection.currentSelected)].filename();
+        }
+        overlayState_ = std::move(overlay);
+        rebuildInputComponents();
     }
 
-    void setupKeyBindings() {
-        // Use the Keymap to bind keys to actions
-        auto& keymap = keyHandler_.keymap();
-        // Lambda to simplify binding keys and handling errors during setup
-        const auto bind_or_fail = [this, &keymap](std::string_view keys, std::string action, ui::Mode mode,
-                                                  std::string description) {
-            if (initError_.has_value()) {
-                return;
-            }
-            auto result = keymap.bind(keys, std::move(action), mode, std::move(description));
-            if (!result) {
-                initError_ = result.error();
-            }
-        };
-
-        // Navigation bindings
-        bind_or_fail("j", "move_down", ui::Mode::Normal, "Move down");
-        bind_or_fail("k", "move_up", ui::Mode::Normal, "Move up");
-        bind_or_fail("h", "go_parent", ui::Mode::Normal, "Go to parent");
-        bind_or_fail("l", "enter_selected", ui::Mode::Normal, "Enter/open");
-        bind_or_fail("gg", "go_top", ui::Mode::Normal, "Go to top");
-        bind_or_fail("gh", "go_home_directory", ui::Mode::Normal, "Go to home directory");
-        bind_or_fail("gc", "go_config_directory", ui::Mode::Normal, "Go to config directory");
-        bind_or_fail("gl", "go_link_target_directory", ui::Mode::Normal, "Go to link target directory");
-        bind_or_fail("g:", "prompt_directory_jump", ui::Mode::Normal, "Jump to directory");
-        bind_or_fail("G", "go_bottom", ui::Mode::Normal, "Go to bottom");
-        bind_or_fail("v", "enter_visual_mode", ui::Mode::Normal, "Enter visual mode");
-
-        // Page navigation
-        bind_or_fail("C-d", "page_down", ui::Mode::Normal, "Page down");
-        bind_or_fail("C-u", "page_up", ui::Mode::Normal, "Page up");
-
-        // File operations
-        bind_or_fail("o", "open_file", ui::Mode::Normal, "Open file");
-        bind_or_fail("a", "create", ui::Mode::Normal, "Create new");
-        bind_or_fail("r", "rename", ui::Mode::Normal, "Rename");
-        bind_or_fail("d", "trash", ui::Mode::Normal, "Trash");
-        bind_or_fail("D", "delete", ui::Mode::Normal, "Delete");
-        bind_or_fail("y", "yank", ui::Mode::Normal, "Yank (copy)");
-        bind_or_fail("x", "cut", ui::Mode::Normal, "Cut");
-        bind_or_fail("Y", "discard_yank", ui::Mode::Normal, "Discard Yank (copy)");
-        bind_or_fail("X", "discard_yank", ui::Mode::Normal, "Discard cut/copy");
-        bind_or_fail("p", "paste", ui::Mode::Normal, "Paste yanked item");
-        bind_or_fail("P", "paste_overwrite", ui::Mode::Normal, "Paste with overwrite");
-        bind_or_fail("cc", "copy_entry_path_relative", ui::Mode::Normal, "Copy entry path (relative)");
-        bind_or_fail("cd", "copy_current_dir_relative", ui::Mode::Normal, "Copy current path (relative)");
-        bind_or_fail("cC", "copy_entry_path_absolute", ui::Mode::Normal, "Copy entry path (absolute)");
-        bind_or_fail("cD", "copy_current_dir_absolute", ui::Mode::Normal, "Copy current path (absolute)");
-        bind_or_fail("cf", "copy_file_name", ui::Mode::Normal, "Copy file name");
-        bind_or_fail("cn", "copy_name_without_extension", ui::Mode::Normal, "Copy name without extension");
-
-        // Search
-        bind_or_fail("/", "search", ui::Mode::Normal, "Search");
-        bind_or_fail("n", "next_match", ui::Mode::Normal, "Next match");
-        bind_or_fail("N", "prev_match", ui::Mode::Normal, "Prev match");
-        bind_or_fail("\\", "clear_search", ui::Mode::Normal, "Clear search");
-
-        // View
-        bind_or_fail(".", "toggle_hidden", ui::Mode::Normal, "Toggle the visibility of hidden files");
-        bind_or_fail(",m", "sort_modified", ui::Mode::Normal, "Sort by modified time");
-        bind_or_fail(",M", "sort_modified_desc", ui::Mode::Normal, "Sort by modified time (desc)");
-        bind_or_fail(",b", "sort_birth", ui::Mode::Normal, "Sort by birth time");
-        bind_or_fail(",B", "sort_birth_desc", ui::Mode::Normal, "Sort by birth time (desc)");
-        bind_or_fail(",e", "sort_extension", ui::Mode::Normal, "Sort by extension");
-        bind_or_fail(",E", "sort_extension_desc", ui::Mode::Normal, "Sort by extension (desc)");
-        bind_or_fail(",a", "sort_alpha", ui::Mode::Normal, "Sort alphabetically");
-        bind_or_fail(",A", "sort_alpha_desc", ui::Mode::Normal, "Sort alphabetically (desc)");
-        bind_or_fail(",n", "sort_natural", ui::Mode::Normal, "Sort naturally");
-        bind_or_fail(",N", "sort_natural_desc", ui::Mode::Normal, "Sort naturally (desc)");
-        bind_or_fail(",s", "sort_size", ui::Mode::Normal, "Sort by size");
-        bind_or_fail(",S", "sort_size_desc", ui::Mode::Normal, "Sort by size (desc)");
-
-        // Visual mode
-        bind_or_fail("j", "move_down", ui::Mode::Visual, "Move down (visual)");
-        bind_or_fail("k", "move_up", ui::Mode::Visual, "Move up (visual)");
-        bind_or_fail("gg", "go_top", ui::Mode::Visual, "Go to top (visual)");
-        bind_or_fail("G", "go_bottom", ui::Mode::Visual, "Go to bottom (visual)");
-        bind_or_fail("C-d", "page_down", ui::Mode::Visual, "Page down (visual)");
-        bind_or_fail("C-u", "page_up", ui::Mode::Visual, "Page up (visual)");
-        bind_or_fail("y", "yank", ui::Mode::Visual, "Yank selection");
-        bind_or_fail("x", "cut", ui::Mode::Visual, "Cut selection");
-        bind_or_fail("d", "trash", ui::Mode::Visual, "Trash selection");
-        bind_or_fail("D", "delete", ui::Mode::Visual, "Delete selection");
-        bind_or_fail("v", "exit_visual_mode", ui::Mode::Visual, "Exit visual mode");
-        bind_or_fail("<Esc>", "exit_visual_mode", ui::Mode::Visual, "Exit visual mode");
-
-        // Quit
-        bind_or_fail("~", "open_help", ui::Mode::Normal, "Open help");
-        bind_or_fail("q", "quit", ui::Mode::Normal, "Quit");
+    void openSearchOverlay() {
+        overlayState_ = SearchOverlayState{};
+        rebuildInputComponents();
     }
 
-    void setupInputComponents() {
-        using namespace ftxui;
-
-        // Input for create dialog
-        auto create_input_option = InputOption::Default();
-
-        create_input_option.multiline = false;
-
-        create_input_option.transform = [](InputState state) {
-            if (state.is_placeholder) {
-                state.element |= dim;
-            }
-            if (state.focused) {
-                state.element |= color(Color::Cyan2);  // TODO: customizable
-            }
-            return state.element;
+    void openDeleteOverlay() {
+        const auto& state = explorer_->state();
+        if (state.entries.empty()) {
+            return;
+        }
+        overlayState_ = DeleteConfirmOverlayState{
+            .targetName = state.entries[static_cast<std::size_t>(state.selection.currentSelected)].filename(),
+            .selectionCount = selectedCount(),
         };
-        createInputComponent_ = Input(&newNameInput_, "filename or path/to/dir/", create_input_option);
-
-        // Input for rename dialog
-        auto rename_input_option = InputOption::Default();
-        rename_input_option.multiline = false;
-        rename_input_option.transform = [](InputState state) {
-            if (state.is_placeholder) {
-                state.element |= dim;
-            }
-            if (state.focused) {
-                state.element |= color(Color::DarkCyan);
-            }
-            return state.element;
-        };
-        renameInputComponent_ = Input(&renameInput_, "new name", rename_input_option);
-
-        // Input for search dialog
-        auto search_input_option = InputOption::Default();
-        search_input_option.multiline = false;
-        search_input_option.transform = [](InputState state) {
-            if (state.is_placeholder) {
-                state.element |= dim;
-            }
-            if (state.focused) {
-                state.element |= color(Color::Yellow);
-            }
-            return state.element;
-        };
-        searchInputComponent_ = Input(&searchInput_, "pattern", search_input_option);
-
-        auto directory_jump_input_option = InputOption::Default();
-        directory_jump_input_option.multiline = false;
-        directory_jump_input_option.transform = [](InputState state) {
-            if (state.is_placeholder) {
-                state.element |= dim;
-            }
-            if (state.focused) {
-                state.element |= color(Color::GreenLight);
-            }
-            return state.element;
-        };
-        directoryJumpInputComponent_ = Input(&directoryJumpInput_, "~/path/to/dir", directory_jump_input_option);
-
-        auto help_filter_input_option = InputOption::Default();
-        help_filter_input_option.multiline = false;
-        help_filter_input_option.transform = [](InputState state) {
-            if (state.is_placeholder) {
-                state.element |= dim;
-            }
-            if (state.focused) {
-                state.element |= color(Color::Yellow);
-            }
-            return state.element;
-        };
-        helpFilterInputComponent_ = Input(&helpState_.filterText, "shortcut or description", help_filter_input_option);
     }
 
-    ftxui::Element render() {
-        using namespace ftxui;
+    void openTrashOverlay() {
+        const auto& state = explorer_->state();
+        if (state.entries.empty()) {
+            return;
+        }
+        overlayState_ = TrashConfirmOverlayState{
+            .targetName = state.entries[static_cast<std::size_t>(state.selection.currentSelected)].filename(),
+            .selectionCount = selectedCount(),
+        };
+    }
 
-        notifications_.expire();
+    void closeOverlay() {
+        overlayState_ = std::monostate{};
+        rebuildInputComponents();
+    }
 
-        // Keep list viewport in sync with terminal height for threshold scrolling.
-        // On first render some terminals report incomplete geometry; ignore tiny values.
-        const int measured_rows = screen_.dimy() - (kRootLayoutRows + kPanelDecorRows);
-        if (measured_rows > 1) {
+    [[nodiscard]] std::optional<std::filesystem::path> currentPreviewTarget() const {
+        const auto& state = explorer_->state();
+        if (state.entries.empty()) {
+            return std::nullopt;
+        }
+        return state.entries[static_cast<std::size_t>(state.selection.currentSelected)].path;
+    }
+
+    void refreshPreview() {
+        previewCancellation_.cancel();
+        previewCancellation_.reset();
+
+        const auto target = currentPreviewTarget();
+        if (!target.has_value()) {
+            previewModel_ = ui::PreviewIdleState{};
+            previewTarget_.reset();
+            return;
+        }
+
+        previewTarget_ = target;
+        previewModel_ = ui::PreviewLoadingState{.target = *target};
+
+        const int max_lines = std::max(1, core::global_config().config().preview.maxLines);
+        // The scheduler is inline today, but this call boundary is where future
+        // background preview loading and stale-result dropping will plug in.
+        const auto result = scheduler_.execute(
+            core::TaskContext{
+                .name = "preview.load",
+                .priority = core::TaskPriority::UserVisible,
+                .taskClass = core::TaskClass::Micro,
+                .cancellation = previewCancellation_.token(),
+            },
+            [&](const core::TaskContext& context) {
+                return explorer_->services().preview->loadPreview({
+                    .target = *target,
+                    .maxLines = max_lines,
+                    .cancellation = context.cancellation,
+                });
+            });
+
+        if (previewCancellation_.token().isCancellationRequested()) {
+            return;
+        }
+
+        if (!result) {
+            previewModel_ = ui::PreviewErrorState{
+                .target = *target,
+                .message = result.error().message(),
+            };
+            return;
+        }
+
+        previewModel_ = ui::PreviewReadyState{
+            .target = *target,
+            .lines = result->lines,
+        };
+    }
+
+    void syncDerivedState(bool force_preview = false) {
+        if (const int measured_rows = ExplorerPresenter::listViewportRows(screen_.dimy()); measured_rows > 0) {
             explorer_->setViewportRows(measured_rows);
         }
 
+        const auto next_target = currentPreviewTarget();
+        if (force_preview || next_target != previewTarget_) {
+            refreshPreview();
+        }
+
+        if (auto* help = std::get_if<HelpOverlayState>(&overlayState_)) {
+            help->viewport = ui::clamp_help_viewport(help->viewport, help->model);
+        }
+    }
+
+    void publishStartupWarnings() {
+        if (startupWarnings_.empty()) {
+            return;
+        }
+        notifications_.publish(ui::ToastSeverity::Warning, summarizeWarnings(startupWarnings_));
+        startupWarnings_.clear();
+    }
+
+    [[nodiscard]] static std::string summarizeWarnings(const std::vector<std::string>& warnings) {
+        if (warnings.empty()) {
+            return {};
+        }
+        if (warnings.size() == 1) {
+            return warnings.front();
+        }
+
+        constexpr std::size_t kPreviewCount = 2;
+        std::string preview;
+        for (std::size_t index = 0; index < std::min(kPreviewCount, warnings.size()); ++index) {
+            if (!preview.empty()) {
+                preview += "; ";
+            }
+            preview += warnings[index];
+        }
+        if (warnings.size() > kPreviewCount) {
+            return std::format("Skipped {} key bindings: {}; +{} more", warnings.size(), preview,
+                               warnings.size() - kPreviewCount);
+        }
+        return std::format("Skipped {} key bindings: {}", warnings.size(), preview);
+    }
+
+    [[nodiscard]] ftxui::Element render() {
+        using namespace ftxui;
+
+        notifications_.expire();
+        syncDerivedState();
+
         const auto& state = explorer_->state();
+        // The presenter converts absolute explorer state into render-local
+        // offsets so the view only deals with the currently visible slice.
+        const auto screen_model = presenter_.present(state, overlayState_, keyHandler_.buffer(), keyHandler_.mode());
 
-        // Render parent directory list using FileListComponent
-        auto parent_content = fileList_->render(state.parentEntries, state.parentSelected, {}, -1);
+        auto parent_content = fileList_->render(state.parentEntries, state.selection.parentSelected, {}, -1, {});
 
-        const int total_entries = static_cast<int>(state.entries.size());
-        const int visible_rows = std::max(1, state.currentViewportRows);
-        // For example, if there are 100 files in total, and 20 are displayed on the screen,
-        // then one can only scroll down to the 80th file at most (i.e., offset=80, displaying 80~99).
-        const int max_offset = std::max(0, total_entries - visible_rows);
-        const int offset = std::clamp(state.currentScrollOffset, 0, max_offset);
-        const int visible_end = std::min(total_entries, offset + visible_rows);
+        std::span<const core::filesystem::FileEntry> visible_entries{state.entries};
+        visible_entries =
+            visible_entries.subspan(static_cast<std::size_t>(screen_model.currentList.offset),
+                                    static_cast<std::size_t>(std::max(0, screen_model.currentList.visibleEnd -
+                                                                             screen_model.currentList.offset)));
+        auto current_content = fileList_->render(
+            visible_entries, screen_model.currentList.selectedIndex, screen_model.currentList.searchMatches,
+            screen_model.currentList.currentMatchIndex, screen_model.currentList.visualSelectedIndices);
 
-        auto visible_entries =
-            std::ranges::subrange(state.entries.begin() + offset, state.entries.begin() + visible_end);
-
-        std::vector<int> visible_search_matches;
-        int visible_current_match = -1;  // store the index of the current match within the visible matches
-        visible_search_matches.reserve(state.searchMatches.size());
-
-        for (size_t i = 0; i < state.searchMatches.size(); ++i) {
-            const int match = state.searchMatches[i];
-
-            if (match >= offset && match < visible_end) {
-                visible_search_matches.push_back(match - offset);
-                if (static_cast<int>(i) == state.currentMatchIndex) {
-                    visible_current_match = static_cast<int>(visible_search_matches.size()) - 1;
-                }
-            }
-        }
-        // combine the below two loops and track the current match index at the same time to avoid iterating twice
-
-        // for (int match : state.searchMatches) {
-        //     if (match >= offset && match < visible_end) {
-        //         visible_search_matches.push_back(match - offset);
-        //     }
-        // }
-
-        // if (state.currentMatchIndex >= 0 && state.currentMatchIndex < static_cast<int>(state.searchMatches.size())) {
-        //     const int absolute_current_match = state.searchMatches[static_cast<size_t>(state.currentMatchIndex)];
-        //     if (absolute_current_match >= offset && absolute_current_match < visible_end) {
-        //         for (size_t i = 0; i < visible_search_matches.size(); ++i) {
-        //             if (visible_search_matches[i] == (absolute_current_match - offset)) {
-        //                 visible_current_match = static_cast<int>(i);
-        //                 break;
-        //             }
-        //         }
-        //     }
-        // }
-
-        const int visible_selected = state.currentSelected - offset;
-        std::vector<int> visible_visual_selected_indices;
-        if (state.visualModeActive) {
-            visible_visual_selected_indices.reserve(state.visualSelectedIndices.size());
-            for (int absolute_index : state.visualSelectedIndices) {
-                if (absolute_index >= offset && absolute_index < visible_end) {
-                    visible_visual_selected_indices.push_back(absolute_index - offset);
-                }
-            }
-        }
-
-        // render current directory list with search highlighting
-        auto current_content = fileList_->render(visible_entries, visible_selected, visible_search_matches,
-                                                 visible_current_match, visible_visual_selected_indices);
-
-        // render preview using previewComponent
-        Element preview_content;
-        if (!state.entries.empty()) {
-            const auto& selected_entry = state.entries[static_cast<size_t>(state.currentSelected)];
-            preview_content = preview_->render(selected_entry);
-        } else {
-            preview_content = text("[Empty directory]") | dim | center;
-        }
-
-        // Determine titles
-        std::string parent_title = state.currentDir.has_parent_path() ? state.currentDir.parent_path().string() : "/";
-        if (parent_title.empty()) {
-            parent_title = "/";
-        }
-
-        std::string current_title = state.currentDir.filename().string();
-
-        if (current_title.empty()) {
-            current_title = state.currentDir.string();
-        }
-
-        // build panels using PanelComponent
-        auto panels = panel_->render(parent_title, std::move(parent_content), current_title, std::move(current_content),
-                                     "Preview", std::move(preview_content));
-
-        // build search status text
-        std::string search_status;
-
-        if (state.searchHighlightActive && !state.searchPattern.empty()) {
-            search_status = std::format("[/{}] {} matches", state.searchPattern, state.searchMatches.size());
-
-            if (state.currentMatchIndex >= 0) {
-                search_status += std::format(" ({}/{})", state.currentMatchIndex + 1, state.searchMatches.size());
-            }
-        }
-
-        const std::string sort_status =
-            std::format("[sort:{}{}]", sortFieldToShortName(state.sortField),
-                        state.sortDirection == ExplorerState::SortDirection::Descending ? ":desc" : ":asc");
-        if (search_status.empty()) {
-            search_status = sort_status;
-        } else {
-            search_status = sort_status + " " + search_status;
-        }
-
-        // Build status bar using StatusBarComponent
+        auto preview_content = preview_->render(previewModel_);
+        auto panels = panel_->render(screen_model.parentTitle, std::move(parent_content), screen_model.currentTitle,
+                                     std::move(current_content), "Preview", std::move(preview_content));
 
         ui::StatusBarInfo status_info;
-
-        status_info.currentPath = state.currentDir.string();
+        status_info.currentPath = screen_model.statusPath;
         status_info.keyBuffer = keyHandler_.buffer();
-        status_info.searchStatus = std::move(search_status);
-        if (helpState_.open) {
-            status_info.helpText = "HELP: j/k move, f filter, Enter done, Esc/~ close";
-        } else if (showDirectoryJumpDialog_) {
-            status_info.helpText = "JUMP: Enter confirm, Esc cancel";
-        } else if (keyHandler_.mode() == ui::Mode::Visual) {
-            status_info.helpText = "VISUAL: j/k range, y/x copy-cut, d/D trash-delete, v/Esc exit";
-        } else {
-            status_info.helpText =
-                "j/k move, h/l nav, gh/gc/gl/g: jump, ~ help, v visual, ,m|,b|,e|,a|,n|,s sort, q quit";
-        }
+        status_info.searchStatus = screen_model.searchStatus;
+        status_info.helpText = screen_model.helpText;
 
-        if (state.visualModeActive) {
-            status_info.searchStatus += std::format(" [visual:{}]", explorer_->visualSelectionCount());
-        }
-
-        auto status_bar_elem = statusBar_->render(status_info);
-
-        // Compose main content
-        Element main_content = vbox({
+        auto status_bar = statusBar_->render(status_info);
+        ftxui::Element main_content = vbox({
             std::move(panels) | flex,
             separator(),
-            std::move(status_bar_elem),
+            std::move(status_bar),
         });
 
-        // Overlay dialogs if active
-        main_content = renderDialogs(std::move(main_content), state);
-
+        main_content = renderOverlay(std::move(main_content));
         if (const auto& toast = notifications_.current(); toast.has_value()) {
             auto toast_layer = vbox({
                 filler(),
@@ -1068,275 +749,276 @@ private:
         return main_content;
     }
 
-    void registerSortAction(ui::ActionRegistry& actions,
-                            std::string name,
-                            std::string description,
-                            ExplorerState::SortField field,
-                            ExplorerState::SortDirection direction) {
-        actions.registerAction(
-            std::move(name),
-            [this, field, direction]([[maybe_unused]] const ui::ActionContext& ctx) {
-                explorer_->setSortOrder(field, direction);
-                if (keyHandler_.mode() == ui::Mode::Visual) {
-                    keyHandler_.setMode(ui::Mode::Normal);
+    [[nodiscard]] ftxui::Element renderOverlay(ftxui::Element base_content) {
+        using namespace ftxui;
+
+        return std::visit(
+            [&]<typename T0>(T0& overlay) -> Element {
+                using Overlay = std::decay_t<T0>;
+                if constexpr (std::is_same_v<Overlay, std::monostate>) {
+                    return base_content;
+                } else if constexpr (std::is_same_v<Overlay, HelpOverlayState>) {
+                    overlay.viewport.viewportRows = ExplorerPresenter::helpViewportRows(screen_.dimy());
+                    overlay.viewport = ui::clamp_help_viewport(overlay.viewport, overlay.model);
+                    auto help_elem = helpMenu_->render(overlay.model, overlay.filterMode, overlay.viewport);
+                    return dbox({std::move(base_content) | dim, std::move(help_elem) | clear_under | center});
+                } else if constexpr (std::is_same_v<Overlay, DirectoryJumpOverlayState>) {
+                    auto dialog_elem = dialog_->renderInput(
+                        "Jump To Directory", "Enter a path, or use ~ for home:", activeInputComponent_->Render());
+                    return dbox({std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
+                } else if constexpr (std::is_same_v<Overlay, CreateOverlayState>) {
+                    auto dialog_elem = dialog_->renderInput(
+                        "Create New File/Directory",
+                        "Enter name (end with / for directory):\ne.g., foo/bar/baz/ creates nested dirs",
+                        activeInputComponent_->Render());
+                    return dbox({std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
+                } else if constexpr (std::is_same_v<Overlay, RenameOverlayState>) {
+                    auto dialog_elem = dialog_->renderInput("Rename Current File/Directory",
+                                                            "Enter the new name:", activeInputComponent_->Render());
+                    return dbox({std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
+                } else if constexpr (std::is_same_v<Overlay, SearchOverlayState>) {
+                    auto dialog_elem = dialog_->renderInput("Search (case-sensitive)", "",
+                                                            hbox({
+                                                                text(" / "),
+                                                                activeInputComponent_->Render() | flex,
+                                                            }));
+                    return dbox({std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
+                } else if constexpr (std::is_same_v<Overlay, DeleteConfirmOverlayState>) {
+                    auto dialog_elem = dialog_->renderConfirmation(
+                        "Delete Confirmation", "Are you sure you want to delete:", overlay.targetName, Color::Red);
+                    return dbox({std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
+                } else {
+                    auto dialog_elem = dialog_->renderConfirmation(
+                        "Trash Confirmation", "Are you sure you want to move to trash:", overlay.targetName,
+                        Color::Red);
+                    return dbox({std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
                 }
             },
-            std::move(description), "View", false);
+            overlayState_);
     }
 
-    [[nodiscard]] static std::string_view sortFieldToShortName(ExplorerState::SortField field) {
-        switch (field) {
-            case ExplorerState::SortField::ModifiedTime:
-                return "modified";
-            case ExplorerState::SortField::BirthTime:
-                return "birth";
-            case ExplorerState::SortField::Extension:
-                return "extension";
-            case ExplorerState::SortField::Alphabetical:
-                return "alpha";
-            case ExplorerState::SortField::Natural:
-                return "natural";
-            case ExplorerState::SortField::Size:
-                return "size";
-            default:
-                return "unknown";
-        }
-    }
-
-    ftxui::Element renderDialogs(ftxui::Element base_content, const ExplorerState& state) {
+    [[nodiscard]] bool handleHelpOverlayEvent(const ftxui::Event& event) {
         using namespace ftxui;
-
-        if (helpState_.open) {
-            helpState_.viewport.viewportRows = std::clamp(screen_.dimy() - kHelpViewportPaddingRows, 8, 28);
-            // helpState_.viewport = ui::clamp_help_viewport(helpState_.viewport, filteredHelpEntries_.size());
-
-            auto help_elem = helpMenu_->render(filteredHelpEntries_, helpState_.filterText, helpState_.filterMode,
-                                               helpState_.viewport);
-
-            return dbox({
-                std::move(base_content) | dim,
-                std::move(help_elem) | clear_under | center,
-            });
+        auto* help = std::get_if<HelpOverlayState>(&overlayState_);
+        if (help == nullptr) {
+            return false;
         }
 
-        if (showDirectoryJumpDialog_) {
-            auto dialog_elem = dialog_->renderInput(
-                "Jump To Directory", "Enter a path, or use ~ for home:", directoryJumpInputComponent_->Render());
-
-            return dbox({
-                std::move(base_content) | dim,
-                std::move(dialog_elem) | clear_under | center,
-            });
+        if (event == Event::Custom) {
+            return false;
         }
 
-        // Show delete confirmation dialog
-        if (state.showDeleteDialog) {
-            auto dialog_elem = dialog_->renderConfirmation("Delete Confirmation", "Are you sure you want to delete:",
-                                                           state.trashDeletePath.filename().string(), Color::Red);
+        if (help->filterMode) {
+            if (event == Event::Return || event == Event::Escape) {
+                help->filterMode = false;
+                return true;
+            }
 
-            return dbox({
-                std::move(base_content) | dim,
-                std::move(dialog_elem) | clear_under | center,
-            });
+            const bool handled = activeInputComponent_->OnEvent(event);
+            if (handled) {
+                // Filtering can change category headers and total visual rows, so
+                // selection and scroll need to be re-clamped immediately.
+                help->model.setFilter(help->filterText);
+                help->viewport = ui::clamp_help_viewport(help->viewport, help->model);
+            }
+            return handled;
         }
 
-        // Show trash confirmation dialog
-        if (state.showTrashDialog) {
-            auto dialog_elem = dialog_->renderConfirmation(
-                "Trash Confirmation",
-                "Are you sure you want to move to trash:", state.trashDeletePath.filename().string(), Color::Red);
-
-            return dbox({
-                std::move(base_content) | dim,
-                std::move(dialog_elem) | clear_under | center,
-            });
+        if (event == Event::Character('~') || event == Event::Escape) {
+            closeOverlay();
+            return true;
         }
-
-        // Show create file/directory dialog
-        if (state.showCreateDialog) {
-            auto dialog_elem = dialog_->renderInput("Create New File/Directory",
-                                                    "Enter name (end with / for directory):\ne.g., "
-                                                    "foo/bar/baz/ creates nested dirs",
-                                                    createInputComponent_->Render());
-
-            return dbox({
-                std::move(base_content) | dim,
-                std::move(dialog_elem) | clear_under | center,
-            });
+        if (event == Event::Character('j') || event == Event::ArrowDown) {
+            if (help->model.filteredCount() == 0U) {
+                return true;
+            }
+            help->viewport.selectedIndex =
+                std::clamp(help->viewport.selectedIndex + 1, 0, static_cast<int>(help->model.filteredCount()) - 1);
+            help->viewport = ui::clamp_help_viewport(help->viewport, help->model);
+            return true;
         }
-
-        // Show rename dialog
-        if (state.showRenameDialog) {
-            auto dialog_elem = dialog_->renderInput("Rename Current File/Directory",
-                                                    "Enter the new name:", renameInputComponent_->Render());
-
-            return dbox({
-                std::move(base_content) | dim,
-                std::move(dialog_elem) | clear_under | center,
-            });
+        if (event == Event::Character('k') || event == Event::ArrowUp) {
+            if (help->model.filteredCount() == 0U) {
+                return true;
+            }
+            help->viewport.selectedIndex =
+                std::clamp(help->viewport.selectedIndex - 1, 0, static_cast<int>(help->model.filteredCount()) - 1);
+            help->viewport = ui::clamp_help_viewport(help->viewport, help->model);
+            return true;
         }
-
-        // Show search dialog
-        if (state.showSearchDialog) {
-            auto dialog_elem = dialog_->renderInput("Search (case-sensitive)", "",
-                                                    hbox({
-                                                        text(" / "),
-                                                        searchInputComponent_->Render() | flex,
-                                                    }));
-
-            return dbox({
-                std::move(base_content) | dim,
-                std::move(dialog_elem) | clear_under | center,
-            });
+        if (event == Event::Character('f')) {
+            help->filterMode = true;
+            rebuildInputComponents();
+            return true;
         }
-
-        return base_content;
+        return true;
     }
 
-    bool handleEvent(const ftxui::Event& event) {
+    [[nodiscard]] bool handleDirectoryJumpOverlayEvent(const ftxui::Event& event) {
         using namespace ftxui;
-        const auto& state = explorer_->state();
-
-        if (helpState_.open) {
-            return handleHelpEvent(event);
+        auto* overlay = std::get_if<DirectoryJumpOverlayState>(&overlayState_);
+        if (overlay == nullptr) {
+            return false;
         }
 
-        if (showDirectoryJumpDialog_) {
-            return handleDirectoryJumpDialogEvent(event);
+        if (event == Event::Return) {
+            if (isBlank(overlay->input)) {  // NOLINT(bugprone-branch-clone) (it is intentional for clear motivation)
+                closeOverlay();
+            } else if (navigateToTypedDirectory(overlay->input)) {
+                closeOverlay();
+            }
+            return true;
         }
-
-        // if (event == Event::Special({0})) {
-        //     return true;
-        // }
-
-        // Handle search dialog events
-        if (state.showSearchDialog) {
-            if (event == Event::Return) {
-                explorer_->search(searchInput_);
-                explorer_->hideAllDialogs();
-                return true;
-            }
-            if (event == Event::Escape) {
-                explorer_->hideAllDialogs();
-                searchInput_.clear();
-                return true;
-            }
-            return searchInputComponent_->OnEvent(event);
-        }
-
-        // Handle create dialog events
-        if (state.showCreateDialog) {
-            if (event == Event::Return) {
-                const std::string success_message =
-                    newNameInput_.empty() ? std::string{} : std::format("Created '{}'", newNameInput_);
-                if (handleResult(explorer_->create(newNameInput_), success_message)) {
-                    explorer_->hideAllDialogs();
-                    newNameInput_.clear();
-                }
-                return true;
-            }
-            if (event == Event::Escape) {
-                explorer_->hideAllDialogs();
-                newNameInput_.clear();
-                return true;
-            }
-            return createInputComponent_->OnEvent(event);
-        }
-
-        // Handle rename dialog events
-        if (state.showRenameDialog) {
-            if (event == Event::Return) {
-                const std::string success_message =
-                    renameInput_.empty() ? std::string{} : std::format("Renamed to '{}'", renameInput_);
-                if (handleResult(explorer_->rename(renameInput_), success_message)) {
-                    explorer_->hideAllDialogs();
-                    renameInput_.clear();
-                }
-                return true;
-            }
-            if (event == Event::Escape) {
-                explorer_->hideAllDialogs();
-                renameInput_.clear();
-                return true;
-            }
-            return renameInputComponent_->OnEvent(event);
-        }
-
-        // Handle delete dialog events
-        if (state.showDeleteDialog) {
-            if (event == Event::Character('y') || event == Event::Character('Y')) {
-                const int count = selectedCount();
-                (void)handleResult(explorer_->deleteSelected(),
-                                   count > 0 ? std::format("Deleted {}", nounWithCount(count, "item")) : "");
-                if (keyHandler_.mode() == ui::Mode::Visual) {
-                    keyHandler_.setMode(ui::Mode::Normal);
-                }
-                explorer_->hideAllDialogs();
-                return true;
-            }
-            if (event == Event::Character('n') || event == Event::Character('N') || event == Event::Escape) {
-                explorer_->hideAllDialogs();
-                return true;
-            }
-            return true;  // Block other events
-        }
-
-        // Handle trash dialog events
-        if (state.showTrashDialog) {
-            if (event == Event::Character('y') || event == Event::Character('Y')) {
-                const int count = selectedCount();
-                (void)handleResult(explorer_->trashSelected(),
-                                   count > 0 ? std::format("Moved {} to trash", nounWithCount(count, "item")) : "");
-                if (keyHandler_.mode() == ui::Mode::Visual) {
-                    keyHandler_.setMode(ui::Mode::Normal);
-                }
-                explorer_->hideAllDialogs();
-                return true;
-            }
-            if (event == Event::Character('n') || event == Event::Character('N') || event == Event::Escape) {
-                explorer_->hideAllDialogs();
-                return true;
-            }
-            return true;  // Block other events
-        }
-
-        // Handle Escape separately (quit)
         if (event == Event::Escape) {
-            if (keyHandler_.mode() == ui::Mode::Visual) {
-                explorer_->exitVisualMode();
-                keyHandler_.setMode(ui::Mode::Normal);
-                return true;
-            }
-            screen_.Exit();
+            closeOverlay();
             return true;
+        }
+        return activeInputComponent_->OnEvent(event);
+    }
+
+    [[nodiscard]] bool handleCreateOverlayEvent(const ftxui::Event& event) {
+        using namespace ftxui;
+        auto* overlay = std::get_if<CreateOverlayState>(&overlayState_);
+        if (overlay == nullptr) {
+            return false;
         }
 
-        // Handle arrow keys (map to vim keys)
-        if (event == Event::ArrowDown) {
-            explorer_->moveDown();
-            return true;
-        }
-        if (event == Event::ArrowUp) {
-            explorer_->moveUp();
-            return true;
-        }
-        if (event == Event::ArrowLeft) {
-            (void)handleResult(explorer_->goParent());
-            if (keyHandler_.mode() == ui::Mode::Visual) {
-                keyHandler_.setMode(ui::Mode::Normal);
+        if (event == Event::Return) {
+            const std::string success_message =
+                overlay->input.empty() ? std::string{} : std::format("Created '{}'", overlay->input);
+            if (handleResult(explorer_->create(overlay->input), success_message)) {
+                closeOverlay();
             }
             return true;
         }
-        if (event == Event::ArrowRight || event == Event::Return) {
-            (void)handleResult(explorer_->enterSelected(false));
-            if (keyHandler_.mode() == ui::Mode::Visual) {
-                keyHandler_.setMode(ui::Mode::Normal);
-            }
+        if (event == Event::Escape) {
+            closeOverlay();
             return true;
+        }
+        return activeInputComponent_->OnEvent(event);
+    }
+
+    [[nodiscard]] bool handleRenameOverlayEvent(const ftxui::Event& event) {
+        using namespace ftxui;
+        auto* overlay = std::get_if<RenameOverlayState>(&overlayState_);
+        if (overlay == nullptr) {
+            return false;
         }
 
-        // Use KeyHandler for all character-based bindings
-        return keyHandler_.handle(event);
+        if (event == Event::Return) {
+            const std::string success_message =
+                overlay->input.empty() ? std::string{} : std::format("Renamed to '{}'", overlay->input);
+            if (handleResult(explorer_->rename(overlay->input), success_message)) {
+                closeOverlay();
+            }
+            return true;
+        }
+        if (event == Event::Escape) {
+            closeOverlay();
+            return true;
+        }
+        return activeInputComponent_->OnEvent(event);
+    }
+
+    [[nodiscard]] bool handleSearchOverlayEvent(const ftxui::Event& event) {
+        using namespace ftxui;
+        auto* overlay = std::get_if<SearchOverlayState>(&overlayState_);
+        if (overlay == nullptr) {
+            return false;
+        }
+
+        if (event == Event::Return) {
+            explorer_->search(overlay->input);
+            closeOverlay();
+            return true;
+        }
+        if (event == Event::Escape) {
+            closeOverlay();
+            return true;
+        }
+        return activeInputComponent_->OnEvent(event);
+    }
+
+    [[nodiscard]] bool handleDeleteOverlayEvent(const ftxui::Event& event) {
+        using namespace ftxui;
+        auto* overlay = std::get_if<DeleteConfirmOverlayState>(&overlayState_);
+        if (overlay == nullptr) {
+            return false;
+        }
+
+        if (event == Event::Character('y') || event == Event::Character('Y')) {
+            const int count = overlay->selectionCount;
+            (void)handleResult(explorer_->deleteSelected(),
+                               count > 0 ? std::format("Deleted {}", nounWithCount(count, "item")) : "");
+            if (keyHandler_.mode() == ui::Mode::Visual) {
+                keyHandler_.setMode(ui::Mode::Normal);
+            }
+            closeOverlay();
+            return true;
+        }
+        if (event == Event::Character('n') || event == Event::Character('N') || event == Event::Escape) {
+            closeOverlay();
+            return true;
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool handleTrashOverlayEvent(const ftxui::Event& event) {
+        using namespace ftxui;
+        auto* overlay = std::get_if<TrashConfirmOverlayState>(&overlayState_);
+        if (overlay == nullptr) {
+            return false;
+        }
+
+        if (event == Event::Character('y') || event == Event::Character('Y')) {
+            const int count = overlay->selectionCount;
+            (void)handleResult(explorer_->trashSelected(),
+                               count > 0 ? std::format("Moved {} to trash", nounWithCount(count, "item")) : "");
+            if (keyHandler_.mode() == ui::Mode::Visual) {
+                keyHandler_.setMode(ui::Mode::Normal);
+            }
+            closeOverlay();
+            return true;
+        }
+        if (event == Event::Character('n') || event == Event::Character('N') || event == Event::Escape) {
+            closeOverlay();
+            return true;
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool handleEvent(const ftxui::Event& event) {
+        if (std::holds_alternative<HelpOverlayState>(overlayState_)) {
+            return handleHelpOverlayEvent(event);
+        }
+        if (std::holds_alternative<DirectoryJumpOverlayState>(overlayState_)) {
+            return handleDirectoryJumpOverlayEvent(event);
+        }
+        if (std::holds_alternative<CreateOverlayState>(overlayState_)) {
+            return handleCreateOverlayEvent(event);
+        }
+        if (std::holds_alternative<RenameOverlayState>(overlayState_)) {
+            return handleRenameOverlayEvent(event);
+        }
+        if (std::holds_alternative<SearchOverlayState>(overlayState_)) {
+            return handleSearchOverlayEvent(event);
+        }
+        if (std::holds_alternative<DeleteConfirmOverlayState>(overlayState_)) {
+            return handleDeleteOverlayEvent(event);
+        }
+        if (std::holds_alternative<TrashConfirmOverlayState>(overlayState_)) {
+            return handleTrashOverlayEvent(event);
+        }
+
+        if (event == ftxui::Event::Custom) {
+            return false;
+        }
+
+        const bool handled = keyHandler_.handle(event);
+        if (handled) {
+            syncDerivedState();
+        }
+        return handled;
     }
 
     std::shared_ptr<Explorer> explorer_;
@@ -1344,8 +1026,9 @@ private:
     const ui::Theme* theme_;
     ui::KeyHandler keyHandler_;
     NotificationCenter notifications_;
+    ExplorerPresenter presenter_;
+    core::InlineScheduler scheduler_;
 
-    // UI Components
     std::unique_ptr<ui::FileListComponent> fileList_;
     std::unique_ptr<ui::PanelComponent> panel_;
     std::unique_ptr<ui::PreviewComponent> preview_;
@@ -1354,22 +1037,18 @@ private:
     std::unique_ptr<ui::HelpMenuComponent> helpMenu_;
     std::unique_ptr<ui::DialogComponent> dialog_;
 
-    // Input components and their buffers
-    std::string newNameInput_;
-    std::string renameInput_;
-    std::string searchInput_;
-    std::string directoryJumpInput_;
-    ftxui::Component createInputComponent_;
-    ftxui::Component renameInputComponent_;
-    ftxui::Component searchInputComponent_;
-    ftxui::Component directoryJumpInputComponent_;
-    ftxui::Component helpFilterInputComponent_;
+    // ftxui::Component createInputComponent_;
+    // ftxui::Component renameInputComponent_;
+    // ftxui::Component searchInputComponent_;
+    // ftxui::Component directoryJumpInputComponent_;
+    // ftxui::Component helpFilterInputComponent_;
+    ftxui::Component activeInputComponent_;
 
-    bool showDirectoryJumpDialog_{false};
-    HelpState helpState_;
+    ExplorerOverlayState overlayState_;
     std::vector<ui::HelpEntry> helpEntries_;
-    std::vector<ui::HelpEntry> filteredHelpEntries_;
-
+    ui::PreviewModel previewModel_{ui::PreviewIdleState{}};
+    std::optional<std::filesystem::path> previewTarget_;
+    core::CancellationSource previewCancellation_;
     std::vector<std::string> startupWarnings_;
     std::optional<core::Error> initError_;
     std::atomic_bool running_{false};
@@ -1377,8 +1056,8 @@ private:
 };
 
 ExplorerView::ExplorerView(std::shared_ptr<Explorer> explorer) : impl_(std::make_unique<Impl>(std::move(explorer))) {}
-ExplorerView::~ExplorerView() = default;
 
+ExplorerView::~ExplorerView() = default;
 ExplorerView::ExplorerView(ExplorerView&&) noexcept = default;
 ExplorerView& ExplorerView::operator=(ExplorerView&&) noexcept = default;
 
@@ -1389,4 +1068,5 @@ int ExplorerView::run() {
 void ExplorerView::requestExit() {
     impl_->requestExit();
 }
+
 }  // namespace expp::app

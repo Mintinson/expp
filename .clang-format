@@ -44,7 +44,7 @@ IncludeCategories:
 
 # Alignment
 AlignAfterOpenBracket: Align
-AlignArrayOfStructures: Right
+AlignArrayOfStructures: Left
 AlignConsecutiveAssignments: None
 AlignConsecutiveBitFields: Consecutive
 AlignConsecutiveDeclarations: None
@@ -111,6 +111,7 @@ EmptyLineBeforeAccessModifier: LogicalBlock
 FixNamespaceComments: true
 KeepEmptyLinesAtTheStartOfBlocks: false
 LambdaBodyIndentation: Signature
+SeparateDefinitionBlocks: Always
 MaxEmptyLinesToKeep: 1
 PackConstructorInitializers: CurrentLine
 PenaltyBreakAssignment: 2
@@ -127,6 +128,5 @@ QualifierAlignment: Left
 ReferenceAlignment: Pointer
 ReflowComments: true
 RequiresClausePosition: OwnLine
-SeparateDefinitionBlocks: Leave
 ShortNamespaceLines: 0
 SortUsingDeclarations: Lexicographic

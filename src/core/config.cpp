@@ -7,6 +7,7 @@
 
 #include "expp/core/config.hpp"
 
+#include <array>
 #include <charconv>
 #include <cstdlib>
 #include <filesystem>
@@ -23,6 +24,96 @@
 namespace expp::core {
 
 namespace {
+
+// These descriptors keep scalar TOML fields defined once for both load and save
+// paths, which reduces drift when config sections evolve.
+template <typename ConfigT, typename MemberT>
+struct ScalarFieldSpec {
+    std::string_view key;
+    MemberT ConfigT::*member;
+};
+
+template <typename ConfigT, std::size_t N>
+void load_bool_fields(const toml::table& tbl,
+                      ConfigT& config,
+                      const std::array<ScalarFieldSpec<ConfigT, bool>, N>& specs) {
+    for (const auto& spec : specs) {
+        if (auto value = tbl[spec.key].template value<bool>()) {
+            config.*(spec.member) = *value;
+        }
+    }
+}
+
+template <typename ConfigT, std::size_t N>
+void load_int_fields(const toml::table& tbl,
+                     ConfigT& config,
+                     const std::array<ScalarFieldSpec<ConfigT, int>, N>& specs) {
+    for (const auto& spec : specs) {
+        if (auto value = tbl[spec.key].template value<int64_t>()) {
+            config.*(spec.member) = static_cast<int>(*value);
+        }
+    }
+}
+
+template <typename ConfigT, std::size_t N>
+void insert_bool_fields(toml::table& tbl,
+                        const ConfigT& config,
+                        const std::array<ScalarFieldSpec<ConfigT, bool>, N>& specs) {
+    for (const auto& spec : specs) {
+        tbl.insert(spec.key, config.*(spec.member));
+    }
+}
+
+template <typename ConfigT, std::size_t N>
+void insert_int_fields(toml::table& tbl,
+                       const ConfigT& config,
+                       const std::array<ScalarFieldSpec<ConfigT, int>, N>& specs) {
+    for (const auto& spec : specs) {
+        tbl.insert(spec.key, static_cast<int64_t>(config.*(spec.member)));
+    }
+}
+
+constexpr auto kPreviewBoolFields = std::array{
+    ScalarFieldSpec<PreviewConfig, bool>{"enabled", &PreviewConfig::enabled},
+    ScalarFieldSpec<PreviewConfig, bool>{"syntax_highlight", &PreviewConfig::syntaxHighlight},
+};
+
+constexpr auto kPreviewIntFields = std::array{
+    ScalarFieldSpec<PreviewConfig, int>{"max_lines", &PreviewConfig::maxLines},
+    ScalarFieldSpec<PreviewConfig, int>{"max_line_length", &PreviewConfig::maxLineLength},
+};
+
+constexpr auto kLayoutBoolFields = std::array{
+    ScalarFieldSpec<LayoutConfig, bool>{"show_preview_panel", &LayoutConfig::showPreviewPanel},
+    ScalarFieldSpec<LayoutConfig, bool>{"show_parent_panel", &LayoutConfig::showParentPanel},
+    ScalarFieldSpec<LayoutConfig, bool>{"show_status_bar", &LayoutConfig::showStatusBar},
+};
+
+constexpr auto kLayoutIntFields = std::array{
+    ScalarFieldSpec<LayoutConfig, int>{"parent_panel_width", &LayoutConfig::parentPanelWidth},
+    ScalarFieldSpec<LayoutConfig, int>{"preview_panel_width", &LayoutConfig::previewPanelWidth},
+};
+
+constexpr auto kBehaviorBoolFields = std::array{
+    ScalarFieldSpec<BehaviorConfig, bool>{"show_hidden_files", &BehaviorConfig::showHiddenFiles},
+    ScalarFieldSpec<BehaviorConfig, bool>{"confirm_delete", &BehaviorConfig::confirmDelete},
+    ScalarFieldSpec<BehaviorConfig, bool>{"confirm_trash", &BehaviorConfig::confirmTrash},
+    ScalarFieldSpec<BehaviorConfig, bool>{"sort_directories_first", &BehaviorConfig::sortDirectoriesFirst},
+    ScalarFieldSpec<BehaviorConfig, bool>{"case_sensitive_search", &BehaviorConfig::caseSensitiveSearch},
+};
+
+constexpr auto kBehaviorIntFields = std::array{
+    ScalarFieldSpec<BehaviorConfig, int>{"key_timeout_ms", &BehaviorConfig::keyTimeoutMs},
+};
+
+constexpr auto kNotificationBoolFields = std::array{
+    ScalarFieldSpec<NotificationConfig, bool>{"show_success", &NotificationConfig::showSuccess},
+    ScalarFieldSpec<NotificationConfig, bool>{"show_info", &NotificationConfig::showInfo},
+};
+
+constexpr auto kNotificationIntFields = std::array{
+    ScalarFieldSpec<NotificationConfig, int>{"duration_ms", &NotificationConfig::durationMs},
+};
 
 /**
  * @brief Parses a hex color string ("0xRRGGBB" or "#RRGGBB") to uint32_t
@@ -65,6 +156,9 @@ void load_color_theme(const toml::table& tbl, ColorTheme& theme) {
     }
 
     if (const auto *ft = tbl["filetype_colors"].as_table()) {
+        // Color parsing is tolerant here by design: invalid individual color
+        // fields fall back to the existing default instead of rejecting the
+        // entire theme section.
         auto try_color = [&](std::string_view key, uint32_t& target) {
             if (auto v = (*ft)[key].value<std::string>()) {
                 if (auto parsed = parse_hex_color(*v)) {
@@ -119,69 +213,23 @@ void load_icon_config(const toml::table& tbl, IconConfig& icons) {
 }
 
 void load_preview_config(const toml::table& tbl, PreviewConfig& preview) {
-    if (auto v = tbl["enabled"].value<bool>()) {
-        preview.enabled = *v;
-    }
-    if (auto v = tbl["max_lines"].value<int64_t>()) {
-        preview.maxLines = static_cast<int>(*v);
-    }
-    if (auto v = tbl["max_line_length"].value<int64_t>()) {
-        preview.maxLineLength = static_cast<int>(*v);
-    }
-    if (auto v = tbl["syntax_highlight"].value<bool>()) {
-        preview.syntaxHighlight = *v;
-    }
+    load_bool_fields(tbl, preview, kPreviewBoolFields);
+    load_int_fields(tbl, preview, kPreviewIntFields);
 }
 
 void load_layout_config(const toml::table& tbl, LayoutConfig& layout) {
-    if (auto v = tbl["parent_panel_width"].value<int64_t>()) {
-        layout.parentPanelWidth = static_cast<int>(*v);
-    }
-    if (auto v = tbl["preview_panel_width"].value<int64_t>()) {
-        layout.previewPanelWidth = static_cast<int>(*v);
-    }
-    if (auto v = tbl["show_preview_panel"].value<bool>()) {
-        layout.showPreviewPanel = *v;
-    }
-    if (auto v = tbl["show_parent_panel"].value<bool>()) {
-        layout.showParentPanel = *v;
-    }
-    if (auto v = tbl["show_status_bar"].value<bool>()) {
-        layout.showStatusBar = *v;
-    }
+    load_bool_fields(tbl, layout, kLayoutBoolFields);
+    load_int_fields(tbl, layout, kLayoutIntFields);
 }
 
 void load_behavior_config(const toml::table& tbl, BehaviorConfig& behavior) {
-    if (auto v = tbl["show_hidden_files"].value<bool>()) {
-        behavior.showHiddenFiles = *v;
-    }
-    if (auto v = tbl["confirm_delete"].value<bool>()) {
-        behavior.confirmDelete = *v;
-    }
-    if (auto v = tbl["confirm_trash"].value<bool>()) {
-        behavior.confirmTrash = *v;
-    }
-    if (auto v = tbl["sort_directories_first"].value<bool>()) {
-        behavior.sortDirectoriesFirst = *v;
-    }
-    if (auto v = tbl["case_sensitive_search"].value<bool>()) {
-        behavior.caseSensitiveSearch = *v;
-    }
-    if (auto v = tbl["key_timeout_ms"].value<int64_t>()) {
-        behavior.keyTimeoutMs = static_cast<int>(*v);
-    }
+    load_bool_fields(tbl, behavior, kBehaviorBoolFields);
+    load_int_fields(tbl, behavior, kBehaviorIntFields);
 }
 
 void load_notification_config(const toml::table& tbl, NotificationConfig& notifications) {
-    if (auto v = tbl["duration_ms"].value<int64_t>()) {
-        notifications.durationMs = static_cast<int>(*v);
-    }
-    if (auto v = tbl["show_success"].value<bool>()) {
-        notifications.showSuccess = *v;
-    }
-    if (auto v = tbl["show_info"].value<bool>()) {
-        notifications.showInfo = *v;
-    }
+    load_bool_fields(tbl, notifications, kNotificationBoolFields);
+    load_int_fields(tbl, notifications, kNotificationIntFields);
 }
 
 toml::table serialize_color_theme(const ColorTheme& theme) {
@@ -223,39 +271,29 @@ toml::table serialize_icon_config(const IconConfig& icons) {
 
 toml::table serialize_preview_config(const PreviewConfig& preview) {
     toml::table tbl;
-    tbl.insert("enabled", preview.enabled);
-    tbl.insert("max_lines", static_cast<int64_t>(preview.maxLines));
-    tbl.insert("max_line_length", static_cast<int64_t>(preview.maxLineLength));
-    tbl.insert("syntax_highlight", preview.syntaxHighlight);
+    insert_bool_fields(tbl, preview, kPreviewBoolFields);
+    insert_int_fields(tbl, preview, kPreviewIntFields);
     return tbl;
 }
 
 toml::table serialize_layout_config(const LayoutConfig& layout) {
     toml::table tbl;
-    tbl.insert("parent_panel_width", static_cast<int64_t>(layout.parentPanelWidth));
-    tbl.insert("preview_panel_width", static_cast<int64_t>(layout.previewPanelWidth));
-    tbl.insert("show_preview_panel", layout.showPreviewPanel);
-    tbl.insert("show_parent_panel", layout.showParentPanel);
-    tbl.insert("show_status_bar", layout.showStatusBar);
+    insert_bool_fields(tbl, layout, kLayoutBoolFields);
+    insert_int_fields(tbl, layout, kLayoutIntFields);
     return tbl;
 }
 
 toml::table serialize_behavior_config(const BehaviorConfig& behavior) {
     toml::table tbl;
-    tbl.insert("show_hidden_files", behavior.showHiddenFiles);
-    tbl.insert("confirm_delete", behavior.confirmDelete);
-    tbl.insert("confirm_trash", behavior.confirmTrash);
-    tbl.insert("sort_directories_first", behavior.sortDirectoriesFirst);
-    tbl.insert("case_sensitive_search", behavior.caseSensitiveSearch);
-    tbl.insert("key_timeout_ms", static_cast<int64_t>(behavior.keyTimeoutMs));
+    insert_bool_fields(tbl, behavior, kBehaviorBoolFields);
+    insert_int_fields(tbl, behavior, kBehaviorIntFields);
     return tbl;
 }
 
 toml::table serialize_notification_config(const NotificationConfig& notifications) {
     toml::table tbl;
-    tbl.insert("duration_ms", static_cast<int64_t>(notifications.durationMs));
-    tbl.insert("show_success", notifications.showSuccess);
-    tbl.insert("show_info", notifications.showInfo);
+    insert_bool_fields(tbl, notifications, kNotificationBoolFields);
+    insert_int_fields(tbl, notifications, kNotificationIntFields);
     return tbl;
 }
 
@@ -302,6 +340,8 @@ VoidResult ConfigManager::load() {
 
     for (const auto& path : search_paths) {
         if (std::filesystem::exists(path)) {
+            // Stop at the first discovered config path so layer precedence is
+            // explicit and deterministic.
             return loadFrom(path);
         }
     }
@@ -320,6 +360,8 @@ VoidResult ConfigManager::loadFrom(const std::filesystem::path& path) {
     }
 
     Config cfg = defaults();
+    // Load into a temporary config so parse success is all-or-nothing from the
+    // caller's perspective.
 
     if (auto *theme = tbl["theme"].as_table()) {
         load_color_theme(*theme, cfg.theme);
@@ -378,6 +420,8 @@ VoidResult ConfigManager::save() const {
     toml::table root;
     {
         std::lock_guard lock(impl_->mutex);
+        // Serialize from a locked snapshot so all sections in the emitted file
+        // come from the same logical configuration version.
         root.insert("theme", serialize_color_theme(impl_->config.theme));
         root.insert("icons", serialize_icon_config(impl_->config.icons));
         root.insert("preview", serialize_preview_config(impl_->config.preview));

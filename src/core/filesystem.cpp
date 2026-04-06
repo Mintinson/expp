@@ -38,10 +38,10 @@ namespace rng = std::ranges;
 // Static data for file classification
 namespace {
 
-constexpr std::array kTextExtensions = {".txt",  ".cpp",   ".c",    ".h",    ".hpp",  ".py", ".js",
-                                        ".ts",   ".json",  ".xml",  ".html", ".css",  ".md", ".yml",
-                                        ".yaml", ".toml",  ".ini",  ".cfg",  ".conf", ".sh", ".bat",
-                                        ".cmd",  ".cmake", ".make", ".log",  ".rs",   ".go", ".java"};
+constexpr std::array kTextExtensions = {".txt",  ".cpp", ".c",    ".h",    ".hpp", ".py",  ".js",    ".ts",
+                                        ".json", ".xml", ".html", ".css",  ".md",  ".yml", ".yaml",  ".toml",
+                                        ".ini",  ".cfg", ".conf", ".sh",   ".bat", ".cmd", ".cmake", ".make",
+                                        ".log",  ".rs",  ".go",   ".java", ".lua", ".zig", ".swift", ".kt"};
 
 constexpr std::array kArchiveExtensions = {".zip", ".tar", ".gz", ".7z", ".rar", ".bz2", ".xz", ".tgz"};
 
@@ -105,11 +105,11 @@ template <typename Container>
 // #endif
 //}
 
-
 /**
  * @brief Queries the birth (creation) time of a file or directory.
  * @param path The filesystem path to the file or directory whose birth time is to be queried.
- * @return A Result containing the file's creation time as a file_clock time_point on success, or an error if the operation fails or birth time is not supported on the platform.
+ * @return A Result containing the file's creation time as a file_clock time_point on success, or an error if the
+ * operation fails or birth time is not supported on the platform.
  */
 [[nodiscard]] core::Result<std::chrono::file_clock::time_point> query_birth_time(const fs::path& path) {
     using namespace std::chrono;
@@ -175,7 +175,7 @@ bool is_executable(const fs::path& filepath) noexcept {
 
         std::string pathext = pathext_buffer ? pathext_buffer : ".COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF";
         if (pathext_buffer) {
-            free(pathext_buffer); // NOLINT
+            free(pathext_buffer);  // NOLINT
         }
 
         size_t pos = pathext.find(ext);
@@ -331,6 +331,7 @@ bool is_previewable(const fs::path& path) noexcept {
 
     return entries;
 }
+
 [[nodiscard]] Result<fs::path> canonicalize(const fs::path& path) {
     std::error_code ec;
     auto result = fs::canonical(path, ec);
@@ -458,6 +459,7 @@ VoidResult open_with_default(const fs::path& path) {
     }
     return {};
 }
+
 // [[nodiscard]] Result<std::vector<std::string>> read_preview(const FileEntry& entry, int max_lines)
 // {
 //     if (entry.isDirectory())
@@ -483,7 +485,6 @@ VoidResult open_with_default(const fs::path& path) {
 //     }
 
 // }
-
 
 [[nodiscard]] Result<std::vector<std::string>> read_preview(const fs::path& path, int max_lines) {
     std::vector<std::string> lines;
