@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.28)
 
 project(Expp
-    VERSION 0.15.0
-    DESCRIPTION "Cross-platform TUI file manager built with C++23"
-    HOMEPAGE_URL "https://github.com/yourusername/Expp"
-    LANGUAGES CXX
+        VERSION 0.15.0
+        DESCRIPTION "Cross-platform TUI file manager built with C++23"
+        HOMEPAGE_URL "https://github.com/yourusername/Expp"
+        LANGUAGES CXX
 )
 
 # ==============================================================================
@@ -17,11 +17,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 # Default to Release build if not specified
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     message(STATUS "Setting build type to 'Release' as none was specified.")
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
     set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
-endif()
+endif ()
 
 # ==============================================================================
 # Options
@@ -37,15 +37,15 @@ option(EXPP_ENABLE_CPPCHECK "Enable cppcheck static analysis" OFF)
 # ==============================================================================
 add_library(expp_warnings INTERFACE)
 target_compile_options(expp_warnings INTERFACE
-    $<$<CXX_COMPILER_ID:MSVC>:
+        $<$<CXX_COMPILER_ID:MSVC>:
         /W4
         /WX
         /permissive-
         /Zc:__cplusplus
         /Zc:preprocessor
         /utf-8
-    >
-    $<$<CXX_COMPILER_ID:GNU>:
+        >
+        $<$<CXX_COMPILER_ID:GNU>:
         -Wall
         -Wextra
         -Wpedantic
@@ -61,8 +61,8 @@ target_compile_options(expp_warnings INTERFACE
         -Wdouble-promotion
         -Wformat=2
         -Wimplicit-fallthrough
-    >
-    $<$<CXX_COMPILER_ID:Clang>:
+        >
+        $<$<CXX_COMPILER_ID:Clang>:
         -Wall
         -Wextra
         -Wpedantic
@@ -78,30 +78,30 @@ target_compile_options(expp_warnings INTERFACE
         -Wdouble-promotion
         -Wformat=2
         -Wimplicit-fallthrough
-    >
+        >
 )
 
 # ==============================================================================
 # Sanitizers (Debug builds only)
 # ==============================================================================
 add_library(expp_sanitizers INTERFACE)
-if(EXPP_ENABLE_SANITIZERS)
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+if (EXPP_ENABLE_SANITIZERS)
+    if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+        if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
             target_compile_options(expp_sanitizers INTERFACE
-                -fsanitize=address,undefined
-                -fno-omit-frame-pointer
+                    -fsanitize=address,undefined
+                    -fno-omit-frame-pointer
             )
             target_link_options(expp_sanitizers INTERFACE
-                -fsanitize=address,undefined
+                    -fsanitize=address,undefined
             )
             message(STATUS "AddressSanitizer and UBSan enabled for Debug build")
-        elseif(MSVC)
+        elseif (MSVC)
             target_compile_options(expp_sanitizers INTERFACE /fsanitize=address)
             message(STATUS "AddressSanitizer enabled for Debug build (MSVC)")
-        endif()
-    endif()
-endif()
+        endif ()
+    endif ()
+endif ()
 
 
 # ==============================================================================
@@ -111,96 +111,96 @@ include(FetchContent)
 
 # FTXUI - TUI library
 FetchContent_Declare(ftxui
-    GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI
-    GIT_TAG v6.1.9
+        GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI
+        GIT_TAG v6.1.9
 )
 
 # toml++ - Configuration parsing (header-only)
 FetchContent_Declare(tomlplusplus
-    GIT_REPOSITORY https://github.com/marzer/tomlplusplus
-    GIT_TAG v3.4.0
+        GIT_REPOSITORY https://github.com/marzer/tomlplusplus
+        GIT_TAG v3.4.0
 )
 
 # Catch2 - Testing framework
-if(EXPP_BUILD_TESTS)
+if (EXPP_BUILD_TESTS)
     FetchContent_Declare(Catch2
-        GIT_REPOSITORY https://github.com/catchorg/Catch2
-        GIT_TAG v3.5.2
+            GIT_REPOSITORY https://github.com/catchorg/Catch2
+            GIT_TAG v3.5.2
     )
-endif()
+endif ()
 
 
 FetchContent_MakeAvailable(ftxui tomlplusplus)
-if(EXPP_BUILD_TESTS)
+if (EXPP_BUILD_TESTS)
     FetchContent_MakeAvailable(Catch2)
-endif()
+endif ()
 
 # --- FIX: Synchronize MSVC ABI flags for FTXUI ---
-if(MSVC)
+if (MSVC)
     # Apply strict standard conformance flags to match expp_warnings
-    foreach(ftxui_target screen dom component)
+    foreach (ftxui_target screen dom component)
         target_compile_options(${ftxui_target} PRIVATE /permissive- /Zc:__cplusplus /Zc:preprocessor)
-        
+
         # Apply AddressSanitizer if enabled to match expp_sanitizers
-        if(EXPP_ENABLE_SANITIZERS AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
+        if (EXPP_ENABLE_SANITIZERS AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
             target_compile_options(${ftxui_target} PRIVATE /fsanitize=address)
-        endif()
-    endforeach()
-endif()
+        endif ()
+    endforeach ()
+endif ()
 
 # ==============================================================================
 # Core library
 # ==============================================================================
 add_library(expp_core STATIC
-    src/core/filesystem.cpp
-    src/core/config.cpp
+        src/core/filesystem.cpp
+        src/core/config.cpp
 )
 
 
 target_include_directories(expp_core
-    PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+        PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
 )
 
 target_link_libraries(expp_core
-    PUBLIC
+        PUBLIC
         tomlplusplus::tomlplusplus
-    PRIVATE
+        PRIVATE
         expp_warnings
         expp_sanitizers
 )
 set_target_properties(expp_core PROPERTIES
-    POSITION_INDEPENDENT_CODE ON
+        POSITION_INDEPENDENT_CODE ON
 )
 
 # Platform-specific libraries for trash functionality
-if(WIN32)
+if (WIN32)
     target_link_libraries(expp_core PRIVATE shell32)
-endif()
+endif ()
 
 
 # ==============================================================================
 # UI library
 # ==============================================================================
 add_library(expp_ui STATIC
-    src/ui/key_handler.cpp
-    src/ui/theme.cpp
-    src/ui/components.cpp
-    src/ui/help_menu_model.cpp
+        src/ui/key_handler.cpp
+        src/ui/theme.cpp
+        src/ui/components.cpp
+        src/ui/help_menu_model.cpp
 )
 target_include_directories(expp_ui
-    PUBLIC
+        PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(expp_ui
-    PUBLIC
+        PUBLIC
         expp_core
         ftxui::screen
         ftxui::dom
         ftxui::component
-    PRIVATE
+        PRIVATE
         expp_warnings
         expp_sanitizers
 )
@@ -209,25 +209,29 @@ target_link_libraries(expp_ui
 # Application library
 # ==============================================================================
 add_library(expp_app STATIC
-    src/app/notification_center.cpp
-    src/app/navigation_utils.cpp
-    src/app/explorer.cpp
-    src/app/explorer_view.cpp
-    src/app/explorer_services.cpp
-    src/app/explorer_commands.cpp
-    src/app/explorer_presenter.cpp
-    src/app/explorer_sort.cpp
-    src/app/explorer_state_helpers.cpp
+        src/app/notification_center.cpp
+        src/app/navigation_utils.cpp
+        src/app/explorer.cpp
+        src/app/explorer_view.cpp
+        src/app/explorer_services.cpp
+        src/app/explorer_commands.cpp
+        src/app/explorer_presenter.cpp
+        src/app/explorer_sort.cpp
+        src/app/explorer_state_helpers.cpp
+        src/app/explorer_command_dispatcher.cpp
+        src/app/explorer_overlay_controller.cpp
+        src/app/explorer_render_composer.cpp
+        src/app/explorer_preview_controller.cpp
 )
 target_include_directories(expp_app
-    PUBLIC
+        PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(expp_app
-    PUBLIC
+        PUBLIC
         expp_ui
-    PRIVATE
+        PRIVATE
         expp_warnings
         expp_sanitizers
 )
@@ -237,42 +241,42 @@ target_link_libraries(expp_app
 # ==============================================================================
 add_executable(expp_exe src/main.cpp)
 target_link_libraries(expp_exe
-    PRIVATE
+        PRIVATE
         expp_app
         expp_warnings
         expp_sanitizers
 )
 set_target_properties(expp_exe PROPERTIES
-    OUTPUT_NAME "explorer"
+        OUTPUT_NAME "explorer"
 )
 
 # ==============================================================================
 # Tests
 # ==============================================================================
-if(EXPP_BUILD_TESTS)
+if (EXPP_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
-endif()
+endif ()
 
 # ==============================================================================
 # Examples
 # ==============================================================================
-if(EXPP_BUILD_EXAMPLES)
+if (EXPP_BUILD_EXAMPLES)
     add_subdirectory(examples)
-endif()
+endif ()
 
 # ==============================================================================
 # clang-tidy integration
 # ==============================================================================
-if(EXPP_ENABLE_CLANG_TIDY)
+if (EXPP_ENABLE_CLANG_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy)
-    if(CLANG_TIDY_EXE)
+    if (CLANG_TIDY_EXE)
         set(CMAKE_CXX_CLANG_TIDY ${CLANG_TIDY_EXE})
         message(STATUS "clang-tidy enabled: ${CLANG_TIDY_EXE}")
-    else()
+    else ()
         message(WARNING "clang-tidy requested but not found")
-    endif()
-endif()
+    endif ()
+endif ()
 
 
 # ==============================================================================
@@ -281,11 +285,11 @@ endif()
 include(GNUInstallDirs)
 
 install(TARGETS expp_exe
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
 install(DIRECTORY include/expp
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
 # ==============================================================================

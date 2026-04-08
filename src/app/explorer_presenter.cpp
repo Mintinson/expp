@@ -16,7 +16,8 @@ int ExplorerPresenter::listViewportRows(int screen_rows) noexcept {
 
 int ExplorerPresenter::helpViewportRows(int screen_rows) noexcept {
     constexpr int kHelpViewportPaddingRows = 10;
-    // TODO consider avoid the magic numbers by introducing a more explicit layout model and deriving these values from it
+    // TODO consider avoid the magic numbers by introducing a more explicit layout model and deriving these values from
+    // it
     return std::clamp(screen_rows - kHelpViewportPaddingRows, 8, 28);
 }
 
@@ -91,7 +92,8 @@ void setup_titles(ExplorerScreenModel& model, const std::filesystem::path& dir) 
 /**
  * @brief Builds a formatted status bar string based on the current explorer state.
  * @param state The current state of the explorer, containing sort order, search information, and selection details.
- * @return A formatted string containing status information including sort order, active search matches, and visual selection count.
+ * @return A formatted string containing status information including sort order, active search matches, and visual
+ * selection count.
  */
 [[nodiscard]] std::string build_status_bar(const ExplorerState& state) {
     std::string status = std::format("[sort:{}{}]", sort_field_short_name(state.sortOrder.field),
@@ -121,9 +123,9 @@ void setup_titles(ExplorerScreenModel& model, const std::filesystem::path& dir) 
  * @return A string containing context-appropriate help text, with any buffered keystrokes appended in brackets if
  * present.
  */
-[[nodiscard]] std::string determine_help_text(const ExplorerOverlayState& overlay,
-                                              ui::Mode mode,
-                                              std::string_view key_buffer) {
+[[nodiscard]] std::string determine_help_text(const ExplorerOverlayState& overlay, ui::Mode mode
+                                              // std::string_view key_buffer
+) {
     std::string text;
     if (std::holds_alternative<HelpOverlayState>(overlay)) {
         text = "HELP: j/k move, f filter, Enter done, Esc/~ close";
@@ -135,12 +137,18 @@ void setup_titles(ExplorerScreenModel& model, const std::filesystem::path& dir) 
         text = "j/k move, h/l nav, q quit, ~ help";
     }
 
-    if (!key_buffer.empty()) {
-        text += std::format("  [{}]", key_buffer);
-    }
+    // if (!key_buffer.empty()) {
+    //     text += std::format("  [{}]", key_buffer);
+    // }
 
     return text;
 }
+
+// for now just copy it
+void store_key_buffer(ExplorerScreenModel& model, std::string_view key_buffer) {
+    model.keyBuffer = key_buffer;
+}
+
 }  // namespace
 
 ExplorerScreenModel ExplorerPresenter::present(const ExplorerState& state,
@@ -155,10 +163,13 @@ ExplorerScreenModel ExplorerPresenter::present(const ExplorerState& state,
 
     // 2. 文本解析
     setup_titles(model, state.currentDir);
+    store_key_buffer(model, key_buffer);
+
 
     // 3. 状态组装
     model.searchStatus = build_status_bar(state);
-    model.helpText = determine_help_text(overlay, mode, key_buffer);
+    model.helpText = determine_help_text(overlay, mode);
+
 
     return model;
 }

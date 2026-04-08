@@ -21,15 +21,20 @@ struct NotificationOptions {
 
 [[nodiscard]] ui::ToastSeverity severity_for_error(const core::Error& error) noexcept;
 
+class NotificationCenter;
+
+[[nodiscard]] bool publish_if_error(NotificationCenter& notifications,
+                                    core::VoidResult result,
+                                    std::string success_message = {},
+                                    ui::ToastSeverity success_severity = ui::ToastSeverity::Success);
+
 class NotificationCenter {
 public:
     using Clock = std::chrono::steady_clock;
 
     explicit NotificationCenter(NotificationOptions options = {});
 
-    void publish(ui::ToastSeverity severity,
-                 std::string message,
-                 Clock::time_point now = Clock::now());
+    void publish(ui::ToastSeverity severity, std::string message, Clock::time_point now = Clock::now());
 
     void expire(Clock::time_point now = Clock::now());
 

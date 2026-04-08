@@ -44,6 +44,21 @@ ui::ToastSeverity severity_for_error(const core::Error& error) noexcept {
     }
 }
 
+bool publish_if_error(NotificationCenter& notifications,
+                      core::VoidResult result,
+                      std::string success_message,
+                      const ui::ToastSeverity success_severity) {
+    if (!result) {
+        notifications.publish(severity_for_error(result.error()), result.error().message());
+        return false;
+    }
+
+    if (!success_message.empty()) {
+        notifications.publish(success_severity, std::move(success_message));
+    }
+    return true;
+}
+
 NotificationCenter::NotificationCenter(NotificationOptions options) : options_(options) {}
 
 void NotificationCenter::publish(ui::ToastSeverity severity, std::string message, Clock::time_point now) {

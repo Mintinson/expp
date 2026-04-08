@@ -150,6 +150,7 @@ struct ExplorerScreenModel {
     std::string statusPath;
     std::string searchStatus;
     std::string helpText;
+    std::string keyBuffer;
 };
 
 /**

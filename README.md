@@ -19,6 +19,7 @@ Bug Report
     - [ ] The style is rather ugly and inconsistent with the original theme. It will be improved to be more aesthetically pleasing and have more consistent colors in the future.
     - [x] Currently, the help menu interface moves with the cursor, but it stops at the end of the menu, making it impossible to see the shortcut keys at the end.
     - [ ] Sometimes program will crash when filter something into filter mode.
+- [x] After the refactoring of `ExplorerView`, deleting multiple files and adding them to the recycle bin in visual mode are no longer supported; only the file currently pointed to by the cursor can be deleted.
 
 
 Fix Report
