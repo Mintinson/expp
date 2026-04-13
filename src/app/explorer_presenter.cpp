@@ -23,10 +23,9 @@ int ExplorerPresenter::helpViewportRows(int screen_rows) noexcept {
 
 namespace {
 /**
- * @brief Set the up viewport object
- *
- * @param model (in/out) the screen model to update with viewport information
- * @param state the current explorer state containing selection and entry information
+ * @brief Computes visible list bounds and selected row within the visible slice.
+ * @param model Screen model being populated.
+ * @param state Explorer domain state.
  */
 void setup_viewport(ExplorerScreenModel& model, const ExplorerState& state) {
     const int total_entries = static_cast<int>(state.entries.size());
@@ -40,27 +39,26 @@ void setup_viewport(ExplorerScreenModel& model, const ExplorerState& state) {
 
 /**
  * @brief Maps absolute indices to viewport-relative indices for search matches and visual selections.
- *
- * @param model (in/out) the screen model to update with mapped indices
- * @param state the current explorer state containing selection and entry information
+ * @param model Screen model being populated.
+ * @param state Explorer domain state.
  */
 void map_viewport_indices(ExplorerScreenModel& model, const ExplorerState& state) {
     const int offset = model.currentList.offset;
     const int visible_end = model.currentList.visibleEnd;
 
-    // filter and map search matches to visible range
+    // Filter and map search matches to the currently visible list slice.
     for (std::size_t i = 0; i < state.search.matches.size(); ++i) {
         const int match = state.search.matches[i];
         if (match >= offset && match < visible_end) {
             model.currentList.searchMatches.push_back(match - offset);
-            // locate current match index in the filtered list
+            // Preserve which visible match is the active one.
             if (static_cast<int>(i) == state.search.currentMatchIndex) {
                 model.currentList.currentMatchIndex = static_cast<int>(model.currentList.searchMatches.size()) - 1;
             }
         }
     }
 
-    // filter and map visual selection indices to visible range
+    // Filter and map visual selection indices to visible coordinates.
     if (state.selection.visualModeActive) {
         for (int abs_index : state.selection.visualSelectedIndices) {
             if (abs_index >= offset && abs_index < visible_end) {
@@ -72,8 +70,8 @@ void map_viewport_indices(ExplorerScreenModel& model, const ExplorerState& state
 
 /**
  * @brief Sets up the parent, current, and status path titles in an ExplorerScreenModel based on a directory path.
- * @param model The ExplorerScreenModel to populate with title information.
- * @param dir The filesystem path to extract title information from.
+ * @param model Screen model being populated.
+ * @param dir Current explorer directory.
  */
 void setup_titles(ExplorerScreenModel& model, const std::filesystem::path& dir) {
     model.parentTitle = dir.has_parent_path() ? dir.parent_path().string() : "/";
@@ -91,9 +89,8 @@ void setup_titles(ExplorerScreenModel& model, const std::filesystem::path& dir) 
 
 /**
  * @brief Builds a formatted status bar string based on the current explorer state.
- * @param state The current state of the explorer, containing sort order, search information, and selection details.
- * @return A formatted string containing status information including sort order, active search matches, and visual
- * selection count.
+ * @param state Current explorer state.
+ * @return Status string containing sort/search/visual counters.
  */
 [[nodiscard]] std::string build_status_bar(const ExplorerState& state) {
     std::string status = std::format("[sort:{}{}]", sort_field_short_name(state.sortOrder.field),
@@ -119,12 +116,9 @@ void setup_titles(ExplorerScreenModel& model, const std::filesystem::path& dir) 
  * @brief Determines the appropriate help text to display based on the current overlay state and UI mode.
  * @param overlay The current explorer overlay state (e.g., help overlay or directory jump overlay).
  * @param mode The current UI mode (e.g., Visual mode).
- * @param key_buffer A view of the current key buffer containing pending keystrokes.
- * @return A string containing context-appropriate help text, with any buffered keystrokes appended in brackets if
- * present.
+ * @return Context-specific help text for the status line.
  */
 [[nodiscard]] std::string determine_help_text(const ExplorerOverlayState& overlay, ui::Mode mode
-                                              // std::string_view key_buffer
 ) {
     std::string text;
     if (std::holds_alternative<HelpOverlayState>(overlay)) {
@@ -137,14 +131,12 @@ void setup_titles(ExplorerScreenModel& model, const std::filesystem::path& dir) 
         text = "j/k move, h/l nav, q quit, ~ help";
     }
 
-    // if (!key_buffer.empty()) {
-    //     text += std::format("  [{}]", key_buffer);
-    // }
-
     return text;
 }
 
-// for now just copy it
+/**
+ * @brief Copies the raw key buffer into the screen model.
+ */
 void store_key_buffer(ExplorerScreenModel& model, std::string_view key_buffer) {
     model.keyBuffer = key_buffer;
 }
@@ -157,19 +149,18 @@ ExplorerScreenModel ExplorerPresenter::present(const ExplorerState& state,
                                                ui::Mode mode) const {
     ExplorerScreenModel model;
 
-    // 1. 几何计算
+    // 1) Geometry projection: convert absolute domain coordinates into the
+    // viewport-local list model consumed by the renderer.
     setup_viewport(model, state);
     map_viewport_indices(model, state);
 
-    // 2. 文本解析
+    // 2) Text assembly: derive titles and key-buffer echoes.
     setup_titles(model, state.currentDir);
     store_key_buffer(model, key_buffer);
 
-
-    // 3. 状态组装
+    // 3) Status/help synthesis: summarize search/sort/visual state and mode.
     model.searchStatus = build_status_bar(state);
     model.helpText = determine_help_text(overlay, mode);
-
 
     return model;
 }

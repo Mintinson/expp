@@ -1,3 +1,8 @@
+/**
+ * @file explorer_command_dispatcher.cpp
+ * @brief Implementation of command routing from UI actions to explorer behavior.
+ */
+
 #include "expp/app/explorer_command_dispatcher.hpp"
 
 #include "expp/app/explorer_presenter.hpp"  // for kPageStep
@@ -21,7 +26,8 @@ ExplorerCommandDispatcher::ExplorerCommandDispatcher(std::shared_ptr<Explorer> e
     , visualModeObserver_(std::move(visual_mode_observer)) {}
 
 void ExplorerCommandDispatcher::execute(const ExplorerCommand command, const ui::ActionContext& ctx) {
-    // 1. only for UI command that need overlay or quit
+    // Commands that strictly open overlays or quit short-circuit here. Their
+    // side effects happen in the overlay controller / view loop, not below.
     switch (command) {
         case ExplorerCommand::Create:
         case ExplorerCommand::Rename:
@@ -39,6 +45,9 @@ void ExplorerCommandDispatcher::execute(const ExplorerCommand command, const ui:
             break;
     }
 
+    // The following handlers are intentionally independent switch blocks.
+    // Unknown commands become no-ops in each handler, which keeps extension
+    // points simple and avoids a giant monolithic switch.
     handleNavigation(command, ctx);
     handleFileOperations(command, ctx);
     handleClipboard(command, ctx);
@@ -65,6 +74,7 @@ void ExplorerCommandDispatcher::handleNavigation(const ExplorerCommand command, 
             break;
         case ExplorerCommand::GoBottom:
             if (!explorer_->state().entries.empty()) {
+                // Vim-like behavior: numeric prefix with G jumps to line N.
                 if (ctx.count > 1) {
                     explorer_->goToLine(ctx.count);
                 } else {
@@ -106,6 +116,7 @@ void ExplorerCommandDispatcher::handleFileOperations(const ExplorerCommand comma
         }
         case ExplorerCommand::EnterVisualMode:
             explorer_->enterVisualMode();
+            // The observer keeps key-handler mode synchronized with domain state.
             if (visualModeObserver_ && explorer_->state().selection.visualModeActive) {
                 visualModeObserver_(true);
             }
@@ -207,6 +218,8 @@ void ExplorerCommandDispatcher::handleSearchAndFilter(const ExplorerCommand comm
 }
 
 void ExplorerCommandDispatcher::handleSorting(const ExplorerCommand command) const {
+    // Sort commands are generated from declarative sort specs, so dispatcher
+    // only maps command -> (field, direction) here.
     for (const auto& spec : sort_specs()) {
         if (spec.ascendingCommand == command) {
             explorer_->setSortOrder(spec.field, SortOrder::Direction::Ascending);

@@ -7,17 +7,25 @@
 
 namespace expp::app {
 
+// This module is the interaction half of overlay handling. The corresponding
+// composer renders overlay visuals, while this controller owns overlay-local
+// state, input widgets, and confirm/cancel behavior.
+
 ExplorerOverlayController::ExplorerOverlayController(std::shared_ptr<Explorer> explorer,
                                                      NotificationCenter& notifications)
     : explorer_(std::move(explorer))
     , notifications_(notifications) {}
 
 void ExplorerOverlayController::openOverlayForCommand(const ExplorerCommand command) {
+    // Map command intent to one concrete overlay variant. Overlay-specific
+    // initialization (input prefill, selection snapshots) happens per case.
     switch (command) {
         case ExplorerCommand::Create:
             overlayState_ = CreateOverlayState{};
             break;
         case ExplorerCommand::Rename: {
+            // Seed the rename input with the current filename so the overlay is
+            // immediately editable without another lookup in the view layer.
             RenameOverlayState overlay;
             if (const auto& state = explorer_->state(); !state.entries.empty()) {
                 overlay.input = state.entries[static_cast<std::size_t>(state.selection.currentSelected)].filename();
@@ -36,7 +44,8 @@ void ExplorerOverlayController::openOverlayForCommand(const ExplorerCommand comm
             if (state.entries.empty()) {
                 return;
             }
-            // The logic for getting the selected count can be extracted into a helper function
+            // Confirmation overlays snapshot the current logical selection so the
+            // dialog text stays stable even if the underlying explorer refreshes.
             const int count = state.selection.visualModeActive ? std::max(1, explorer_->visualSelectionCount()) : 1;
             overlayState_ = DeleteConfirmOverlayState{
                 .targetName = state.entries[static_cast<std::size_t>(state.selection.currentSelected)].filename(),
@@ -57,7 +66,8 @@ void ExplorerOverlayController::openOverlayForCommand(const ExplorerCommand comm
             break;
         }
         case ExplorerCommand::OpenHelp: {
-            
+            // Help is usually opened through `openHelpOverlay`, which also seeds
+            // the model and viewport. This fallback preserves the state shape.
             HelpOverlayState overlay;
             overlayState_ = std::move(overlay);
             break;
@@ -71,6 +81,8 @@ void ExplorerOverlayController::openOverlayForCommand(const ExplorerCommand comm
 }
 
 void ExplorerOverlayController::openHelpOverlay(const std::vector<ui::HelpEntry>& entries, int screen_rows) {
+    // Help overlay initialization depends on the current screen height, so this
+    // logic lives here rather than in the generic command-to-overlay switch.
     HelpOverlayState overlay;
     overlay.model.setEntries(entries);
     overlay.viewport.viewportRows = ExplorerPresenter::helpViewportRows(screen_rows);
@@ -81,6 +93,7 @@ void ExplorerOverlayController::openHelpOverlay(const std::vector<ui::HelpEntry>
 
 void ExplorerOverlayController::updateHelpEntries(const std::vector<ui::HelpEntry>& entries) {
     if (auto* help = std::get_if<HelpOverlayState>(&overlayState_)) {
+        // Preserve the current filter text while replacing the backing entry set.
         help->model.setEntries(entries);
         help->model.setFilter(help->filterText);
         help->viewport = ui::clamp_help_viewport(help->viewport, help->model);
@@ -88,6 +101,8 @@ void ExplorerOverlayController::updateHelpEntries(const std::vector<ui::HelpEntr
 }
 
 void ExplorerOverlayController::closeOverlay() {
+    // Reset both the state variant and the input component to avoid stale
+    // references to previous overlay storage.
     overlayState_ = std::monostate{};
     activeInputComponent_ = nullptr;
 }
@@ -111,6 +126,8 @@ void ExplorerOverlayController::rebuildInputComponents() {
         return option;
     };
 
+    // Each overlay owns at most one active input widget. Rebuild from scratch
+    // whenever the overlay variant changes to keep focus logic predictable.
     activeInputComponent_ = nullptr;
 
     std::visit(
@@ -137,7 +154,8 @@ void ExplorerOverlayController::rebuildInputComponents() {
                     activeInputComponent_->TakeFocus();
                 }
             }
-            // For states like Monostate, DeleteConfirm that don't require an input box, do nothing, keep activeInputComponent_ as nullptr
+            // Confirmation and empty states intentionally leave the active input
+            // component unset because they only react to direct key presses.
         },
         overlayState_);
 }
@@ -149,6 +167,7 @@ bool ExplorerOverlayController::handleHelpEvent(HelpOverlayState& help, const ft
     }
 
     if (help.filterMode) {
+        // Filter mode redirects keys to text input instead of list navigation.
         if (event == Event::Return || event == Event::Escape) {
             help.filterMode = false;
             return true;
@@ -194,23 +213,18 @@ bool ExplorerOverlayController::handleHelpEvent(HelpOverlayState& help, const ft
     return true;
 }
 
-// =========================================================================
-// Core Event Routing Engine
-// =========================================================================
 bool ExplorerOverlayController::handleEvent(const ftxui::Event& event) {
-    // Ignore custom events (usually redraw signals from timer refreshes)
+    // Custom events are repaint ticks from the outer view loop and should not
+    // mutate overlay state on their own.
     if (event == ftxui::Event::Custom) {
         return false;
     }
 
-    // Use std::visit to precisely dispatch the event to the corresponding handler
+    // Variant dispatch keeps each overlay's event contract local and explicit.
     return std::visit(
         [&]<typename T0>(T0& overlay) -> bool {
             using T = std::decay_t<T0>;
 
-            // if constexpr (std::is_same_v<T, std::monostate>) {
-            //     return false;  // No modal, don't intercept events
-            // } else
             if constexpr (std::is_same_v<T, CreateOverlayState>) {
                 return handleCreateEvent(overlay, event);
             } else if constexpr (std::is_same_v<T, RenameOverlayState>) {
@@ -232,17 +246,9 @@ bool ExplorerOverlayController::handleEvent(const ftxui::Event& event) {
         overlayState_);
 }
 
-// ---------------------------------------------------------
-// Specific modal event logic
-// ---------------------------------------------------------
-
 bool ExplorerOverlayController::handleDirectoryJumpEvent(DirectoryJumpOverlayState& overlay,
                                                          const ftxui::Event& event) {
     using namespace ftxui;
-    // auto* overlay = std::get_if<DirectoryJumpOverlayState>(&overlayState_);
-    // if (overlay == nullptr) {
-    //     return false;
-    // }
     auto navigate_to_type_directory = [this](const std::string& input) {
         auto resolved_path = resolve_directory_input(input, explorer_->state().currentDir);
         if (!resolved_path) {
@@ -252,6 +258,7 @@ bool ExplorerOverlayController::handleDirectoryJumpEvent(DirectoryJumpOverlaySta
         return publish_if_error(notifications_, explorer_->navigateTo(*resolved_path));
     };
     if (event == Event::Return) {
+        // Blank input behaves like cancel instead of surfacing a validation error.
         if (std::ranges::all_of(overlay.input, [](unsigned char ch) {
                 return std::isspace(ch) != 0;
             })) {  // NOLINT(bugprone-branch-clone) (it is intentional for clear motivation)
@@ -270,6 +277,8 @@ bool ExplorerOverlayController::handleDirectoryJumpEvent(DirectoryJumpOverlaySta
 
 bool ExplorerOverlayController::handleCreateEvent(CreateOverlayState& overlay, const ftxui::Event& event) {
     if (event == ftxui::Event::Return) {
+        // Success closes the overlay; validation/storage errors stay visible
+        // through notifications while the input remains open for correction.
         if (const std::string msg = overlay.input.empty() ? "" : std::format("Created '{}'", overlay.input);
             publish_if_error(notifications_, explorer_->create(overlay.input), msg)) {
             closeOverlay();
@@ -300,6 +309,8 @@ bool ExplorerOverlayController::handleRenameEvent(RenameOverlayState& overlay, c
 
 bool ExplorerOverlayController::handleSearchEvent(const SearchOverlayState& overlay, const ftxui::Event& event) {
     if (event == ftxui::Event::Return) {
+        // Search is side-effect free on filesystem state, so always close after
+        // applying the new pattern.
         explorer_->search(overlay.input);
         closeOverlay();
         return true;
@@ -316,9 +327,8 @@ bool ExplorerOverlayController::handleDeleteEvent(DeleteConfirmOverlayState& ove
         const std::string msg =
             overlay.selectionCount > 0 ? std::format("Deleted {} item(s)", overlay.selectionCount) : "";
         if (publish_if_error(notifications_, explorer_->deleteSelected(), msg)) {
-            // Note: The logic for exiting visual mode is recommended to be coordinated by the upper-level business,
-            // or provided as a callback in CommandDispatcher.
-            // For simplicity, call the underlying exitVisualMode
+            // The overlay confirmed the destructive action, so it also finalizes
+            // any transient visual selection that produced the target set.
             explorer_->exitVisualMode();
             closeOverlay();
         }
@@ -329,7 +339,9 @@ bool ExplorerOverlayController::handleDeleteEvent(DeleteConfirmOverlayState& ove
         closeOverlay();
         return true;
     }
-    return true;  // When the confirmation box is active, swallow all other buttons.
+    // Confirmation overlays are modal, so unrecognized keys should not leak to
+    // the main explorer keymap underneath.
+    return true;
 }
 
 bool ExplorerOverlayController::handleTrashEvent(TrashConfirmOverlayState& overlay, const ftxui::Event& event) {

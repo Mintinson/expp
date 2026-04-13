@@ -1,3 +1,8 @@
+/**
+ * @file explorer_render_composer.cpp
+ * @brief Pure composition layer that turns screen models into FTXUI elements.
+ */
+
 #include "expp/app/explorer_render_composer.hpp"
 
 #include "expp/core/config.hpp"
@@ -10,7 +15,8 @@ namespace expp::app {
 ExplorerRenderComposer::ExplorerRenderComposer(const ui::Theme* theme) : theme_(theme) {
     const auto& cfg = core::global_config().config();
 
-    // Initialize all basic rendering components
+    // Initialize all reusable render components once; compose() only arranges
+    // state into these primitives each frame.
     fileList_ = std::make_unique<ui::FileListComponent>(ui::FileListConfig{.theme = theme_});
     preview_ = std::make_unique<ui::PreviewComponent>(ui::PreviewConfig{
         .theme = theme_,
@@ -40,13 +46,13 @@ ftxui::Element ExplorerRenderComposer::compose(const ExplorerState& state,
                                                const std::optional<ui::ToastInfo>& current_toast) {
     using namespace ftxui;
 
-    // 1. Assemble the underlying main interface (three-column layout + status bar)
+    // 1) Assemble the baseline layout (panels + status bar).
     Element main_content = composeMainLayout(state, screen_model, preview_model);
 
-    // 2. Add a pop-up window (if present).
+    // 2) Overlay modal UI on top of the baseline when active.
     main_content = composeOverlay(std::move(main_content), overlay_state, std::move(active_input));
 
-    // 3. Add notification Toast (if any)
+    // 3) Add transient toast notification layer (top-most visual priority).
     if (current_toast.has_value()) {
         auto toast_layer = vbox({
             filler(),
@@ -69,12 +75,11 @@ ftxui::Element ExplorerRenderComposer::composeMainLayout(const ExplorerState& st
                                                          const ui::PreviewModel& preview_model) {
     using namespace ftxui;
 
-    // auto scree_model = pr
-
     // Render parent directory list
     auto parent_content = fileList_->render(state.parentEntries, state.selection.parentSelected, {}, -1, {});
 
-    // Render current directory list (handling visible area slicing)
+    // Render only the visible slice determined by the presenter. The presenter
+    // computes absolute offsets; the file list expects a local contiguous span.
     std::span<const core::filesystem::FileEntry> visible_entries{state.entries};
     visible_entries = visible_entries.subspan(
         static_cast<std::size_t>(screen_model.currentList.offset),
@@ -114,12 +119,11 @@ ftxui::Element ExplorerRenderComposer::composeOverlay(ftxui::Element base_conten
             using Overlay = std::decay_t<T0>;
 
             if constexpr (std::is_same_v<Overlay, HelpOverlayState>) {
-                // Note: Do not modify the internal data of the overlay (such as the viewport) here.
-                // Data computation (clamping) should be completed in the Controller or Presenter phase.
-                // Composer is only responsible for "drawing".
+                // Keep composer pure: viewport/model mutation happens upstream.
                 auto help_elem = helpMenu_->render(overlay.model, overlay.filterMode, overlay.viewport);
                 return dbox({std::move(base_content) | dim, std::move(help_elem) | clear_under | center});
             } else if constexpr (std::is_same_v<Overlay, DirectoryJumpOverlayState>) {
+                // Contract: input-bearing overlays provide a valid active_input.
                 auto dialog_elem = dialog_->renderInput("Jump To Directory",
                                                         "Enter a path, or use ~ for home:", active_input->Render());
                 return dbox({std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});

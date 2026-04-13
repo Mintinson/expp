@@ -124,6 +124,9 @@ using ExplorerOverlayState = std::variant<std::monostate,
 
 /**
  * @brief List-specific rendering state after viewport projection.
+ *
+ * All indices in this model are relative to the currently visible slice so
+ * rendering code can operate without repeatedly converting absolute indices.
  */
 struct ExplorerListModel {
     /// Absolute offset into the full entry list.
@@ -142,6 +145,10 @@ struct ExplorerListModel {
 
 /**
  * @brief Complete rendering model for the main explorer screen.
+ *
+ * The presenter computes this structure from domain state and overlay/mode
+ * context. The composer then turns it into FTXUI elements without additional
+ * domain lookups.
  */
 struct ExplorerScreenModel {
     ExplorerListModel currentList;
@@ -155,22 +162,36 @@ struct ExplorerScreenModel {
 
 /**
  * @brief Presenter that derives screen models from explorer state.
+ *
+ * `ExplorerPresenter` is intentionally side-effect free. It performs
+ * projection/mapping only and does not mutate explorer state.
  */
 class ExplorerPresenter {
 public:
+    /// Default paging step used by command dispatch and help text.
     static constexpr int kPageStep = 10;
 
     /**
      * @brief Computes the list viewport height from the current terminal height.
+        *
+        * The returned value is clamped to at least one row.
      */
     [[nodiscard]] static int listViewportRows(int screen_rows) noexcept;
     /**
      * @brief Computes the help overlay viewport height from the terminal height.
+        *
+        * The returned value is clamped to a readable range to avoid oversized
+        * overlays on very large terminals and unusable overlays on tiny terminals.
      */
     [[nodiscard]] static int helpViewportRows(int screen_rows) noexcept;
 
     /**
      * @brief Projects explorer state into a render-friendly screen model.
+        * @param state Domain explorer state.
+        * @param overlay Active overlay state (influences help/status text).
+        * @param key_buffer Pending key sequence buffer to surface in status UI.
+        * @param mode Active key-handler mode (normal/visual/etc.).
+        * @return Fully projected model for one render frame.
      */
     [[nodiscard]] ExplorerScreenModel present(const ExplorerState& state,
                                               const ExplorerOverlayState& overlay,
