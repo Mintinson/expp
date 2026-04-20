@@ -1,0 +1,45 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # 配置你想发布的平台
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure CMake
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+    - name: Extract version from Git Tag
+      id: extract_version
+      run: |
+        TAG_NAME=${{ github.ref_name }}
+        VERSION_NUM=${TAG_NAME#v}
+        echo "VERSION_NUM=$VERSION_NUM" >> $GITHUB_ENV
+
+    - name: Build
+      run: cmake --build build --config Release
+
+    - name: Package (CPack)
+      working-directory: build
+      run: cpack -C Release
+
+    # 将打包好的文件上传到 GitHub Release
+    - name: Upload to Release
+      uses: softprops/action-gh-release@v2
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: build/*.* # 上传 CPack 生成的 zip/tgz 文件
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

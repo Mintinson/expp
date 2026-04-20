@@ -1,9 +1,18 @@
 cmake_minimum_required(VERSION 3.28)
 
+set(EXPP_DEFAULT_VERSION "0.0.1")
+
+# 2. if GitHub Action pass a variable CI_VERSION, use it as the version; otherwise, use the default version
+if(DEFINED CI_VERSION)
+    set(APP_VERSION ${CI_VERSION})
+else()
+    set(APP_VERSION ${EXPP_DEFAULT_VERSION})
+endif()
+
 project(Expp
-        VERSION 0.16.0
+        VERSION ${EXPP_DEFAULT_VERSION}
         DESCRIPTION "Cross-platform TUI file manager built with C++23"
-        HOMEPAGE_URL "https://github.com/yourusername/Expp"
+        HOMEPAGE_URL "https://github.com/Mintinson/expp"
         LANGUAGES CXX
 )
 
@@ -349,11 +358,17 @@ install(DIRECTORY include/expp
 # ==============================================================================
 # CPack configuration
 # ==============================================================================
+include(InstallRequiredSystemLibraries)
 set(CPACK_PACKAGE_VENDOR "Expp")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
 set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
 set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")
+set(CPACK_GENERATOR "ZIP") # zip for Windows by default
+if(UNIX AND NOT APPLE)
+    set(CPACK_GENERATOR "TGZ") # tar.gz for Linux
+endif()
 include(CPack)
 
 # ==============================================================================
