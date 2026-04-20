@@ -133,6 +133,30 @@ struct NotificationConfig {
 };
 
 /**
+ * @brief Async runtime worker configuration.
+ */
+struct RuntimeConfig {
+    int ioThreads{2};
+    int cpuThreads{2};
+};
+
+/**
+ * @brief Progressive directory listing configuration.
+ */
+struct ListingConfig {
+    int chunkEntries{512};
+    int preloadPages{1};
+};
+
+/**
+ * @brief Background analysis configuration.
+ */
+struct AnalysisConfig {
+    bool mimeSniffing{true};
+    bool highlightPreviews{true};
+};
+
+/**
  * @brief Main configuration container
  */
 struct Config {
@@ -142,6 +166,9 @@ struct Config {
     LayoutConfig layout;
     BehaviorConfig behavior;
     NotificationConfig notifications;
+    RuntimeConfig runtime;
+    ListingConfig listing;
+    AnalysisConfig analysis;
 };
 
 /**

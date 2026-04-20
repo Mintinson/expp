@@ -6,6 +6,7 @@
 #include "expp/ui/components.hpp"
 
 #include <chrono>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -31,12 +32,17 @@ class NotificationCenter;
 class NotificationCenter {
 public:
     using Clock = std::chrono::steady_clock;
+    using PublishObserver = std::function<void(Clock::time_point)>;
 
     explicit NotificationCenter(NotificationOptions options = {});
 
     void publish(ui::ToastSeverity severity, std::string message, Clock::time_point now = Clock::now());
 
     void expire(Clock::time_point now = Clock::now());
+
+    void clear();
+
+    void setPublishObserver(PublishObserver observer);
 
     [[nodiscard]] const std::optional<ui::ToastInfo>& current() const noexcept;
 
@@ -46,6 +52,7 @@ private:
     NotificationOptions options_;
     std::optional<ui::ToastInfo> activeToast_;
     Clock::time_point expiresAt_{};
+    PublishObserver publishObserver_;
 };
 
 }  // namespace expp::app

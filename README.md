@@ -1,68 +1,218 @@
-Todo list
+# Expp
 
-- [x] Copy/Cut and Paste (Cancelable) (y/x for yank/cut, Y/X for cancel, p for paste, P for paste with overwriting)
-- [x] Copy Path(relative or absolute) to System Clipboard. (`cc` for copy entry, `cd` for copy current directory, `cC` for copy entry with absolute path, `cD` for copy current directory with absolute path, `cf` for copy file name, `cn` for copy name without extension)
-- [x] Add support to simlink rendering. (And safely indicate the recursive link problem)
-- [x] Changeable Sort order. (`,m` by modified time, `,b` by birth time, `,e` by extension, `,a` by alphabetically, `,n` sort naturally, `,s` by size. And with upper letter will sort reversely.)
-- [x] Multiple selection by vim-like visual mode, and support like multiple copy, cut, trash, delete, etc. 
-- [x] Support toml configuration, and load all configurable properties (like icons, theme, layout) from it instead of hard-coded. At the same time, support user extension.
-- [x] Notification toast (Message, Warning, Error etc.)
-- [x] Better Error handling. Maybe by Notification Toast when there is a slight error, but stop the program when there is a serious error. The termination of the program should be safe and do necessary clean up.
-- [x] Implement directory navigation functionality. `gh` navigates to the home directory, `gc` navigates to the expp configuration directory, `gl` enters the directory of the link currently pointed to by the cursor (only effective if the current target is a link), and `g:` enters the input box where any directory can be entered. An error message will be displayed if the directory does not exist.
-- [x] `~` to open Help menu. Displays all keyboard shortcuts and their corresponding descriptions. Shortcuts are grouped by category, and you can navigate up and down using the `j`,`k`. You can also enter filter mode using the `f` key. The filters can be applied to both keyboard shortcuts and their descriptions.
+Expp is a cross-platform terminal user interface (TUI) file manager built with C++23.
 
-Bug Report
-- [x] program will crash if simlink link itself.
-- [x] The interface does not move when using the up and down navigation. (Correct functionality: When the cursor is at 25% of the screen, moving it upwards will shift the list downwards (if there are enough elements above); when the cursor is at 75% of the screen, moving it downwards will shift the list upwards (if there are enough elements).)
-- [x] Regarding the priority of importing user configuration and default configuration, during the initialization of key_handler.cpp, the user configuration is attempted to be imported first. Only if the import fails is the default configuration imported. This is because the import function returns `expected`.<void, error> Even when the `keys` field is missing, it returns `{}`, which will be evaluated as true in `result.has_value()`. Therefore, it skips the default binding, resulting in no keys being bound. The solution is to bind the default key first, then attempt to bind the user-defined key. (If duplicates occur, the user-defined key will override the default.)
-- [ ] The help menu has a few issues:
-    - [ ] The style is rather ugly and inconsistent with the original theme. It will be improved to be more aesthetically pleasing and have more consistent colors in the future.
-    - [x] Currently, the help menu interface moves with the cursor, but it stops at the end of the menu, making it impossible to see the shortcut keys at the end.
-    - [ ] Sometimes program will crash when filter something into filter mode.
-- [x] After the refactoring of `ExplorerView`, deleting multiple files and adding them to the recycle bin in visual mode are no longer supported; only the file currently pointed to by the cursor can be deleted.
+It is designed for fast navigation and editing workflows inspired by modal editors while keeping a modern, testable architecture:
 
+- Core: filesystem, config, runtime, error model
+- App: command semantics, state transitions, orchestration
+- UI: rendering, key handling, help overlay, theme
 
-Fix Report
+The project targets performance and maintainability for very large directories, with strict compiler warnings, sanitizer-friendly builds, and layered error handling based on expected-style results.
 
-### Currently, the help menu interface moves with the cursor, but it stops at the end of the menu, making it impossible to see the shortcut keys at the end.
+## Appearance
 
+![Expp screenshot](assets/image.png)
 
-**Defect A**: Incorrect calculation of the max_offset upper limit.
+## Highlights
 
-In the `clamp_help_viewport` function, the upper limit of the scroll offset is strictly limited:
+- Vim-like navigation and visual selection
+- Copy/cut/paste workflows with overwrite support
+- Trash and permanent delete operations
+- Search, hidden-file toggle, and multiple sort modes
+- Built-in help overlay with filtering
+- TOML-driven configuration (theme, icons, behavior, layout)
+- Cross-platform build system with CMake presets
+- Unit tests with Catch2
 
-```c++
-const int max_offset = std::max(0, static_cast<int> (entry_count) - viewport.viewportRows);
-// ...
-viewport.scrollOffset = std::clamp(viewport.scrollOffset, 0, max_offset);
+## Quick Keybindings
 
+Navigation:
+
+- `j` / `k`: move down/up
+- `h` / `l` or arrow keys: parent / enter
+- `gg` / `G`: top / bottom
+- `C-d` / `C-u`: page down/up
+- `gh`: go home
+- `gc`: go config directory
+- `g:`: directory jump prompt
+
+File operations:
+
+- `a`: create
+- `r`: rename
+- `y` / `x`: yank(copy) / cut
+- `Y` / `X`: clear clipboard
+- `p` / `P`: paste / paste with overwrite
+- `d` / `D`: move to trash / permanent delete
+
+Search and view:
+
+- `/`: search
+- `n` / `N`: next / previous match
+- `\\`: clear search highlights
+- `.`: toggle hidden files
+- `,m ,b ,e ,a ,n ,s`: sort by modified/birth/ext/alpha/natural/size
+- Uppercase sort key toggles descending order (for example `,M`)
+
+Help and app:
+
+- `~`: open help overlay
+- `q` or `Esc`: quit
+
+## Download Prebuilt Binary (GitHub Releases)
+
+If you just want to run Expp, use a release build from GitHub:
+
+1. Open the Releases page:
+	- Latest release: https://github.com/Mintinson/expp/releases/latest
+	- All releases: https://github.com/Mintinson/expp/releases
+2. In **Assets**, download the package matching your OS/CPU.
+3. Extract the archive (if needed).
+4. Run the binary:
+	- Windows: `explorer.exe`
+	- Linux/macOS: `explorer`
+
+If a release for your platform is not available yet, build from source (next section).
+
+## Build From Source
+
+### Prerequisites
+
+- CMake 3.28+
+- Ninja (recommended generator used by presets)
+- A C++23-capable compiler:
+  - MSVC 17.12+
+  - GCC 15+
+  - Clang 20+
+- Git
+
+Optional:
+
+- `libmagic` for MIME sniffing (when available)
+
+Dependencies such as FTXUI, toml++, Catch2, and Asio are fetched automatically by CMake.
+
+### Build Using Presets (Recommended)
+
+#### Windows (MSVC Release)
+
+```powershell
+cmake --preset msvc-release
+cmake --build build/msvc-release
 ```
 
-This formula assumes each entry occupies only 1 line of height. If the visible area is 20 lines and there are a total of 61 options, it will assume that the maximum scrollOffset can only be 41 (i.e., 61-20).
-What actually happened: In the `render` function, category switching inserts `separatorLight()`, which consumes extra rows (cost = 2). When you scroll down, `scrollOffset` gets stuck at 41. The `render` function starts rendering from 41, but because several category separators consume row quota (rows_remaining), the rendering loop uses up its 20-row height quota by the time it finishes drawing the 56 th option. The remaining options 57-61 are never pushed into the body for rendering.
+Binary location:
 
-**Defect B**: Margin checks based on "index" rather than "visual height".
+`build/msvc-release/explorer.exe`
 
-In `clamp_help_viewport`, all scroll trigger conditions are based on a pure array of indexes:
+#### Linux/macOS (Release)
 
-```c++
-if (viewport.selectedIndex >= viewport.scrollOffset + bottom_margin) { ... }
-if (viewport.selectedIndex >= viewport.scrollOffset + viewport.viewportRows) { ... }
+```bash
+cmake --preset release
+cmake --build --preset release
 ```
 
-When selecting select option 57, its index difference from scrollOffset(41) is 16. Because 16 is less than viewportRows (let's say 20), the forced scrolling mechanism assumes that "item 57 is on screen and doesn't need to scroll down further." However, it doesn't realize that due to the presence of the dividing line, item 57 has been visually pushed off-screen.
+Binary location:
 
-This leads to the phenomenon that when comes to the last part of the help menu, the UI no longer scrolls down, but the selected index continues to increase, and eventually the highlighted cursor disappears at the bottom of the screen.
+`build/release/explorer`
 
-**Defect C**: error in calculating the windows height.
+### Other Useful Presets
 
-At the end of your render function, there is a line of code that determines the height of the entire pane:
+- `debug`: debug build with tests and sanitizers enabled
+- `asan`: sanitizer-focused build
+- `relwithdebinfo`: optimized build with debug symbols
+- `clang-tidy`: enable clang-tidy checks
 
-```c++
-size(HEIGHT, EQUAL, body_rows + kChromeRows)
+Inspect available presets:
+
+```bash
+cmake --list-presets
 ```
 
-This will lead to the shrink of the help menu when comes to the bottom of the help menu.
-Why does it shrink? When scrolling to the bottom of the list, the remaining options are not enough to fill the entire viewport (for example, the viewport can hold 20 rows, but only 16 rows are left). At this point, body_rows becomes 16, causing the pane to shrink in physical size.
+## Run
 
-Why are some options missing? FTXUI uses dynamic layout. When your pane shrinks, the viewport.viewportRows passed in from the parent container shrinks when the next frame is re-rendered! This causes clamp_help_viewport to mistakenly think the screen has become shorter, prematurely truncating the rendering and thus "squeezing" the last few [e, m, n] off the screen.
+From the build output directory:
+
+```bash
+./explorer
+```
+
+Or start from a specific directory:
+
+```bash
+./explorer /path/to/start-directory
+```
+
+On Windows PowerShell:
+
+```powershell
+.\explorer.exe
+.\explorer.exe D:\path\to\start-directory
+```
+
+## Test
+
+Build a test-enabled preset first (for example `debug`), then run:
+
+```bash
+ctest --preset debug --output-on-failure
+```
+
+Or use the custom test target:
+
+```bash
+cmake --build build/debug --target run_tests
+```
+
+## Configuration
+
+Expp loads configuration from standard locations. Typical user config paths:
+
+- Linux/macOS: `~/.config/expp/config.toml`
+- Windows: `%APPDATA%\expp\config.toml`
+
+Minimal example:
+
+```toml
+[behavior]
+showHiddenFiles = false
+
+[preview]
+enabled = true
+maxLines = 50
+
+[layout]
+showPreviewPanel = true
+showParentPanel = true
+```
+
+## Project Structure
+
+```text
+include/expp/      # Public headers
+src/core/          # Core capabilities
+src/app/           # Domain/application logic
+src/ui/            # TUI and interaction layer
+tests/             # Unit tests
+docs/              # Architecture and deep-dive docs
+assets/            # Images and resources
+```
+
+## Documentation
+
+Detailed architecture and module docs are available in `docs/` (Chinese), including:
+
+- Architecture overview
+- Core/App/UI module deep dives
+- Dataflow and sequence diagrams
+- Testing and quality notes
+- Optimization roadmap
+
+Entry point:
+
+- `docs/00-文档.md`
+
+## License
+
+Licensed under the terms in `LICENSE.txt`.

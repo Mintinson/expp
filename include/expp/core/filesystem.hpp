@@ -85,6 +85,13 @@ struct FileEntry {
 [[nodiscard]] FileType classify_file(const fs::directory_entry& entry) noexcept;
 
 /**
+ * @brief Reads and caches metadata for one directory entry.
+ * @param entry Filesystem directory entry to inspect.
+ * @return Fully populated FileEntry or Error.
+ */
+[[nodiscard]] Result<FileEntry> inspect_directory_entry(const fs::directory_entry& entry) noexcept;
+
+/**
  * @brief Checks if a file can be previewed as text
  * @param path Path to check
  * @return True if file is likely text-based

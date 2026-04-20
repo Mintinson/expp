@@ -9,6 +9,8 @@
 
 #include "expp/app/explorer_command_dispatcher.hpp"
 #include "expp/app/explorer_commands.hpp"
+#include "expp/app/explorer_directory_controller.hpp"
+#include "expp/app/explorer_mutation_controller.hpp"
 #include "expp/app/explorer_overlay_controller.hpp"
 #include "expp/app/explorer_presenter.hpp"
 #include "expp/app/explorer_preview_controller.hpp"
@@ -29,19 +31,14 @@
 // clang-format on
 
 #include <algorithm>
-#include <atomic>
-#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <format>
 #include <memory>
 #include <optional>
 #include <print>
-#include <span>
-#include <stop_token>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -50,35 +47,51 @@ namespace expp::app {
 
 class ExplorerView::Impl {
 public:
-    static constexpr auto kRefreshInterval = std::chrono::milliseconds(120);
-
     explicit Impl(std::shared_ptr<Explorer> explorer)
         : explorer_(std::move(explorer))
         , screen_(ftxui::ScreenInteractive::Fullscreen())
         , theme_(&ui::global_theme())
         , keyHandler_(core::global_config().config().behavior.keyTimeoutMs)
         , notifications_(make_notification_options(core::global_config().config().notifications))
-        , overlayController_(explorer_, notifications_)
         , previewController_(explorer_)
+        , directoryController_(explorer_, notifications_)
+        , mutationController_(explorer_, notifications_, directoryController_)
         , composer_(theme_) {
+        explorer_->services().runtime->mailbox().setWakeCallback([this] { screen_.PostEvent(ftxui::Event::Custom); });
+        notifications_.setPublishObserver([this](NotificationCenter::Clock::time_point expires_at) {
+            scheduleToastExpiry(expires_at);
+        });
+
+        overlayController_ = std::make_unique<ExplorerOverlayController>(
+            explorer_, notifications_,
+            [this](std::string input) { directoryController_.navigateToInput(std::move(input)); },
+            [this](std::string name) { mutationController_.create(std::move(name)); },
+            [this](std::string new_name) { mutationController_.rename(std::move(new_name)); },
+            [this]() { mutationController_.deleteSelected(); },
+            [this]() { mutationController_.trashSelected(); });
+
         dispatcher_ = std::make_unique<ExplorerCommandDispatcher>(
             explorer_, notifications_,
             [this](ExplorerCommand cmd) {
                 if (cmd == ExplorerCommand::OpenHelp) {
-                    overlayController_.openHelpOverlay(helpEntries_, screen_.dimy());
+                    overlayController_->openHelpOverlay(helpEntries_, screen_.dimy());
                 } else {
-                    overlayController_.openOverlayForCommand(cmd);
+                    overlayController_->openOverlayForCommand(cmd);
                 }
             },
             [this]() { requestExit(); },
-            [this](bool active) { keyHandler_.setMode(active ? ui::Mode::Visual : ui::Mode::Normal); });
+            [this](bool active) { keyHandler_.setMode(active ? ui::Mode::Visual : ui::Mode::Normal); },
+            [this](ExplorerCommand command, const ui::ActionContext& ctx) { handleAsyncCommand(command, ctx); });
 
-        // setupComponents();
         setupActions();
         installDefaultBindings();
         loadUserBindings();
         rebuildHelpEntries();
         syncDerivedState(true);
+    }
+
+    ~Impl() {
+        explorer_->services().runtime->mailbox().setWakeCallback({});
     }
 
     int run() {
@@ -93,70 +106,94 @@ public:
         component = CatchEvent(component, [this](const Event& event) { return handleEvent(event); });
 
         publishStartupWarnings();
-        running_.store(true);
-        refreshTicker_ = std::jthread([this](const std::stop_token& stop_token) {
-            while (!stop_token.stop_requested()) {
-                std::this_thread::sleep_for(kRefreshInterval);
-                if (!running_.load()) {
-                    break;
-                }
-                screen_.PostEvent(Event::Custom);
-            }
-        });
-
         screen_.Loop(component);
-        running_.store(false);
-        if (refreshTicker_.joinable()) {
-            refreshTicker_.request_stop();
-        }
         return 0;
     }
 
     void requestExit() {
-        running_.store(false);
-        if (refreshTicker_.joinable()) {
-            refreshTicker_.request_stop();
-        }
         screen_.Exit();
     }
 
 private:
-    /**
-     * @brief Get the number of selected items, accounting for visual mode if active
-     * @return The number of selected items (1 if visual mode is inactive, otherwise the count of visually selected
-     * items)
-     */
-    [[nodiscard]] int selectedCount() const noexcept {
-        const auto& state = explorer_->state();
-        if (state.entries.empty()) {
-            return 0;
+    void handleAsyncCommand(ExplorerCommand command, const ui::ActionContext& ctx) {
+        (void)ctx;
+        switch (command) {
+            case ExplorerCommand::GoParent:
+                directoryController_.goParent();
+                break;
+            case ExplorerCommand::EnterSelected: {
+                const auto selected = explorer_->selectedPath();
+                if (!selected.has_value()) {
+                    break;
+                }
+                const auto& state = explorer_->state();
+                const auto& entry = state.entries[static_cast<std::size_t>(state.selection.currentSelected)];
+                if (entry.isDirectory()) {
+                    directoryController_.navigateTo(entry.path);
+                } else {
+                    mutationController_.openSelected();
+                }
+                break;
+            }
+            case ExplorerCommand::GoHomeDirectory:
+                directoryController_.navigateToHomeDirectory();
+                break;
+            case ExplorerCommand::GoConfigDirectory:
+                directoryController_.navigateToConfigDirectory();
+                break;
+            case ExplorerCommand::GoLinkTargetDirectory:
+                directoryController_.navigateToSelectedLinkTargetDirectory();
+                break;
+            case ExplorerCommand::OpenFile:
+                mutationController_.openSelected();
+                break;
+            case ExplorerCommand::Yank:
+                mutationController_.yankSelected();
+                break;
+            case ExplorerCommand::Cut:
+                mutationController_.cutSelected();
+                break;
+            case ExplorerCommand::DiscardYank:
+                mutationController_.discardYank();
+                break;
+            case ExplorerCommand::Paste:
+                mutationController_.pasteYanked(false);
+                break;
+            case ExplorerCommand::PasteOverwrite:
+                mutationController_.pasteYanked(true);
+                break;
+            case ExplorerCommand::CopyEntryPathRelative:
+                mutationController_.copySelectedPath(false);
+                break;
+            case ExplorerCommand::CopyCurrentDirRelative:
+                mutationController_.copyCurrentDirectoryPath(false);
+                break;
+            case ExplorerCommand::CopyEntryPathAbsolute:
+                mutationController_.copySelectedPath(true);
+                break;
+            case ExplorerCommand::CopyCurrentDirAbsolute:
+                mutationController_.copyCurrentDirectoryPath(true);
+                break;
+            case ExplorerCommand::CopyFileName:
+                mutationController_.copySelectedFileName();
+                break;
+            case ExplorerCommand::CopyNameWithoutExtension:
+                mutationController_.copySelectedStem();
+                break;
+            case ExplorerCommand::ToggleHidden:
+                directoryController_.toggleHidden();
+                break;
+            default:
+                break;
         }
-        return state.selection.visualModeActive ? std::max(1, explorer_->visualSelectionCount()) : 1;
-    }
-
-    /**
-     * @brief Format a noun with a count, handling singular and plural forms
-     * @param count The number of items
-     * @param singular The singular form of the noun
-     * @return The formatted string (e.g., "1 file" or "3 files")
-     */
-    [[nodiscard]] static std::string nounWithCount(int count, std::string_view singular) {
-        return std::format("{} {}{}", count, singular, count == 1 ? "" : "s");
-    }
-
-    [[nodiscard]] static bool isBlank(std::string_view text) {
-        return std::ranges::all_of(text, [](unsigned char ch) { return std::isspace(ch) != 0; });
     }
 
     void setupActions() {
         auto& actions = keyHandler_.actions();
         std::ranges::for_each(command_specs(), [this, &actions](const auto& spec) {
-            // Register every command from the declarative catalog so help text,
-            // repeatability, and runtime dispatch stay in lockstep.
             actions.registerAction(
                 to_command_id(spec.command),
                 [this, command = spec.command](const ui::ActionContext& ctx) {
-                    // executeCommand(command, ctx);
                     dispatcher_->execute(command, ctx);
                     if (exits_visual_mode(command) && keyHandler_.mode() == ui::Mode::Visual) {
                         explorer_->exitVisualMode();
@@ -185,9 +222,6 @@ private:
             return;
         }
 
-        // User bindings are layered on top of catalog defaults. Rebuild from the
-        // default set first so unknown or partial user config files do not leave
-        // the keymap half-empty.
         keyHandler_.keymap().clear();
         installDefaultBindings();
         if (initError_.has_value()) {
@@ -213,15 +247,11 @@ private:
 
     void rebuildHelpEntries() {
         helpEntries_ = ui::build_help_entries(keyHandler_.actions().actions(), keyHandler_.keymap().bindings());
-        overlayController_.updateHelpEntries(helpEntries_);
+        overlayController_->updateHelpEntries(helpEntries_);
     }
 
     [[nodiscard]] std::optional<std::filesystem::path> currentPreviewTarget() const {
-        const auto& state = explorer_->state();
-        if (state.entries.empty()) {
-            return std::nullopt;
-        }
-        return state.entries[static_cast<std::size_t>(state.selection.currentSelected)].path;
+        return explorer_->selectedPath();
     }
 
     void syncDerivedState(bool force_preview = false) {
@@ -230,10 +260,24 @@ private:
         }
 
         previewController_.sync(currentPreviewTarget(), force_preview);
+        directoryController_.updateViewportInterest();
 
-        if (auto* help = std::get_if<HelpOverlayState>(&overlayController_.state())) {
+        if (auto* help = std::get_if<HelpOverlayState>(&overlayController_->state())) {
+            help->viewport.viewportRows = ExplorerPresenter::helpViewportRows(screen_.dimy());
             help->viewport = ui::clamp_help_viewport(help->viewport, help->model);
         }
+    }
+
+    void scheduleToastExpiry(NotificationCenter::Clock::time_point expires_at) {
+        const auto generation = ++toastGeneration_;
+        const auto now = NotificationCenter::Clock::now();
+        const auto delay = expires_at > now ? expires_at - now : std::chrono::milliseconds(0);
+        explorer_->services().runtime->scheduleAfter(delay, [this, generation] {
+            if (generation != toastGeneration_) {
+                return;
+            }
+            notifications_.expire();
+        });
     }
 
     void publishStartupWarnings() {
@@ -268,23 +312,22 @@ private:
     }
 
     [[nodiscard]] ftxui::Element render() {
-        notifications_.expire();
-        syncDerivedState();
-
         const auto& state = explorer_->state();
         const auto screen_model =
-            presenter_.present(state, overlayController_.state(), keyHandler_.buffer(), keyHandler_.mode());
+            presenter_.present(state, overlayController_->state(), keyHandler_.buffer(), keyHandler_.mode());
 
-        return composer_.compose(state, screen_model, previewController_.model(), overlayController_.state(),
-                                 overlayController_.activeInputComponent(), notifications_.current());
+        return composer_.compose(state, screen_model, previewController_.model(), overlayController_->state(),
+                                 overlayController_->activeInputComponent(), notifications_.current());
     }
 
     [[nodiscard]] bool handleEvent(const ftxui::Event& event) {
         if (event == ftxui::Event::Custom) {
-            return false;
+            const bool drained = explorer_->services().runtime->mailbox().drain();
+            syncDerivedState();
+            return drained;
         }
 
-        if (overlayController_.handleEvent(event)) {
+        if (overlayController_->handleEvent(event)) {
             syncDerivedState();
             return true;
         }
@@ -302,17 +345,18 @@ private:
     ui::KeyHandler keyHandler_;
     NotificationCenter notifications_;
     ExplorerPresenter presenter_;
+    ExplorerPreviewController previewController_;
+    ExplorerDirectoryController directoryController_;
+    ExplorerMutationController mutationController_;
+    ExplorerRenderComposer composer_;
 
     std::unique_ptr<ExplorerCommandDispatcher> dispatcher_;
-    ExplorerOverlayController overlayController_;
-    ExplorerPreviewController previewController_;
-    ExplorerRenderComposer composer_;
+    std::unique_ptr<ExplorerOverlayController> overlayController_;
 
     std::vector<ui::HelpEntry> helpEntries_;
     std::vector<std::string> startupWarnings_;
     std::optional<core::Error> initError_;
-    std::atomic_bool running_{false};
-    std::jthread refreshTicker_;
+    std::uint64_t toastGeneration_{0};
 };
 
 ExplorerView::ExplorerView(std::shared_ptr<Explorer> explorer) : impl_(std::make_unique<Impl>(std::move(explorer))) {}

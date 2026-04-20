@@ -71,6 +71,9 @@ void NotificationCenter::publish(ui::ToastSeverity severity, std::string message
         .message = std::move(message),
     };
     expiresAt_ = now + std::chrono::milliseconds(options_.durationMs);
+    if (publishObserver_) {
+        publishObserver_(expiresAt_);
+    }
 }
 
 void NotificationCenter::expire(Clock::time_point now) {
@@ -80,6 +83,14 @@ void NotificationCenter::expire(Clock::time_point now) {
     if (now >= expiresAt_) {
         activeToast_.reset();
     }
+}
+
+void NotificationCenter::clear() {
+    activeToast_.reset();
+}
+
+void NotificationCenter::setPublishObserver(PublishObserver observer) {
+    publishObserver_ = std::move(observer);
 }
 
 const std::optional<ui::ToastInfo>& NotificationCenter::current() const noexcept {

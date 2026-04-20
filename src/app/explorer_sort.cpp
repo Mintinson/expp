@@ -163,29 +163,33 @@ int compare_by_sort_field(const core::filesystem::FileEntry& lhs,
     }
 }
 
+bool less_by_sort_order(const core::filesystem::FileEntry& lhs,
+                        const core::filesystem::FileEntry& rhs,
+                        const SortOrder& order) {
+    // directories are always sorted before files, regardless of the selected sort field
+    if (lhs.isDirectory() != rhs.isDirectory()) {
+        return lhs.isDirectory();
+    }
+
+    const int field_compare = compare_by_sort_field(lhs, rhs, order);
+    if (field_compare != 0) {
+        return order.direction == SortOrder::Direction::Ascending ? field_compare < 0 : field_compare > 0;
+    }
+
+    // if the selected sort field considers the entries equivalent
+    // fall back to a natural, case-insensitive ascending filename comparison
+    const int natural_compare = compare_natural_insensitive(lhs.filename(), rhs.filename());
+    if (natural_compare != 0) {
+        return natural_compare < 0;
+    }
+
+    // the last fallback is to sort by full path to ensure a deterministic order
+    // even for entries with identical filenames (e.g. hard links)
+    return lhs.path.generic_u8string() < rhs.path.generic_u8string();
+}
+
 void sort_entries(std::vector<core::filesystem::FileEntry>& entries, const SortOrder& order) {
-    rng::stable_sort(entries, [&](const auto& lhs, const auto& rhs) {
-        // directories are always sorted before files, regardless of the selected sort field
-        if (lhs.isDirectory() != rhs.isDirectory()) {
-            return lhs.isDirectory();
-        }
-
-        const int field_compare = compare_by_sort_field(lhs, rhs, order);
-        if (field_compare != 0) {
-            return order.direction == SortOrder::Direction::Ascending ? field_compare < 0 : field_compare > 0;
-        }
-
-        // if the selected sort field considers the entries equivalent
-        // fall back to a natural, case-insensitive ascending filename comparison
-        const int natural_compare = compare_natural_insensitive(lhs.filename(), rhs.filename());
-        if (natural_compare != 0) {
-            return natural_compare < 0;
-        }
-
-        // the last fallback is to sort by full path to ensure a deterministic order
-        // even for entries with identical filenames (e.g. hard links)
-        return lhs.path.generic_u8string() < rhs.path.generic_u8string();
-    });
+    rng::stable_sort(entries, [&](const auto& lhs, const auto& rhs) { return less_by_sort_order(lhs, rhs, order); });
 }
 
 }  // namespace expp::app

@@ -12,7 +12,6 @@
 #define EXPP_EXPLORER_PREVIEW_CONTROLLER_HPP
 
 #include "expp/app/explorer.hpp"
-#include "expp/core/task.hpp"
 #include "expp/ui/components.hpp"
 
 #include <filesystem>
@@ -23,9 +22,9 @@ namespace expp::app {
 /**
  * @brief Maintains preview state for the currently focused explorer entry.
  *
- * The controller is intentionally small and synchronous from the caller's
- * perspective. It still uses cancellation primitives so the implementation can
- * evolve to async execution without changing view-level call sites.
+ * The controller publishes preview state changes onto the UI mailbox owned by
+ * the shared Asio runtime, keeping all preview I/O and CPU work off the UI
+ * thread.
  */
 class ExplorerPreviewController {
 public:
@@ -49,10 +48,10 @@ public:
 private:
     /// Explorer facade used to access preview and filesystem services.
     std::shared_ptr<Explorer> explorer_;
-    /// Scheduler used to execute preview loading tasks.
-    core::InlineScheduler scheduler_;
     /// Cancellation source guarding preview task churn during rapid navigation.
     core::CancellationSource previewCancellation_;
+    /// Logical generation used to drop stale completion callbacks.
+    std::uint64_t previewGeneration_{0};
 
     /// Last published preview model.
     ui::PreviewModel previewModel_{ui::PreviewIdleState{}};

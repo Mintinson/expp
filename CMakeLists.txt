@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 project(Expp
-        VERSION 0.15.1
+        VERSION 0.16.0
         DESCRIPTION "Cross-platform TUI file manager built with C++23"
         HOMEPAGE_URL "https://github.com/yourusername/Expp"
         LANGUAGES CXX
@@ -31,6 +31,8 @@ option(EXPP_BUILD_EXAMPLES "Build example programs" ON)
 option(EXPP_ENABLE_SANITIZERS "Enable sanitizers in Debug builds" ON)
 option(EXPP_ENABLE_CLANG_TIDY "Enable clang-tidy checks" OFF)
 option(EXPP_ENABLE_CPPCHECK "Enable cppcheck static analysis" OFF)
+option(EXPP_ENABLE_LIBMAGIC "Use libmagic for MIME sniffing when available" ON)
+option(EXPP_PREPARE_IO_URING_BACKEND "Enable Linux io_uring extension hooks" ON)
 
 # ==============================================================================
 # Compiler warnings (strict by default)
@@ -40,6 +42,7 @@ target_compile_options(expp_warnings INTERFACE
         $<$<CXX_COMPILER_ID:MSVC>:
         /W4
         /WX
+        /EHsc
         /permissive-
         /Zc:__cplusplus
         /Zc:preprocessor
@@ -57,7 +60,6 @@ target_compile_options(expp_warnings INTERFACE
         -Wold-style-cast
         -Wcast-align
         -Woverloaded-virtual
-        -Wnull-dereference
         -Wdouble-promotion
         -Wformat=2
         -Wimplicit-fallthrough
@@ -74,7 +76,6 @@ target_compile_options(expp_warnings INTERFACE
         -Wold-style-cast
         -Wcast-align
         -Woverloaded-virtual
-        -Wnull-dereference
         -Wdouble-promotion
         -Wformat=2
         -Wimplicit-fallthrough
@@ -108,6 +109,7 @@ endif ()
 # Dependencies via FetchContent
 # ==============================================================================
 include(FetchContent)
+find_package(Threads REQUIRED)
 
 # FTXUI - TUI library
 FetchContent_Declare(ftxui
@@ -129,10 +131,47 @@ if (EXPP_BUILD_TESTS)
     )
 endif ()
 
+# Asio - standalone async runtime
+FetchContent_Declare(asio_src
+        GIT_REPOSITORY https://github.com/chriskohlhoff/asio
+        GIT_TAG asio-1-38-0
+)
 
-FetchContent_MakeAvailable(ftxui tomlplusplus)
+
+FetchContent_MakeAvailable(ftxui tomlplusplus asio_src)
 if (EXPP_BUILD_TESTS)
     FetchContent_MakeAvailable(Catch2)
+endif ()
+
+add_library(expp_asio INTERFACE)
+target_include_directories(expp_asio SYSTEM INTERFACE "${asio_src_SOURCE_DIR}/include")
+target_compile_definitions(expp_asio INTERFACE ASIO_STANDALONE ASIO_NO_DEPRECATED _WIN32_WINNT=0x0601)
+target_link_libraries(expp_asio INTERFACE Threads::Threads)
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # GCC may report false positives in standalone Asio internals with -Wnull-dereference.
+    # Suppress this warning for Asio headers only, while keeping strict warnings for project code.
+    target_compile_options(expp_asio INTERFACE -Wno-null-dereference)
+endif ()
+
+add_library(expp_magic INTERFACE)
+if (EXPP_ENABLE_LIBMAGIC)
+    find_path(LIBMAGIC_INCLUDE_DIR NAMES magic.h)
+    find_library(LIBMAGIC_LIBRARY NAMES magic libmagic)
+    if (LIBMAGIC_INCLUDE_DIR AND LIBMAGIC_LIBRARY)
+        target_include_directories(expp_magic INTERFACE "${LIBMAGIC_INCLUDE_DIR}")
+        target_link_libraries(expp_magic INTERFACE "${LIBMAGIC_LIBRARY}")
+        target_compile_definitions(expp_magic INTERFACE EXPP_HAS_LIBMAGIC=1)
+    else ()
+        target_compile_definitions(expp_magic INTERFACE EXPP_HAS_LIBMAGIC=0)
+    endif ()
+else ()
+    target_compile_definitions(expp_magic INTERFACE EXPP_HAS_LIBMAGIC=0)
+endif ()
+
+if (UNIX AND NOT APPLE AND EXPP_PREPARE_IO_URING_BACKEND)
+    target_compile_definitions(expp_asio INTERFACE EXPP_PREPARE_IO_URING_BACKEND=1)
+else ()
+    target_compile_definitions(expp_asio INTERFACE EXPP_PREPARE_IO_URING_BACKEND=0)
 endif ()
 
 # --- FIX: Synchronize MSVC ABI flags for FTXUI ---
@@ -140,6 +179,7 @@ if (MSVC)
     # Apply strict standard conformance flags to match expp_warnings
     foreach (ftxui_target screen dom component)
         target_compile_options(${ftxui_target} PRIVATE /permissive- /Zc:__cplusplus /Zc:preprocessor)
+        target_compile_options(${ftxui_target} PRIVATE /EHsc)
 
         # Apply AddressSanitizer if enabled to match expp_sanitizers
         if (EXPP_ENABLE_SANITIZERS AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
@@ -154,6 +194,7 @@ endif ()
 add_library(expp_core STATIC
         src/core/filesystem.cpp
         src/core/config.cpp
+        src/core/async_runtime.cpp
 )
 
 
@@ -166,10 +207,15 @@ target_include_directories(expp_core
 target_link_libraries(expp_core
         PUBLIC
         tomlplusplus::tomlplusplus
+        expp_asio
+        expp_magic
         PRIVATE
         expp_warnings
         expp_sanitizers
 )
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(expp_core PRIVATE -Wno-null-dereference)
+    endif ()
 set_target_properties(expp_core PROPERTIES
         POSITION_INDEPENDENT_CODE ON
 )
@@ -214,6 +260,8 @@ add_library(expp_app STATIC
         src/app/explorer.cpp
         src/app/explorer_view.cpp
         src/app/explorer_services.cpp
+        src/app/explorer_directory_controller.cpp
+        src/app/explorer_mutation_controller.cpp
         src/app/explorer_commands.cpp
         src/app/explorer_presenter.cpp
         src/app/explorer_sort.cpp
@@ -235,6 +283,9 @@ target_link_libraries(expp_app
         expp_warnings
         expp_sanitizers
 )
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(expp_app PRIVATE -Wno-null-dereference)
+endif ()
 
 # ==============================================================================
 # Main executable (refactored)
@@ -246,6 +297,9 @@ target_link_libraries(expp_exe
         expp_warnings
         expp_sanitizers
 )
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(expp_exe PRIVATE -Wno-null-dereference)
+endif ()
 set_target_properties(expp_exe PROPERTIES
         OUTPUT_NAME "explorer"
 )

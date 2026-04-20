@@ -1,9 +1,6 @@
 #include "expp/app/explorer_overlay_controller.hpp"
 
-#include "expp/app/navigation_utils.hpp"
-
 #include <algorithm>
-#include <format>
 
 namespace expp::app {
 
@@ -12,9 +9,19 @@ namespace expp::app {
 // state, input widgets, and confirm/cancel behavior.
 
 ExplorerOverlayController::ExplorerOverlayController(std::shared_ptr<Explorer> explorer,
-                                                     NotificationCenter& notifications)
+                                                     NotificationCenter& notifications,
+                                                     DirectoryJumpCallback directory_jump,
+                                                     CreateCallback create,
+                                                     RenameCallback rename,
+                                                     DeleteCallback delete_selected,
+                                                     TrashCallback trash_selected)
     : explorer_(std::move(explorer))
-    , notifications_(notifications) {}
+    , notifications_(notifications)
+    , directoryJump_(std::move(directory_jump))
+    , create_(std::move(create))
+    , rename_(std::move(rename))
+    , deleteSelected_(std::move(delete_selected))
+    , trashSelected_(std::move(trash_selected)) {}
 
 void ExplorerOverlayController::openOverlayForCommand(const ExplorerCommand command) {
     // Map command intent to one concrete overlay variant. Overlay-specific
@@ -249,21 +256,14 @@ bool ExplorerOverlayController::handleEvent(const ftxui::Event& event) {
 bool ExplorerOverlayController::handleDirectoryJumpEvent(DirectoryJumpOverlayState& overlay,
                                                          const ftxui::Event& event) {
     using namespace ftxui;
-    auto navigate_to_type_directory = [this](const std::string& input) {
-        auto resolved_path = resolve_directory_input(input, explorer_->state().currentDir);
-        if (!resolved_path) {
-            notifications_.publish(severity_for_error(resolved_path.error()), resolved_path.error().message());
-            return false;
-        }
-        return publish_if_error(notifications_, explorer_->navigateTo(*resolved_path));
-    };
     if (event == Event::Return) {
         // Blank input behaves like cancel instead of surfacing a validation error.
         if (std::ranges::all_of(overlay.input, [](unsigned char ch) {
                 return std::isspace(ch) != 0;
             })) {  // NOLINT(bugprone-branch-clone) (it is intentional for clear motivation)
             closeOverlay();
-        } else if (navigate_to_type_directory(overlay.input)) {
+        } else if (directoryJump_) {
+            directoryJump_(overlay.input);
             closeOverlay();
         }
         return true;
@@ -277,10 +277,8 @@ bool ExplorerOverlayController::handleDirectoryJumpEvent(DirectoryJumpOverlaySta
 
 bool ExplorerOverlayController::handleCreateEvent(CreateOverlayState& overlay, const ftxui::Event& event) {
     if (event == ftxui::Event::Return) {
-        // Success closes the overlay; validation/storage errors stay visible
-        // through notifications while the input remains open for correction.
-        if (const std::string msg = overlay.input.empty() ? "" : std::format("Created '{}'", overlay.input);
-            publish_if_error(notifications_, explorer_->create(overlay.input), msg)) {
+        if (!overlay.input.empty() && create_) {
+            create_(overlay.input);
             closeOverlay();
         }
         return true;
@@ -294,8 +292,8 @@ bool ExplorerOverlayController::handleCreateEvent(CreateOverlayState& overlay, c
 
 bool ExplorerOverlayController::handleRenameEvent(RenameOverlayState& overlay, const ftxui::Event& event) {
     if (event == ftxui::Event::Return) {
-        if (const std::string msg = overlay.input.empty() ? "" : std::format("Renamed to '{}'", overlay.input);
-            publish_if_error(notifications_, explorer_->rename(overlay.input), msg)) {
+        if (!overlay.input.empty() && rename_) {
+            rename_(overlay.input);
             closeOverlay();
         }
         return true;
@@ -322,14 +320,11 @@ bool ExplorerOverlayController::handleSearchEvent(const SearchOverlayState& over
     return activeInputComponent_->OnEvent(event);
 }
 
-bool ExplorerOverlayController::handleDeleteEvent(DeleteConfirmOverlayState& overlay, const ftxui::Event& event) {
+bool ExplorerOverlayController::handleDeleteEvent([[maybe_unused]] DeleteConfirmOverlayState& overlay,
+                                                  const ftxui::Event& event) {
     if (event == ftxui::Event::Character('y') || event == ftxui::Event::Character('Y')) {
-        const std::string msg =
-            overlay.selectionCount > 0 ? std::format("Deleted {} item(s)", overlay.selectionCount) : "";
-        if (publish_if_error(notifications_, explorer_->deleteSelected(), msg)) {
-            // The overlay confirmed the destructive action, so it also finalizes
-            // any transient visual selection that produced the target set.
-            explorer_->exitVisualMode();
+        if (deleteSelected_) {
+            deleteSelected_();
             closeOverlay();
         }
         return true;
@@ -344,14 +339,13 @@ bool ExplorerOverlayController::handleDeleteEvent(DeleteConfirmOverlayState& ove
     return true;
 }
 
-bool ExplorerOverlayController::handleTrashEvent(TrashConfirmOverlayState& overlay, const ftxui::Event& event) {
+bool ExplorerOverlayController::handleTrashEvent([[maybe_unused]] TrashConfirmOverlayState& overlay,
+                                                 const ftxui::Event& event) {
     using namespace ftxui;
 
     if (event == Event::Character('y') || event == Event::Character('Y')) {
-        const std::string msg =
-            overlay.selectionCount > 0 ? std::format("Move {} item(s) to trash", overlay.selectionCount) : "";
-        if (publish_if_error(notifications_, explorer_->trashSelected(), msg)) {
-            explorer_->exitVisualMode();
+        if (trashSelected_) {
+            trashSelected_();
             closeOverlay();
         }
         return true;

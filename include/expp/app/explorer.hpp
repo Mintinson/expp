@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -116,6 +117,18 @@ struct ClipboardState {
 };
 
 /**
+ * @brief Progressive directory loading status for the current listing.
+ */
+struct DirectoryListingState {
+    bool loading{false};
+    bool scanInProgress{false};
+    std::size_t loadedEntries{0};
+    std::size_t totalEntries{0};
+    bool hasMore{false};
+    std::uint64_t generation{0};
+};
+
+/**
  * @brief Explorer domain state exposed to the UI and presenter layers.
  *
  * This structure intentionally contains only domain and viewport state. Dialog
@@ -140,6 +153,8 @@ struct ExplorerState {
     ClipboardState clipboard;
     /// Current sort configuration.
     SortOrder sortOrder{};
+    /// Progressive loading state for the current directory.
+    DirectoryListingState listing;
 };
 
 /**
@@ -181,6 +196,26 @@ public:
      * @brief Returns the service bundle used by this explorer.
      */
     [[nodiscard]] const ExplorerServices& services() const noexcept;
+
+    /**
+     * @brief Returns the currently selected path, when available.
+     */
+    [[nodiscard]] std::optional<std::filesystem::path> selectedPath() const;
+
+    /**
+     * @brief Returns the current multi-selection target set.
+     */
+    [[nodiscard]] std::vector<std::filesystem::path> selectedPaths() const;
+
+    /**
+     * @brief Returns whether hidden entries are included in listings.
+     */
+    [[nodiscard]] bool showHidden() const noexcept;
+
+    /**
+     * @brief Updates hidden-entry visibility without triggering I/O.
+     */
+    void setShowHidden(bool show_hidden) noexcept;
 
     /**
      * @brief Navigates to an explicit directory path.
@@ -360,6 +395,55 @@ public:
      * @brief Toggles hidden-file visibility and refreshes the current directory.
      */
     [[nodiscard]] core::VoidResult toggleShowHidden();
+
+    /**
+     * @brief Begins a new progressive directory load session.
+     */
+    void beginDirectoryListing(std::filesystem::path directory, std::uint64_t generation);
+
+    /**
+     * @brief Appends one asynchronously loaded directory chunk.
+     */
+    void appendDirectoryChunk(std::vector<core::filesystem::FileEntry> entries,
+                              std::size_t loaded_entries,
+                              std::size_t total_entries,
+                              bool has_more,
+                              std::uint64_t generation);
+
+    /**
+     * @brief Marks the current async directory scan as complete.
+     */
+    void completeDirectoryListing(std::uint64_t generation);
+
+    /**
+     * @brief Replaces the parent-directory panel entries.
+     */
+    void setParentEntries(std::vector<core::filesystem::FileEntry> entries);
+
+    /**
+     * @brief Selects `path` if it exists in the current listing.
+     */
+    void selectPathIfPresent(const std::filesystem::path& path);
+
+    /**
+     * @brief Returns clipboard text for the selected entry path.
+     */
+    [[nodiscard]] core::Result<std::string> selectedPathClipboardText(bool absolute = false) const;
+
+    /**
+     * @brief Returns clipboard text for the current directory path.
+     */
+    [[nodiscard]] std::string currentDirectoryClipboardText(bool absolute = false) const;
+
+    /**
+     * @brief Returns clipboard text for the selected filename.
+     */
+    [[nodiscard]] core::Result<std::string> selectedFileNameClipboardText() const;
+
+    /**
+     * @brief Returns clipboard text for the selected filename stem.
+     */
+    [[nodiscard]] core::Result<std::string> selectedStemClipboardText() const;
 
 private:
     explicit Explorer(std::filesystem::path start_path, ExplorerServices services);

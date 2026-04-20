@@ -14,7 +14,6 @@
 
 #include "expp/app/explorer.hpp"
 #include "expp/app/explorer_commands.hpp"
-#include "expp/app/explorer_presenter.hpp"
 #include "expp/app/notification_center.hpp"
 
 #include <memory>
@@ -33,6 +32,8 @@ public:
     using QuitTriggerCallback = std::function<void()>;
     /// Callback type used to synchronize key-handler mode with explorer visual mode.
     using VisualModeObserver = std::function<void(bool active)>;
+    /// Callback type used for asynchronous filesystem and clipboard commands.
+    using AsyncCommandCallback = std::function<void(ExplorerCommand, const ui::ActionContext&)>;
 
     /**
      * @brief Constructs a command dispatcher.
@@ -46,7 +47,8 @@ public:
                               NotificationCenter& notifications,
                               OverlayTriggerCallback overlay_trigger,
                               QuitTriggerCallback quit_trigger,
-                              VisualModeObserver visual_mode_observer = nullptr);
+                              VisualModeObserver visual_mode_observer = nullptr,
+                              AsyncCommandCallback async_command = nullptr);
 
     /**
      * @brief Executes one command with an optional numeric prefix context.
@@ -60,6 +62,7 @@ private:
     OverlayTriggerCallback triggerOverlay_;
     QuitTriggerCallback triggerQuit_;
     VisualModeObserver visualModeObserver_;
+    AsyncCommandCallback asyncCommand_;
 
     /// Executes navigation-related commands.
     void handleNavigation(ExplorerCommand command, const ui::ActionContext& ctx) const;

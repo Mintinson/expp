@@ -49,6 +49,11 @@ struct Explorer::Impl {
     bool showHidden{true};
     fs::path baseDirectory;
 
+    template <typename T>
+    [[nodiscard]] T blockOn(core::Task<T> task) const {
+        return services.runtime->blockOn(std::move(task));
+    }
+
     [[nodiscard]] NavigationSnapshot snapshotNavigationState() const {
         return NavigationSnapshot{
             .currentDir = state.currentDir,
@@ -82,12 +87,98 @@ struct Explorer::Impl {
         state.search.currentMatchIndex = -1;
     }
 
+    void clearSelectionForNewDirectory() {
+        state.selection.currentSelected = 0;
+        state.selection.currentScrollOffset = 0;
+        clear_visual_selection(state.selection);
+    }
+
+    void notifyRefresh() const {
+        if (refreshCallback) {
+            refreshCallback();
+        }
+    }
+
+    void beginDirectoryListing(fs::path directory, const std::uint64_t generation) {
+        state.currentDir = std::move(directory);
+        state.entries.clear();
+        state.parentEntries.clear();
+        clearSelectionForNewDirectory();
+        clearSearchState();
+        state.listing = DirectoryListingState{
+            .loading = true,
+            .scanInProgress = true,
+            .loadedEntries = 0,
+            .totalEntries = 0,
+            .hasMore = true,
+            .generation = generation,
+        };
+        notifyRefresh();
+    }
+
+    void appendDirectoryChunk(std::vector<core::filesystem::FileEntry> entries,
+                              std::size_t /*loaded_entries*/,
+                              std::size_t total_entries,
+                              bool has_more,
+                              const std::uint64_t generation) {
+        if (state.listing.generation != generation) {
+            return;
+        }
+
+        sort_entries(entries, state.sortOrder);
+
+        if (state.entries.empty()) {
+            state.entries = std::move(entries);
+        } else {
+            std::vector<core::filesystem::FileEntry> merged;
+            merged.reserve(state.entries.size() + entries.size());
+            std::ranges::merge(state.entries, entries, std::back_inserter(merged),
+                               [this](const auto& lhs, const auto& rhs) {
+                                   return less_by_sort_order(lhs, rhs, state.sortOrder);
+                               });
+            state.entries = std::move(merged);
+        }
+
+        state.listing.loadedEntries = state.entries.size();
+        state.listing.totalEntries = std::max(total_entries, state.listing.loadedEntries);
+        state.listing.hasMore = has_more;
+        state.listing.loading = has_more;
+        state.listing.scanInProgress = has_more;
+
+        auto update_helper = selectionUpdateHelper();
+        if (state.search.highlightActive && !state.search.pattern.empty()) {
+            updateSearchMatches();
+        }
+        notifyRefresh();
+    }
+
+    void completeDirectoryListing(const std::uint64_t generation) {
+        if (state.listing.generation != generation) {
+            return;
+        }
+
+        state.listing.loading = false;
+        state.listing.scanInProgress = false;
+        state.listing.hasMore = false;
+        state.listing.loadedEntries = state.entries.size();
+        state.listing.totalEntries = std::max(state.listing.totalEntries, state.listing.loadedEntries);
+        auto update_helper = selectionUpdateHelper();
+        notifyRefresh();
+    }
+
+    void setParentEntries(std::vector<core::filesystem::FileEntry> entries) {
+        sort_entries(entries, state.sortOrder);
+        state.parentEntries = std::move(entries);
+        updateParentSelection();
+        notifyRefresh();
+    }
+
     [[nodiscard]] core::VoidResult refresh() {
-        auto entries_result = services.fileSystem->listDirectory({
+        auto entries_result = blockOn(services.fileSystem->listDirectory({
             .directory = state.currentDir,
             .includeHidden = showHidden,
             .cancellation = {},
-        });
+        }));
         if (!entries_result) {
             return std::unexpected(entries_result.error());
         }
@@ -99,11 +190,11 @@ struct Explorer::Impl {
 
         std::vector<core::filesystem::FileEntry> parent_entries;
         if (state.currentDir.has_parent_path() && state.currentDir.parent_path() != state.currentDir) {
-            auto parent_result = services.fileSystem->listDirectory({
+            auto parent_result = blockOn(services.fileSystem->listDirectory({
                 .directory = state.currentDir.parent_path(),
                 .includeHidden = showHidden,
                 .cancellation = {},
-            });
+            }));
             if (parent_result) {
                 parent_entries = std::move(parent_result->entries);
                 sort_entries(parent_entries, state.sortOrder);
@@ -112,6 +203,14 @@ struct Explorer::Impl {
 
         state.entries = std::move(entries);
         state.parentEntries = std::move(parent_entries);
+        state.listing = DirectoryListingState{
+            .loading = false,
+            .scanInProgress = false,
+            .loadedEntries = state.entries.size(),
+            .totalEntries = state.entries.size(),
+            .hasMore = false,
+            .generation = state.listing.generation + 1,
+        };
 
         // Selection, visual range state, parent focus, and search projection are
         // derived from the entry list and must be recomputed together.
@@ -121,9 +220,7 @@ struct Explorer::Impl {
         updateParentSelection();
         clearSearchState();
 
-        if (refreshCallback) {
-            refreshCallback();
-        }
+        notifyRefresh();
         return {};
     }
 
@@ -295,7 +392,7 @@ struct Explorer::Impl {
             return core::make_error(core::ErrorCategory::FileSystem, std::format("Not a directory: {}", path.string()));
         }
 
-        auto canonical_result = services.fileSystem->canonicalize(path);
+        auto canonical_result = blockOn(services.fileSystem->canonicalize(path));
         if (!canonical_result) {
             return std::unexpected(canonical_result.error());
         }
@@ -375,7 +472,7 @@ struct Explorer::Impl {
             return navigateTo(entry.path);
         }
         if (open_file) {
-            return services.fileSystem->openWithDefault(entry.path);
+            return blockOn(services.fileSystem->openWithDefault(entry.path));
         }
         return {};
     }
@@ -386,8 +483,9 @@ struct Explorer::Impl {
         }
 
         const fs::path new_path = state.currentDir / name;
-        auto result = (name.back() == '/' || name.back() == '\\') ? services.fileSystem->createDirectory(new_path)
-                                                                  : services.fileSystem->createFile(new_path);
+        auto result =
+            (name.back() == '/' || name.back() == '\\') ? blockOn(services.fileSystem->createDirectory(new_path))
+                                                        : blockOn(services.fileSystem->createFile(new_path));
         if (!result) {
             return std::unexpected(result.error());
         }
@@ -400,7 +498,7 @@ struct Explorer::Impl {
         }
 
         const auto& entry = state.entries[static_cast<std::size_t>(state.selection.currentSelected)];
-        auto result = services.fileSystem->rename(entry.path, state.currentDir / new_name);
+        auto result = blockOn(services.fileSystem->rename(entry.path, state.currentDir / new_name));
         if (!result) {
             return std::unexpected(result.error());
         }
@@ -414,8 +512,9 @@ struct Explorer::Impl {
         }
 
         for (const auto& target : targets) {
-            core::VoidResult result = fs::is_directory(target) ? services.fileSystem->removeDirectory(target)
-                                                               : services.fileSystem->removeFile(target);
+            core::VoidResult result =
+                fs::is_directory(target) ? blockOn(services.fileSystem->removeDirectory(target))
+                                         : blockOn(services.fileSystem->removeFile(target));
             if (!result) {
                 return result;
             }
@@ -432,7 +531,7 @@ struct Explorer::Impl {
         }
 
         for (const auto& target : targets) {
-            auto result = services.fileSystem->moveToTrash(target);
+            auto result = blockOn(services.fileSystem->moveToTrash(target));
             if (!result) {
                 return result;
             }
@@ -448,7 +547,7 @@ struct Explorer::Impl {
         }
 
         const auto& entry = state.entries[static_cast<std::size_t>(state.selection.currentSelected)];
-        return entry.isDirectory() ? core::VoidResult{} : services.fileSystem->openWithDefault(entry.path);
+        return entry.isDirectory() ? core::VoidResult{} : blockOn(services.fileSystem->openWithDefault(entry.path));
     }
 
     [[nodiscard]] core::VoidResult setClipboardFromSelection(ClipboardState::Operation operation) {
@@ -521,18 +620,18 @@ struct Explorer::Impl {
     [[nodiscard]] core::VoidResult moveClipboardSourceTo(const fs::path& source,
                                                          const fs::path& destination,
                                                          bool overwrite) const {
-        auto rename_result = services.fileSystem->rename(source, destination);
+        auto rename_result = blockOn(services.fileSystem->rename(source, destination));
         if (rename_result) {
             return {};
         }
 
-        auto copy_result = services.fileSystem->copy(source, destination, overwrite);
+        auto copy_result = blockOn(services.fileSystem->copy(source, destination, overwrite));
         if (!copy_result) {
             return copy_result;
         }
 
-        return fs::is_directory(source) ? services.fileSystem->removeDirectory(source)
-                                        : services.fileSystem->removeFile(source);
+        return fs::is_directory(source) ? blockOn(services.fileSystem->removeDirectory(source))
+                                        : blockOn(services.fileSystem->removeFile(source));
     }
 
     [[nodiscard]] core::VoidResult pasteYanked(bool overwrite) {
@@ -557,9 +656,9 @@ struct Explorer::Impl {
                                             std::format("Destination already exists: {}", destination.string()));
                 }
 
-                core::VoidResult remove_result = fs::is_directory(destination, ec)
-                                                     ? services.fileSystem->removeDirectory(destination)
-                                                     : services.fileSystem->removeFile(destination);
+                core::VoidResult remove_result =
+                    fs::is_directory(destination, ec) ? blockOn(services.fileSystem->removeDirectory(destination))
+                                                      : blockOn(services.fileSystem->removeFile(destination));
                 if (!remove_result) {
                     return remove_result;
                 }
@@ -580,7 +679,7 @@ struct Explorer::Impl {
             // Copy and cut share most validation. The only difference is the
             // final mutation primitive used once the destination is accepted.
             auto operation_result = state.clipboard.operation == ClipboardState::Operation::Copy
-                                        ? services.fileSystem->copy(source, destination, overwrite)
+                                        ? blockOn(services.fileSystem->copy(source, destination, overwrite))
                                         : moveClipboardSourceTo(source, destination, overwrite);
             if (!operation_result) {
                 return operation_result;
@@ -596,19 +695,47 @@ struct Explorer::Impl {
     }
 
     [[nodiscard]] core::VoidResult copySelectedPathToSystemClipboard(bool absolute) const {
+        auto text = selectedPathClipboardText(absolute);
+        if (!text) {
+            return std::unexpected(text.error());
+        }
+        return blockOn(services.clipboard->copyText(*text));
+    }
+
+    [[nodiscard]] core::VoidResult copyCurrentDirectoryPathToSystemClipboard(bool absolute) const {
+        return blockOn(services.clipboard->copyText(currentDirectoryClipboardText(absolute)));
+    }
+
+    [[nodiscard]] core::VoidResult copySelectedFileNameToSystemClipboard() const {
+        auto text = selectedFileNameClipboardText();
+        if (!text) {
+            return std::unexpected(text.error());
+        }
+        return blockOn(services.clipboard->copyText(*text));
+    }
+
+    [[nodiscard]] core::VoidResult copySelectedNameWithoutExtensionToSystemClipboard() const {
+        auto text = selectedStemClipboardText();
+        if (!text) {
+            return std::unexpected(text.error());
+        }
+        return blockOn(services.clipboard->copyText(*text));
+    }
+
+    [[nodiscard]] core::Result<std::string> selectedPathClipboardText(bool absolute) const {
         if (state.entries.empty()) {
             return core::make_error(core::ErrorCategory::FileSystem, "No entry selected");
         }
 
         const fs::path selected = state.entries[static_cast<std::size_t>(state.selection.currentSelected)].path;
-        return services.clipboard->copyText(formatPathForClipboard(selected, absolute));
+        return formatPathForClipboard(selected, absolute);
     }
 
-    [[nodiscard]] core::VoidResult copyCurrentDirectoryPathToSystemClipboard(bool absolute) const {
-        return services.clipboard->copyText(formatPathForClipboard(state.currentDir, absolute));
+    [[nodiscard]] std::string currentDirectoryClipboardText(bool absolute) const {
+        return formatPathForClipboard(state.currentDir, absolute);
     }
 
-    [[nodiscard]] core::VoidResult copySelectedFileNameToSystemClipboard() const {
+    [[nodiscard]] core::Result<std::string> selectedFileNameClipboardText() const {
         if (state.entries.empty()) {
             return core::make_error(core::ErrorCategory::FileSystem, "No entry selected");
         }
@@ -618,10 +745,10 @@ struct Explorer::Impl {
             return core::make_error(core::ErrorCategory::InvalidArgument, "Selected entry has no file name");
         }
 
-        return services.clipboard->copyText(to_utf8_string(name));
+        return to_utf8_string(name);
     }
 
-    [[nodiscard]] core::VoidResult copySelectedNameWithoutExtensionToSystemClipboard() const {
+    [[nodiscard]] core::Result<std::string> selectedStemClipboardText() const {
         if (state.entries.empty()) {
             return core::make_error(core::ErrorCategory::FileSystem, "No entry selected");
         }
@@ -632,7 +759,7 @@ struct Explorer::Impl {
                                     "Selected entry has no name without extension");
         }
 
-        return services.clipboard->copyText(to_utf8_string(stem));
+        return to_utf8_string(stem);
     }
 };
 
@@ -658,6 +785,25 @@ const ExplorerState& Explorer::state() const noexcept {
 
 const ExplorerServices& Explorer::services() const noexcept {
     return impl_->services;
+}
+
+std::optional<fs::path> Explorer::selectedPath() const {
+    if (impl_->state.entries.empty()) {
+        return std::nullopt;
+    }
+    return impl_->state.entries[static_cast<std::size_t>(impl_->state.selection.currentSelected)].path;
+}
+
+std::vector<fs::path> Explorer::selectedPaths() const {
+    return selected_entry_paths(impl_->state);
+}
+
+bool Explorer::showHidden() const noexcept {
+    return impl_->showHidden;
+}
+
+void Explorer::setShowHidden(bool show_hidden) noexcept {
+    impl_->showHidden = show_hidden;
 }
 
 core::VoidResult Explorer::navigateTo(const fs::path& path) {
@@ -764,6 +910,22 @@ core::VoidResult Explorer::copySelectedNameWithoutExtensionToSystemClipboard() {
     return impl_->copySelectedNameWithoutExtensionToSystemClipboard();
 }
 
+core::Result<std::string> Explorer::selectedPathClipboardText(bool absolute) const {
+    return impl_->selectedPathClipboardText(absolute);
+}
+
+std::string Explorer::currentDirectoryClipboardText(bool absolute) const {
+    return impl_->currentDirectoryClipboardText(absolute);
+}
+
+core::Result<std::string> Explorer::selectedFileNameClipboardText() const {
+    return impl_->selectedFileNameClipboardText();
+}
+
+core::Result<std::string> Explorer::selectedStemClipboardText() const {
+    return impl_->selectedStemClipboardText();
+}
+
 void Explorer::enterVisualMode() {
     if (impl_->state.entries.empty()) {
         return;
@@ -821,6 +983,41 @@ core::VoidResult Explorer::toggleShowHidden() {
         return result;
     }
     return {};
+}
+
+void Explorer::beginDirectoryListing(fs::path directory, const std::uint64_t generation) {
+    impl_->beginDirectoryListing(std::move(directory), generation);
+}
+
+void Explorer::appendDirectoryChunk(std::vector<core::filesystem::FileEntry> entries,
+                                    std::size_t loaded_entries,
+                                    std::size_t total_entries,
+                                    bool has_more,
+                                    const std::uint64_t generation) {
+    impl_->appendDirectoryChunk(std::move(entries), loaded_entries, total_entries, has_more, generation);
+}
+
+void Explorer::completeDirectoryListing(const std::uint64_t generation) {
+    impl_->completeDirectoryListing(generation);
+}
+
+void Explorer::setParentEntries(std::vector<core::filesystem::FileEntry> entries) {
+    impl_->setParentEntries(std::move(entries));
+}
+
+void Explorer::selectPathIfPresent(const fs::path& path) {
+    if (path.empty()) {
+        return;
+    }
+
+    const auto it = rng::find_if(impl_->state.entries, [&](const auto& entry) { return entry.path == path; });
+    if (it == impl_->state.entries.end()) {
+        return;
+    }
+
+    auto update_helper =
+        SelectionUpdateHelper(impl_->state.selection, impl_->state.entries, static_cast<int>(impl_->state.entries.size()));
+    impl_->state.selection.currentSelected = static_cast<int>(rng::distance(impl_->state.entries.begin(), it));
 }
 
 }  // namespace expp::app

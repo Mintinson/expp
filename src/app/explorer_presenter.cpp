@@ -109,6 +109,11 @@ void setup_titles(ExplorerScreenModel& model, const std::filesystem::path& dir) 
         status += std::format(" [visual:{}]", state.selection.visualSelectedIndices.size());
     }
 
+    if (state.listing.scanInProgress || state.listing.loading) {
+        status += std::format(" [loading:{}/{}]", state.listing.loadedEntries,
+                              std::max(state.listing.totalEntries, state.listing.loadedEntries));
+    }
+
     return status;
 }
 

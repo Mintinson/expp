@@ -13,6 +13,10 @@ namespace expp::app {
                                         const core::filesystem::FileEntry& rhs,
                                         const SortOrder& order);
 
+[[nodiscard]] bool less_by_sort_order(const core::filesystem::FileEntry& lhs,
+                                      const core::filesystem::FileEntry& rhs,
+                                      const SortOrder& order);
+
 void sort_entries(std::vector<core::filesystem::FileEntry>& entries, const SortOrder& order);
 
 }  // namespace expp::app

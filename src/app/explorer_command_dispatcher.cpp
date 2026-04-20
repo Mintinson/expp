@@ -14,16 +14,48 @@
 
 namespace expp::app {
 
+namespace {
+
+[[nodiscard]] bool is_async_command(const ExplorerCommand command) {
+    switch (command) {
+        case ExplorerCommand::GoParent:
+        case ExplorerCommand::EnterSelected:
+        case ExplorerCommand::GoHomeDirectory:
+        case ExplorerCommand::GoConfigDirectory:
+        case ExplorerCommand::GoLinkTargetDirectory:
+        case ExplorerCommand::OpenFile:
+        case ExplorerCommand::Yank:
+        case ExplorerCommand::Cut:
+        case ExplorerCommand::DiscardYank:
+        case ExplorerCommand::Paste:
+        case ExplorerCommand::PasteOverwrite:
+        case ExplorerCommand::CopyEntryPathRelative:
+        case ExplorerCommand::CopyCurrentDirRelative:
+        case ExplorerCommand::CopyEntryPathAbsolute:
+        case ExplorerCommand::CopyCurrentDirAbsolute:
+        case ExplorerCommand::CopyFileName:
+        case ExplorerCommand::CopyNameWithoutExtension:
+        case ExplorerCommand::ToggleHidden:
+            return true;
+        default:
+            return false;
+    }
+}
+
+}  // namespace
+
 ExplorerCommandDispatcher::ExplorerCommandDispatcher(std::shared_ptr<Explorer> explorer,
                                                      NotificationCenter& notifications,
                                                      OverlayTriggerCallback overlay_trigger,
                                                      QuitTriggerCallback quit_trigger,
-                                                     VisualModeObserver visual_mode_observer)
+                                                     VisualModeObserver visual_mode_observer,
+                                                     AsyncCommandCallback async_command)
     : explorer_(std::move(explorer))
     , notifications_(notifications)
     , triggerOverlay_(std::move(overlay_trigger))
     , triggerQuit_(std::move(quit_trigger))
-    , visualModeObserver_(std::move(visual_mode_observer)) {}
+    , visualModeObserver_(std::move(visual_mode_observer))
+    , asyncCommand_(std::move(async_command)) {}
 
 void ExplorerCommandDispatcher::execute(const ExplorerCommand command, const ui::ActionContext& ctx) {
     // Commands that strictly open overlays or quit short-circuit here. Their
@@ -45,6 +77,11 @@ void ExplorerCommandDispatcher::execute(const ExplorerCommand command, const ui:
             break;
     }
 
+    if (asyncCommand_ && is_async_command(command)) {
+        asyncCommand_(command, ctx);
+        return;
+    }
+
     // The following handlers are intentionally independent switch blocks.
     // Unknown commands become no-ops in each handler, which keeps extension
     // points simple and avoids a giant monolithic switch.
@@ -64,11 +101,7 @@ void ExplorerCommandDispatcher::handleNavigation(const ExplorerCommand command, 
             explorer_->moveUp(ctx.count);
             break;
         case ExplorerCommand::GoParent:
-            (void)publish_if_error(notifications_, explorer_->goParent());
-            break;
         case ExplorerCommand::EnterSelected:
-            (void)publish_if_error(notifications_, explorer_->enterSelected(true));
-            break;
         case ExplorerCommand::GoTop:
             explorer_->goToTop();
             break;
@@ -89,14 +122,8 @@ void ExplorerCommandDispatcher::handleNavigation(const ExplorerCommand command, 
             explorer_->moveUp(ExplorerPresenter::kPageStep * ctx.count);
             break;
         case ExplorerCommand::GoHomeDirectory:
-            (void)navigateToHomeDirectory();
-            break;
         case ExplorerCommand::GoConfigDirectory:
-            (void)navigateToConfigDirectory();
-            break;
         case ExplorerCommand::GoLinkTargetDirectory:
-            (void)publish_if_error(notifications_, explorer_->navigateToSelectedLinkTargetDirectory());
-            break;
         default:
             break;
     }
@@ -105,15 +132,6 @@ void ExplorerCommandDispatcher::handleNavigation(const ExplorerCommand command, 
 void ExplorerCommandDispatcher::handleFileOperations(const ExplorerCommand command,
                                                      [[maybe_unused]] const ui::ActionContext& ctx) const {
     switch (command) {
-        case ExplorerCommand::OpenFile: {
-            const auto& state = explorer_->state();
-            const bool can_open =
-                !state.entries.empty() &&
-                !state.entries[static_cast<std::size_t>(state.selection.currentSelected)].isDirectory();
-            (void)publish_if_error(notifications_, explorer_->openSelected(),
-                                   can_open ? "Opened with default application" : "");
-            break;
-        }
         case ExplorerCommand::EnterVisualMode:
             explorer_->enterVisualMode();
             // The observer keeps key-handler mode synchronized with domain state.
@@ -134,63 +152,7 @@ void ExplorerCommandDispatcher::handleFileOperations(const ExplorerCommand comma
 
 void ExplorerCommandDispatcher::handleClipboard(const ExplorerCommand command,
                                                 [[maybe_unused]] const ui::ActionContext& ctx) const {
-    switch (command) {
-        case ExplorerCommand::Yank: {
-            const int count = selectedCount();
-            (void)publish_if_error(notifications_, explorer_->yankSelected(),
-                                   count > 0 ? std::format("Copied {}", nounWithCount(count, "item")) : "");
-            break;
-        }
-        case ExplorerCommand::Cut: {
-            const int count = selectedCount();
-            (void)publish_if_error(notifications_, explorer_->cutSelected(),
-                                   count > 0 ? std::format("Cut {}", nounWithCount(count, "item")) : "");
-            break;
-        }
-        case ExplorerCommand::DiscardYank:
-            (void)publish_if_error(notifications_, explorer_->discardYank(), "Clipboard cleared",
-                                   ui::ToastSeverity::Info);
-            break;
-        case ExplorerCommand::Paste: {
-            const int item_count = static_cast<int>(explorer_->state().clipboard.paths.size());
-            (void)publish_if_error(notifications_, explorer_->pasteYanked(false),
-                                   item_count > 0 ? std::format("Pasted {}", nounWithCount(item_count, "item")) : "");
-            break;
-        }
-        case ExplorerCommand::PasteOverwrite: {
-            const int item_count = static_cast<int>(explorer_->state().clipboard.paths.size());
-            (void)publish_if_error(
-                notifications_, explorer_->pasteYanked(true),
-                item_count > 0 ? std::format("Pasted {} with overwrite", nounWithCount(item_count, "item")) : "");
-            break;
-        }
-        case ExplorerCommand::CopyEntryPathRelative:
-            (void)publish_if_error(notifications_, explorer_->copySelectedPathToSystemClipboard(false),
-                                   "Copied relative path", ui::ToastSeverity::Info);
-            break;
-        case ExplorerCommand::CopyCurrentDirRelative:
-            (void)publish_if_error(notifications_, explorer_->copyCurrentDirectoryPathToSystemClipboard(false),
-                                   "Copied relative directory path", ui::ToastSeverity::Info);
-            return;
-        case ExplorerCommand::CopyEntryPathAbsolute:
-            (void)publish_if_error(notifications_, explorer_->copySelectedPathToSystemClipboard(true),
-                                   "Copied absolute path", ui::ToastSeverity::Info);
-            return;
-        case ExplorerCommand::CopyCurrentDirAbsolute:
-            (void)publish_if_error(notifications_, explorer_->copyCurrentDirectoryPathToSystemClipboard(true),
-                                   "Copied absolute directory path", ui::ToastSeverity::Info);
-            return;
-        case ExplorerCommand::CopyFileName:
-            (void)publish_if_error(notifications_, explorer_->copySelectedFileNameToSystemClipboard(),
-                                   "Copied file name", ui::ToastSeverity::Info);
-            return;
-        case ExplorerCommand::CopyNameWithoutExtension:
-            (void)publish_if_error(notifications_, explorer_->copySelectedNameWithoutExtensionToSystemClipboard(),
-                                   "Copied name without extension", ui::ToastSeverity::Info);
-            return;
-        default:
-            break;
-    }
+    (void)command;
 }
 
 void ExplorerCommandDispatcher::handleSearchAndFilter(const ExplorerCommand command,
@@ -208,9 +170,6 @@ void ExplorerCommandDispatcher::handleSearchAndFilter(const ExplorerCommand comm
             break;
         case ExplorerCommand::ClearSearch:
             explorer_->clearSearch();
-            break;
-        case ExplorerCommand::ToggleHidden:
-            (void)publish_if_error(notifications_, explorer_->toggleShowHidden());
             break;
         default:
             break;

@@ -115,6 +115,21 @@ constexpr auto kNotificationIntFields = std::array{
     ScalarFieldSpec<NotificationConfig, int>{"duration_ms", &NotificationConfig::durationMs},
 };
 
+constexpr auto kRuntimeIntFields = std::array{
+    ScalarFieldSpec<RuntimeConfig, int>{"io_threads", &RuntimeConfig::ioThreads},
+    ScalarFieldSpec<RuntimeConfig, int>{"cpu_threads", &RuntimeConfig::cpuThreads},
+};
+
+constexpr auto kListingIntFields = std::array{
+    ScalarFieldSpec<ListingConfig, int>{"chunk_entries", &ListingConfig::chunkEntries},
+    ScalarFieldSpec<ListingConfig, int>{"preload_pages", &ListingConfig::preloadPages},
+};
+
+constexpr auto kAnalysisBoolFields = std::array{
+    ScalarFieldSpec<AnalysisConfig, bool>{"mime_sniffing", &AnalysisConfig::mimeSniffing},
+    ScalarFieldSpec<AnalysisConfig, bool>{"highlight_previews", &AnalysisConfig::highlightPreviews},
+};
+
 /**
  * @brief Parses a hex color string ("0xRRGGBB" or "#RRGGBB") to uint32_t
  */
@@ -232,6 +247,18 @@ void load_notification_config(const toml::table& tbl, NotificationConfig& notifi
     load_int_fields(tbl, notifications, kNotificationIntFields);
 }
 
+void load_runtime_config(const toml::table& tbl, RuntimeConfig& runtime) {
+    load_int_fields(tbl, runtime, kRuntimeIntFields);
+}
+
+void load_listing_config(const toml::table& tbl, ListingConfig& listing) {
+    load_int_fields(tbl, listing, kListingIntFields);
+}
+
+void load_analysis_config(const toml::table& tbl, AnalysisConfig& analysis) {
+    load_bool_fields(tbl, analysis, kAnalysisBoolFields);
+}
+
 toml::table serialize_color_theme(const ColorTheme& theme) {
     toml::table tbl;
     tbl.insert("name", theme.name);
@@ -294,6 +321,24 @@ toml::table serialize_notification_config(const NotificationConfig& notification
     toml::table tbl;
     insert_bool_fields(tbl, notifications, kNotificationBoolFields);
     insert_int_fields(tbl, notifications, kNotificationIntFields);
+    return tbl;
+}
+
+toml::table serialize_runtime_config(const RuntimeConfig& runtime) {
+    toml::table tbl;
+    insert_int_fields(tbl, runtime, kRuntimeIntFields);
+    return tbl;
+}
+
+toml::table serialize_listing_config(const ListingConfig& listing) {
+    toml::table tbl;
+    insert_int_fields(tbl, listing, kListingIntFields);
+    return tbl;
+}
+
+toml::table serialize_analysis_config(const AnalysisConfig& analysis) {
+    toml::table tbl;
+    insert_bool_fields(tbl, analysis, kAnalysisBoolFields);
     return tbl;
 }
 
@@ -387,6 +432,18 @@ VoidResult ConfigManager::loadFrom(const std::filesystem::path& path) {
         load_notification_config(*notifications, cfg.notifications);
     }
 
+    if (auto *runtime = tbl["runtime"].as_table()) {
+        load_runtime_config(*runtime, cfg.runtime);
+    }
+
+    if (auto *listing = tbl["listing"].as_table()) {
+        load_listing_config(*listing, cfg.listing);
+    }
+
+    if (auto *analysis = tbl["analysis"].as_table()) {
+        load_analysis_config(*analysis, cfg.analysis);
+    }
+
     // Note: [keys] section is handled separately by KeyMap::loadFromFile()
     // because keybindings need the ActionRegistry context.
 
@@ -428,6 +485,9 @@ VoidResult ConfigManager::save() const {
         root.insert("layout", serialize_layout_config(impl_->config.layout));
         root.insert("behavior", serialize_behavior_config(impl_->config.behavior));
         root.insert("notifications", serialize_notification_config(impl_->config.notifications));
+        root.insert("runtime", serialize_runtime_config(impl_->config.runtime));
+        root.insert("listing", serialize_listing_config(impl_->config.listing));
+        root.insert("analysis", serialize_analysis_config(impl_->config.analysis));
     }
 
     std::ofstream ofs(path);

@@ -24,6 +24,7 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -38,12 +39,24 @@ namespace expp::app {
  */
 class ExplorerOverlayController {
 public:
+    using DirectoryJumpCallback = std::function<void(std::string)>;
+    using CreateCallback = std::function<void(std::string)>;
+    using RenameCallback = std::function<void(std::string)>;
+    using DeleteCallback = std::function<void()>;
+    using TrashCallback = std::function<void()>;
+
     /**
      * @brief Creates an overlay controller bound to one explorer instance.
      * @param explorer Explorer domain object mutated by confirmed overlay actions.
      * @param notifications Notification sink used for user-visible failures.
      */
-    ExplorerOverlayController(std::shared_ptr<Explorer> explorer, NotificationCenter& notifications);
+    ExplorerOverlayController(std::shared_ptr<Explorer> explorer,
+                              NotificationCenter& notifications,
+                              DirectoryJumpCallback directory_jump,
+                              CreateCallback create,
+                              RenameCallback rename,
+                              DeleteCallback delete_selected,
+                              TrashCallback trash_selected);
 
     /**
      * @brief Returns the active overlay state.
@@ -98,6 +111,11 @@ private:
     std::shared_ptr<Explorer> explorer_;
     /// Notification channel used to surface recoverable UI errors.
     NotificationCenter& notifications_;
+    DirectoryJumpCallback directoryJump_;
+    CreateCallback create_;
+    RenameCallback rename_;
+    DeleteCallback deleteSelected_;
+    TrashCallback trashSelected_;
 
     /// Active overlay state variant.
     ExplorerOverlayState overlayState_;

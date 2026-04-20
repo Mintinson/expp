@@ -10,6 +10,10 @@
  * schedulers can preserve the same call sites and task contracts.
  */
 
+#include <asio/awaitable.hpp>
+#include <asio/post.hpp>
+#include <asio/use_awaitable.hpp>
+
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -19,6 +23,17 @@
 #include <utility>
 
 namespace expp::core {
+
+// In Asio, the Executor determines where the code runs 
+// (e.g., in a single-threaded io_context or a multi-threaded thread_pool). 
+// any_io_executor is a polymorphic wrapper that can accept any Asio-compliant executor, 
+// making subsequent code not limited to a specific underlying implementation.
+using AsyncExecutor = asio::any_io_executor;
+
+/// `asio::awaitable` is a standard C++20 coroutine type provided by Asio. An alias `Task` is defined here.<T> This indicates that this is a coroutine that returns type T, 
+///  and that the coroutine is bound by the previously defined generic executor AsyncExecutor by default.
+template <typename T>
+using Task = asio::awaitable<T, AsyncExecutor>;
 
 /**
  * @brief Relative urgency for scheduler-aware work.
@@ -140,6 +155,63 @@ public:
         }
     }
 };
+
+/**
+ * @brief Suspends the current coroutine and resumes it on `executor`.
+ * 
+ * The code before `co_await switch_to(...)` runs on the original thread, 
+ * while the code after it runs directly on the thread corresponding to the new executor.
+ */
+template <typename Executor>
+Task<void> switch_to(Executor executor) {
+    // suspend current coroutine, resume immediately on the specified executor
+    co_await asio::post(executor, asio::use_awaitable);
+}
+
+/**
+ * @brief Executes a callable on a specified executor and automatically resumes on the calling executor.
+ *
+ * This coroutine temporarily switches the execution context to the target `executor`,
+ * invokes the provided `callable` (e.g., a lambda or function) to perform blocking
+ * or CPU-bound work, and seamlessly switches back to the original calling executor
+ * before returning the result.
+ *
+ * @tparam Executor The type of the target executor (must be compatible with Asio executors).
+ * @tparam Callable The type of the callable object. Constrained by std::invocable.
+ *
+ * @param executor The target executor where the callable should be executed.
+ * @param callable The zero-argument function, lambda, or functor to execute.
+ *
+ * @return A core::Task containing the result of the callable.
+ *         If the callable returns void, the task will yield no value.
+ */
+template <typename Executor, std::invocable Callable>
+auto invoke_on(Executor executor, Callable&& callable) -> core::Task<std::invoke_result_t<Callable>> {
+    // Save the original executor (the caller's context)
+    auto caller = co_await asio::this_coro::executor;
+
+    // Jump to the target executor
+    co_await core::switch_to(executor);
+
+    // Execute the callable on the target executor
+    // We use `if constexpr` to handle void-returning callables safely,
+    // avoiding the "variable declared void" compilation error.
+    using ResultType = std::invoke_result_t<Callable>;
+    if constexpr (std::is_void_v<ResultType>) {
+        std::invoke(std::forward<Callable>(callable));
+
+        // Switch back to the caller's executor before returning
+        co_await core::switch_to(caller);
+        co_return;
+    } else {
+        auto result = std::invoke(std::forward<Callable>(callable));
+
+        // Switch back to the caller's executor before returning
+        co_await core::switch_to(caller);
+        co_return result;
+    }
+}
+
 
 }  // namespace expp::core
 

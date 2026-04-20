@@ -252,6 +252,55 @@ bool is_previewable(const fs::path& path) noexcept {
     return contains_extension(kTextExtensions, ext);
 }
 
+[[nodiscard]] Result<FileEntry> inspect_directory_entry(const fs::directory_entry& entry) noexcept {
+    try {
+        FileEntry file_entry;
+        file_entry.path = entry.path();
+        file_entry.type = classify_file(entry);
+
+        const auto filename = entry.path().filename().string();
+        file_entry.isHidden = !filename.empty() && filename[0] == '.';
+
+        if (file_entry.isSymlink()) {
+            std::error_code readlink_ec;
+            file_entry.symlinkTarget = fs::read_symlink(file_entry.path, readlink_ec);
+            if (readlink_ec) {
+                file_entry.symlinkTarget.clear();
+            }
+
+            std::error_code status_ec;
+            const auto symlink_status = fs::status(file_entry.path, status_ec);
+            if (status_ec == std::errc::too_many_symbolic_link_levels) {
+                file_entry.isRecursiveSymlink = true;
+            } else if (status_ec || symlink_status.type() == fs::file_type::not_found) {
+                file_entry.isBrokenSymlink = true;
+            }
+        }
+
+        if (file_entry.type == FileType::RegularFile) {
+            std::error_code size_ec;
+            file_entry.size = entry.file_size(size_ec);
+            if (size_ec) {
+                file_entry.size = 0;
+            }
+        }
+
+        std::error_code time_ec;
+        file_entry.lastModified = entry.last_write_time(time_ec);
+        if (time_ec) {
+            file_entry.lastModified = fs::file_time_type::min();
+        }
+
+        auto birth_time_result = query_birth_time(file_entry.path);
+        file_entry.birthTime = birth_time_result ? *birth_time_result : file_entry.lastModified;
+
+        return file_entry;
+    } catch (...) {
+        return make_error(ErrorCategory::FileSystem,
+                          std::format("Failed to inspect directory entry '{}'", entry.path().string()));
+    }
+}
+
 [[nodiscard]] Result<std::vector<FileEntry>> list_directory(const fs::path& dir, bool include_hidden) noexcept {
     std::vector<FileEntry> entries;
 
@@ -274,52 +323,11 @@ bool is_previewable(const fs::path& path) noexcept {
             continue;
         }
 
-        FileEntry fe;
-        fe.path = entry.path();
-
-        fe.type = classify_file(entry);
-        if (fe.isSymlink()) {
-            std::error_code readlink_ec;
-            fe.symlinkTarget = fs::read_symlink(fe.path, readlink_ec);
-            if (readlink_ec) {
-                fe.symlinkTarget.clear();
-            }
-
-            std::error_code status_ec;
-            const auto symlink_status = fs::status(fe.path, status_ec);
-            if (status_ec == std::errc::too_many_symbolic_link_levels) {
-                fe.isRecursiveSymlink = true;
-            } else if (status_ec || symlink_status.type() == fs::file_type::not_found) {
-                fe.isBrokenSymlink = true;
-            }
+        auto entry_result = inspect_directory_entry(entry);
+        if (!entry_result) {
+            return std::unexpected(entry_result.error());
         }
-
-        fe.isHidden = !filename.empty() && filename[0] == '.';
-
-        // Cache size (only for regular files)
-
-        if (fe.type == FileType::RegularFile) {
-            std::error_code size_ec;
-            fe.size = entry.file_size(size_ec);
-        }
-
-        // Cache last modified time
-        std::error_code time_ec;
-        fe.lastModified = entry.last_write_time(time_ec);
-        if (time_ec) {
-            // if we can't get the last modified time, set it to epoch (or some sentinel value)
-            fe.lastModified = fs::file_time_type::min();
-        }
-
-        // Cache birth/creation time with a safe fallback to last-modified.
-        auto birth_time_result = query_birth_time(fe.path);
-        if (birth_time_result) {
-            fe.birthTime = *birth_time_result;
-        } else {
-            fe.birthTime = fe.lastModified;
-        }
-
-        entries.push_back(std::move(fe));
+        entries.push_back(std::move(*entry_result));
     }
     // Sort: directories first, then alphabetically
     rng::sort(entries, [](const FileEntry& a, const FileEntry& b) {
