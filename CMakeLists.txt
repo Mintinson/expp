@@ -4,13 +4,24 @@ set(EXPP_DEFAULT_VERSION "0.0.1")
 
 # 2. if GitHub Action pass a variable CI_VERSION, use it as the version; otherwise, use the default version
 if(DEFINED CI_VERSION)
-    set(APP_VERSION ${CI_VERSION})
+    set(_expp_raw_version "${CI_VERSION}")
+    string(REGEX REPLACE "^v" "" _expp_raw_version "${_expp_raw_version}")
+    string(REGEX MATCH "([0-9][0-9]*\\.[0-9][0-9]*\\.[0-9][0-9]*)" _expp_semver "${_expp_raw_version}")
+    if(_expp_semver STREQUAL "")
+        set(APP_VERSION ${EXPP_DEFAULT_VERSION})
+    else()
+        set(APP_VERSION "${_expp_semver}")
+    endif()
 else()
     set(APP_VERSION ${EXPP_DEFAULT_VERSION})
 endif()
 
+if(NOT APP_VERSION MATCHES "^[0-9][0-9]*\\.[0-9][0-9]*\\.[0-9][0-9]*$")
+    set(APP_VERSION ${EXPP_DEFAULT_VERSION})
+endif()
+
 project(Expp
-        VERSION ${EXPP_DEFAULT_VERSION}
+    VERSION ${APP_VERSION}
         DESCRIPTION "Cross-platform TUI file manager built with C++23"
         HOMEPAGE_URL "https://github.com/Mintinson/expp"
         LANGUAGES CXX

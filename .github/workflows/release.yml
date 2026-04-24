@@ -3,43 +3,70 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
+    name: Build and package (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        # 配置你想发布的平台
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: windows-latest
+            target: windows-x64
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Configure CMake
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Configure (Release)
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DEXPP_BUILD_TESTS=OFF
+          -DEXPP_BUILD_EXAMPLES=OFF
+          -DCI_VERSION=${{ github.ref_name }}
 
-    - name: Extract version from Git Tag
-      id: extract_version
-      run: |
-        TAG_NAME=${{ github.ref_name }}
-        VERSION_NUM=${TAG_NAME#v}
-        echo "VERSION_NUM=$VERSION_NUM" >> $GITHUB_ENV
+      - name: Build
+        run: cmake --build build --config Release
 
-    - name: Build
-      run: cmake --build build --config Release
+      - name: Package with CPack
+        run: cpack -C Release
+        working-directory: build
 
-    - name: Package (CPack)
-      working-directory: build
-      run: cpack -C Release
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: expp-${{ matrix.target }}
+          path: |
+            build/*.zip
+            build/*.tar.gz
+          if-no-files-found: error
 
-    # 将打包好的文件上传到 GitHub Release
-    - name: Upload to Release
-      uses: softprops/action-gh-release@v2
-      if: startsWith(github.ref, 'refs/tags/')
-      with:
-        files: build/*.* # 上传 CPack 生成的 zip/tgz 文件
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
