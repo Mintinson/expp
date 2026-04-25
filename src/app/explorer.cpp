@@ -132,10 +132,9 @@ struct Explorer::Impl {
         } else {
             std::vector<core::filesystem::FileEntry> merged;
             merged.reserve(state.entries.size() + entries.size());
-            std::ranges::merge(state.entries, entries, std::back_inserter(merged),
-                               [this](const auto& lhs, const auto& rhs) {
-                                   return less_by_sort_order(lhs, rhs, state.sortOrder);
-                               });
+            std::ranges::merge(
+                state.entries, entries, std::back_inserter(merged),
+                [this](const auto& lhs, const auto& rhs) { return less_by_sort_order(lhs, rhs, state.sortOrder); });
             state.entries = std::move(merged);
         }
 
@@ -244,14 +243,21 @@ struct Explorer::Impl {
         if (state.search.pattern.empty()) {
             return;
         }
-
+#if __cpp_lib_ranges_enumerate >= 202302L
         state.search.matches =
             views::enumerate(state.entries) |
             views::filter([&pattern = state.search.pattern](const auto& indexed_entry) {
                 return std::get<1>(indexed_entry).filename().contains(pattern);
             }) |
-            views::transform([](const auto& indexed_entry) { return static_cast<int>(std::get<0>(indexed_entry)); }) |
-            rng::to<std::vector>();
+            views::transform([](const auto& indexed_entry) { return static_cast<int>(std::get<0>(indexed_entry)); })
+            | rng::to<std::vector>();
+#else
+        for (std::size_t index = 0; index < state.entries.size(); ++index) {
+            if (state.entries[index].filename().contains(state.search.pattern)) {
+                state.search.matches.push_back(static_cast<int>(index));
+            }
+        }
+#endif  // __cpp_lib_ranges_enumerate >= 202302L
     }
 
     void jumpToNextMatch() {
@@ -483,9 +489,9 @@ struct Explorer::Impl {
         }
 
         const fs::path new_path = state.currentDir / name;
-        auto result =
-            (name.back() == '/' || name.back() == '\\') ? blockOn(services.fileSystem->createDirectory(new_path))
-                                                        : blockOn(services.fileSystem->createFile(new_path));
+        auto result = (name.back() == '/' || name.back() == '\\')
+                          ? blockOn(services.fileSystem->createDirectory(new_path))
+                          : blockOn(services.fileSystem->createFile(new_path));
         if (!result) {
             return std::unexpected(result.error());
         }
@@ -512,9 +518,8 @@ struct Explorer::Impl {
         }
 
         for (const auto& target : targets) {
-            core::VoidResult result =
-                fs::is_directory(target) ? blockOn(services.fileSystem->removeDirectory(target))
-                                         : blockOn(services.fileSystem->removeFile(target));
+            core::VoidResult result = fs::is_directory(target) ? blockOn(services.fileSystem->removeDirectory(target))
+                                                               : blockOn(services.fileSystem->removeFile(target));
             if (!result) {
                 return result;
             }
@@ -656,9 +661,9 @@ struct Explorer::Impl {
                                             std::format("Destination already exists: {}", destination.string()));
                 }
 
-                core::VoidResult remove_result =
-                    fs::is_directory(destination, ec) ? blockOn(services.fileSystem->removeDirectory(destination))
-                                                      : blockOn(services.fileSystem->removeFile(destination));
+                core::VoidResult remove_result = fs::is_directory(destination, ec)
+                                                     ? blockOn(services.fileSystem->removeDirectory(destination))
+                                                     : blockOn(services.fileSystem->removeFile(destination));
                 if (!remove_result) {
                     return remove_result;
                 }
@@ -1015,8 +1020,8 @@ void Explorer::selectPathIfPresent(const fs::path& path) {
         return;
     }
 
-    auto update_helper =
-        SelectionUpdateHelper(impl_->state.selection, impl_->state.entries, static_cast<int>(impl_->state.entries.size()));
+    auto update_helper = SelectionUpdateHelper(impl_->state.selection, impl_->state.entries,
+                                               static_cast<int>(impl_->state.entries.size()));
     impl_->state.selection.currentSelected = static_cast<int>(rng::distance(impl_->state.entries.begin(), it));
 }
 

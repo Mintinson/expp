@@ -1,48 +1,80 @@
 {
     "version": 6,
-    "cmakeMinimumRequired": {
-        "major": 3,
-        "minor": 28,
-        "patch": 0
-    },
+    "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
     "configurePresets": [
         {
-            "name": "base",
+            "name": "mixin-base",
             "hidden": true,
             "binaryDir": "${sourceDir}/build/${presetName}",
             "installDir": "${sourceDir}/install/${presetName}",
             "generator": "Ninja",
+            "cacheVariables": { "CMAKE_EXPORT_COMPILE_COMMANDS": "ON" }
+        },
+        
+        {
+            "name": "mixin-gcc",
+            "hidden": true,
             "cacheVariables": {
-                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
-            }
+                "CMAKE_C_COMPILER": "gcc",
+                "CMAKE_CXX_COMPILER": "g++"
+            },
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
         },
         {
-            "name": "debug",
-            "displayName": "Debug",
-            "description": "Debug build with sanitizers",
-            "inherits": "base",
+            "name": "mixin-clang",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++"
+            },
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+        },
+        {
+            "name": "mixin-libc++",
+            "hidden": true,
+            "inherits": "mixin-clang",
+            "cacheVariables": { "CMAKE_CXX_FLAGS": "-stdlib=libc++" }
+        },
+        {
+            "name": "mixin-msvc",
+            "hidden": true,
+            "architecture": { "value": "x64", "strategy": "external" },
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "cl.exe",
+                "CMAKE_CXX_COMPILER": "cl.exe"
+            },
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+        },
+        {
+            "name": "mixin-clang-cl",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang-cl.exe",
+                "CMAKE_CXX_COMPILER": "clang-cl.exe"
+            },
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+        },
+
+        {
+            "name": "mixin-debug",
+            "hidden": true,
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "EXPP_ENABLE_SANITIZERS": "ON",
                 "EXPP_BUILD_TESTS": "ON"
             }
         },
         {
-            "name": "release",
-            "displayName": "Release",
-            "description": "Optimized release build",
-            "inherits": "base",
+            "name": "mixin-release",
+            "hidden": true,
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "EXPP_ENABLE_SANITIZERS": "OFF",
                 "EXPP_BUILD_TESTS": "OFF"
             }
         },
         {
-            "name": "relwithdebinfo",
-            "displayName": "RelWithDebInfo",
-            "description": "Release build with debug info",
-            "inherits": "base",
+            "name": "mixin-relwithdebinfo",
+            "hidden": true,
+            "inherits": "mixin-debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
                 "EXPP_ENABLE_SANITIZERS": "OFF",
@@ -50,115 +82,112 @@
             }
         },
         {
-            "name": "asan",
-            "displayName": "AddressSanitizer",
-            "description": "Debug build with AddressSanitizer",
-            "inherits": "debug",
-            "cacheVariables": {
-                "EXPP_ENABLE_SANITIZERS": "ON"
-            }
+            "name": "mixin-asan",
+            "hidden": true,
+            "inherits": "mixin-debug",
+            "cacheVariables": { "EXPP_ENABLE_SANITIZERS": "ON" }
+        },
+
+        {
+            "name": "gcc-debug",
+            "displayName": "GCC Debug",
+            "inherits": ["mixin-base", "mixin-gcc", "mixin-debug"]
         },
         {
-            "name": "tsan",
-            "displayName": "ThreadSanitizer",
-            "description": "Debug build with ThreadSanitizer",
-            "inherits": "base",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "CMAKE_CXX_FLAGS": "-fsanitize=thread -g",
-                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread",
-                "EXPP_ENABLE_SANITIZERS": "OFF"
-            },
-            "condition": {
-                "type": "notEquals",
-                "lhs": "${hostSystemName}",
-                "rhs": "Windows"
-            }
+            "name": "gcc-release",
+            "displayName": "GCC Release",
+            "inherits": ["mixin-base", "mixin-gcc", "mixin-release"]
         },
         {
-            "name": "clang-tidy",
-            "displayName": "clang-tidy",
-            "description": "Build with clang-tidy analysis",
-            "inherits": "debug",
-            "cacheVariables": {
-                "EXPP_ENABLE_CLANG_TIDY": "ON"
-            }
+            "name": "gcc-relwithdebinfo",
+            "displayName": "GCC RelWithDebInfo",
+            "inherits": ["mixin-base", "mixin-gcc", "mixin-relwithdebinfo"]
+        },
+        {
+            "name": "gcc-asan",
+            "displayName": "GCC ASan",
+            "inherits": ["mixin-base", "mixin-gcc", "mixin-asan"]
+        },
+        {
+            "name": "clang-debug",
+            "displayName": "Clang Debug",
+            "inherits": ["mixin-base", "mixin-clang", "mixin-debug"]
+        },
+        {
+            "name": "clang-release",
+            "displayName": "Clang Release",
+            "inherits": ["mixin-base", "mixin-clang", "mixin-release"]
+        },
+        {
+            "name": "clang-relwithdebinfo",
+            "displayName": "Clang RelWithDebInfo",
+            "inherits": ["mixin-base", "mixin-clang", "mixin-relwithdebinfo"]
+        },
+        {
+            "name": "clang-asan",
+            "displayName": "Clang ASan",
+            "inherits": ["mixin-base", "mixin-clang", "mixin-asan"]
+        },
+        {
+            "name": "llvm-debug",
+            "displayName": "LLVM Debug (With libc++)",
+            "inherits": ["mixin-base", "mixin-libc++", "mixin-debug"]
+        },
+        {
+            "name": "llvm-release",
+            "displayName": "LLVM Release (With libc++)",
+            "inherits": ["mixin-base", "mixin-libc++", "mixin-release"]
+        },
+        {
+            "name": "llvm-relwithdebinfo",
+            "displayName": "LLVM RelWithDebInfo (With libc++)",
+            "inherits": ["mixin-base", "mixin-libc++", "mixin-relwithdebinfo"]
+        },
+        {
+            "name": "llvm-asan",
+            "displayName": "LLVM ASan (With libc++)",
+            "inherits": ["mixin-base", "mixin-libc++", "mixin-asan"]
         },
         {
             "name": "msvc-debug",
             "displayName": "MSVC Debug",
-            "description": "Debug build for MSVC",
-            "inherits": "base",
-            "architecture": {
-                "value": "x64",
-                "strategy": "external"
-            },
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "EXPP_BUILD_TESTS": "ON",
-                "CMAKE_CXX_COMPILER": "cl.exe"
-            },
-            "condition": {
-                "type": "equals",
-                "lhs": "${hostSystemName}",
-                "rhs": "Windows"
-            }
+            "inherits": ["mixin-base", "mixin-msvc", "mixin-debug"]
         },
         {
             "name": "msvc-release",
             "displayName": "MSVC Release",
-            "description": "Release build for MSVC",
-            "inherits": "base",
-            "architecture": {
-                "value": "x64",
-                "strategy": "external"
-            },
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release",
-                "CMAKE_CXX_COMPILER": "cl.exe"
-            },
-            "condition": {
-                "type": "equals",
-                "lhs": "${hostSystemName}",
-                "rhs": "Windows"
-            }
-        }
-    ],
-    "buildPresets": [
-        {
-            "name": "debug",
-            "configurePreset": "debug"
+            "inherits": ["mixin-base", "mixin-msvc", "mixin-release"]
         },
         {
-            "name": "release",
-            "configurePreset": "release"
+            "name": "msvc-relwithdebinfo",
+            "displayName": "MSVC RelWithDebInfo",
+            "inherits": ["mixin-base", "mixin-msvc", "mixin-relwithdebinfo"]
         },
         {
-            "name": "asan",
-            "configurePreset": "asan"
+            "name": "msvc-asan",
+            "displayName": "MSVC ASan",
+            "inherits": ["mixin-base", "mixin-msvc", "mixin-asan"]
+        },
+
+        {
+            "name": "clang-cl-debug",
+            "displayName": "Clang-Cl Debug",
+            "inherits": ["mixin-base", "mixin-clang-cl", "mixin-debug"]
         },
         {
-            "name": "tsan",
-            "configurePreset": "tsan"
-        }
-    ],
-    "testPresets": [
-        {
-            "name": "debug",
-            "configurePreset": "debug",
-            "output": {
-                "outputOnFailure": true
-            }
+            "name": "clang-cl-release",
+            "displayName": "Clang-Cl Release",
+            "inherits": ["mixin-base", "mixin-clang-cl", "mixin-release"]
         },
         {
-            "name": "asan",
-            "configurePreset": "asan",
-            "output": {
-                "outputOnFailure": true
-            },
-            "environment": {
-                "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1"
-            }
+            "name": "clang-cl-relwithdebinfo",
+            "displayName": "Clang-Cl RelWithDebInfo",
+            "inherits": ["mixin-base", "mixin-clang-cl", "mixin-relwithdebinfo"]
+        },
+        {
+            "name": "clang-cl-asan",
+            "displayName": "Clang-Cl ASan",
+            "inherits": ["mixin-base", "mixin-clang-cl", "mixin-asan"]
         }
     ]
 }

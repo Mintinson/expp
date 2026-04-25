@@ -24,7 +24,7 @@ project(Expp
     VERSION ${APP_VERSION}
         DESCRIPTION "Cross-platform TUI file manager built with C++23"
         HOMEPAGE_URL "https://github.com/Mintinson/expp"
-        LANGUAGES CXX
+        LANGUAGES CXX C
 )
 
 # ==============================================================================
@@ -58,33 +58,65 @@ option(EXPP_PREPARE_IO_URING_BACKEND "Enable Linux io_uring extension hooks" ON)
 # Compiler warnings (strict by default)
 # ==============================================================================
 add_library(expp_warnings INTERFACE)
+# target_compile_options(expp_warnings INTERFACE
+#         $<$<CXX_COMPILER_ID:MSVC>:
+#         /W4
+#         /WX
+#         /EHsc
+#         /permissive-
+#         /Zc:__cplusplus
+#         /Zc:preprocessor
+#         /utf-8
+#         >
+#         $<$<CXX_COMPILER_ID:GNU>:
+#         -Wall
+#         -Wextra
+#         -Wpedantic
+#         -Werror
+#         -Wconversion
+#         -Wsign-conversion
+#         -Wshadow
+#         -Wnon-virtual-dtor
+#         -Wold-style-cast
+#         -Wcast-align
+#         -Woverloaded-virtual
+#         -Wdouble-promotion
+#         -Wformat=2
+#         -Wimplicit-fallthrough
+#         >
+#         $<$<CXX_COMPILER_ID:Clang>:
+#         -Wall
+#         -Wextra
+#         -Wpedantic
+#         -Werror
+#         -Wconversion
+#         -Wsign-conversion
+#         -Wshadow
+#         -Wnon-virtual-dtor
+#         -Wold-style-cast
+#         -Wcast-align
+#         -Woverloaded-virtual
+#         -Wdouble-promotion
+#         -Wformat=2
+#         -Wimplicit-fallthrough
+#         >
+# )
 target_compile_options(expp_warnings INTERFACE
-        $<$<CXX_COMPILER_ID:MSVC>:
+        # 匹配 MSVC 前端 (cl.exe 和 clang-cl.exe)
+        $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>:
         /W4
         /WX
         /EHsc
         /permissive-
         /Zc:__cplusplus
-        /Zc:preprocessor
         /utf-8
         >
-        $<$<CXX_COMPILER_ID:GNU>:
-        -Wall
-        -Wextra
-        -Wpedantic
-        -Werror
-        -Wconversion
-        -Wsign-conversion
-        -Wshadow
-        -Wnon-virtual-dtor
-        -Wold-style-cast
-        -Wcast-align
-        -Woverloaded-virtual
-        -Wdouble-promotion
-        -Wformat=2
-        -Wimplicit-fallthrough
+        # 仅针对真正的 cl.exe 添加 /Zc:preprocessor，clang-cl 不需要
+        $<$<CXX_COMPILER_ID:MSVC>:
+        /Zc:preprocessor
         >
-        $<$<CXX_COMPILER_ID:Clang>:
+        # 匹配 GNU 前端 (gcc, Linux/Mac下的clang)
+        $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},GNU>:
         -Wall
         -Wextra
         -Wpedantic
@@ -195,11 +227,27 @@ else ()
 endif ()
 
 # --- FIX: Synchronize MSVC ABI flags for FTXUI ---
+# if (MSVC)
+#     # Apply strict standard conformance flags to match expp_warnings
+#     foreach (ftxui_target screen dom component)
+#         target_compile_options(${ftxui_target} PRIVATE /permissive- /Zc:__cplusplus /Zc:preprocessor)
+#         target_compile_options(${ftxui_target} PRIVATE /EHsc)
+
+#         # Apply AddressSanitizer if enabled to match expp_sanitizers
+#         if (EXPP_ENABLE_SANITIZERS AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
+#             target_compile_options(${ftxui_target} PRIVATE /fsanitize=address)
+#         endif ()
+#     endforeach ()
+# endif ()
+# --- FIX: Synchronize MSVC ABI flags for FTXUI ---
 if (MSVC)
     # Apply strict standard conformance flags to match expp_warnings
     foreach (ftxui_target screen dom component)
-        target_compile_options(${ftxui_target} PRIVATE /permissive- /Zc:__cplusplus /Zc:preprocessor)
-        target_compile_options(${ftxui_target} PRIVATE /EHsc)
+        target_compile_options(${ftxui_target} PRIVATE /permissive- /Zc:__cplusplus /EHsc)
+        
+        if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+            target_compile_options(${ftxui_target} PRIVATE /Zc:preprocessor)
+        endif()
 
         # Apply AddressSanitizer if enabled to match expp_sanitizers
         if (EXPP_ENABLE_SANITIZERS AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
@@ -207,6 +255,7 @@ if (MSVC)
         endif ()
     endforeach ()
 endif ()
+
 
 # ==============================================================================
 # Core library

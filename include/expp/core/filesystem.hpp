@@ -44,6 +44,7 @@ enum class FileType : std::uint8_t {
     Config,
     Unknown
 };
+
 /**
  * @brief File entry with cached metadata
  *
@@ -52,21 +53,23 @@ enum class FileType : std::uint8_t {
  */
 struct FileEntry {
     fs::path path;
-    [[no_unique_address]] FileType type{FileType::Unknown};
-    [[no_unique_address]] std::uintmax_t size{0};
-    [[no_unique_address]] std::chrono::file_clock::time_point birthTime;
-    [[no_unique_address]] std::chrono::file_clock::time_point lastModified;
+    FileType type{FileType::Unknown};
+    std::uintmax_t size{0};
+    std::chrono::file_clock::time_point birthTime;
+    std::chrono::file_clock::time_point lastModified;
     fs::path symlinkTarget;
-    [[no_unique_address]] bool isHidden{false};
-    [[no_unique_address]] bool isReadable{false};
-    [[no_unique_address]] bool isWritable{false};
-    [[no_unique_address]] bool isBrokenSymlink{false};
-    [[no_unique_address]] bool isRecursiveSymlink{false};
+    bool isHidden{false};
+    bool isReadable{false};
+    bool isWritable{false};
+    bool isBrokenSymlink{false};
+    bool isRecursiveSymlink{false};
 
     [[nodiscard]] std::string filename() const { return path.filename().string(); }
+
     [[nodiscard]] std::string extension() const { return path.extension().string(); }
 
     [[nodiscard]] bool isDirectory() const noexcept { return type == FileType::Directory; }
+
     [[nodiscard]] bool isSymlink() const noexcept { return type == FileType::Symlink; }
 };
 

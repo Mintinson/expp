@@ -1,7 +1,9 @@
 #include "expp/app/explorer_commands.hpp"
 
+#include <algorithm>
 #include <array>
 #include <vector>
+
 
 namespace expp::app {
 

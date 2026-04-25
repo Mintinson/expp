@@ -110,7 +110,7 @@ private:
     /// Explorer domain instance mutated by confirmed overlay actions.
     std::shared_ptr<Explorer> explorer_;
     /// Notification channel used to surface recoverable UI errors.
-    NotificationCenter& notifications_;
+    [[maybe_unused]] NotificationCenter& notifications_;
     DirectoryJumpCallback directoryJump_;
     CreateCallback create_;
     RenameCallback rename_;

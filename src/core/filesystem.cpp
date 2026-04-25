@@ -138,11 +138,27 @@ template <typename Container>
     struct statx stx;
     // linux 4.11+ introduce statx, support BTIME
     if (statx(AT_FDCWD, path.c_str(), AT_SYMLINK_NOFOLLOW, STATX_BTIME, &stx) == 0) {
+        // currently
+
+    #if defined(_LIBCPP_VERSION)
+        // TODO: solve the problem in libc++ that missing clock_cast which cause the code below fail to compile,
+        if (stx.stx_mask & STATX_BTIME) {  // make sure it support BTIME
+            auto duration =
+                std::chrono::seconds(stx.stx_btime.tv_sec) + std::chrono::nanoseconds(stx.stx_btime.tv_nsec);
+
+            // Directly construct a file_clock time_point from the duration since epoch.
+            // This avoids the missing clock_cast in libc++ entirely.
+            return std::chrono::time_point<std::chrono::file_clock, std::chrono::nanoseconds>(duration);
+        }
+    #else
+        // we just construct a file_clock time_point directly from the duration since epoch, which is not elegant but
+        // works
         if (stx.stx_mask & STATX_BTIME) {  // make sure it support BTIME
             auto sys_time =
                 system_clock::time_point(seconds(stx.stx_btime.tv_sec) + nanoseconds(stx.stx_btime.tv_nsec));
             return clock_cast<file_clock>(sys_time);
         }
+    #endif
     }
     // for old linux kernel or other unix-like system, we can only get the birth time by fallback to last modified time,
     // which is not accurate but better than nothing
