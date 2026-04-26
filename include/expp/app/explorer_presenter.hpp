@@ -172,26 +172,34 @@ public:
     static constexpr int kPageStep = 10;
 
     /**
+     * @brief Chooses a stable screen height from the interactive screen and terminal fallback.
+     *
+     * Some platforms report a placeholder screen height before the first render loop iteration.
+     * This helper keeps viewport initialization from collapsing to a one-row list on startup.
+     */
+    [[nodiscard]] static int resolveScreenRows(int screen_rows, int fallback_rows) noexcept;
+
+    /**
      * @brief Computes the list viewport height from the current terminal height.
-        *
-        * The returned value is clamped to at least one row.
+     *
+     * The returned value is clamped to at least one row.
      */
     [[nodiscard]] static int listViewportRows(int screen_rows) noexcept;
     /**
      * @brief Computes the help overlay viewport height from the terminal height.
-        *
-        * The returned value is clamped to a readable range to avoid oversized
-        * overlays on very large terminals and unusable overlays on tiny terminals.
+     *
+     * The returned value is clamped to a readable range to avoid oversized
+     * overlays on very large terminals and unusable overlays on tiny terminals.
      */
     [[nodiscard]] static int helpViewportRows(int screen_rows) noexcept;
 
     /**
      * @brief Projects explorer state into a render-friendly screen model.
-        * @param state Domain explorer state.
-        * @param overlay Active overlay state (influences help/status text).
-        * @param key_buffer Pending key sequence buffer to surface in status UI.
-        * @param mode Active key-handler mode (normal/visual/etc.).
-        * @return Fully projected model for one render frame.
+     * @param state Domain explorer state.
+     * @param overlay Active overlay state (influences help/status text).
+     * @param key_buffer Pending key sequence buffer to surface in status UI.
+     * @param mode Active key-handler mode (normal/visual/etc.).
+     * @return Fully projected model for one render frame.
      */
     [[nodiscard]] ExplorerScreenModel present(const ExplorerState& state,
                                               const ExplorerOverlayState& overlay,

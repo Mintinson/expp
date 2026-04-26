@@ -28,6 +28,7 @@
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/screen/terminal.hpp>
 // clang-format on
 
 #include <algorithm>
@@ -45,6 +46,14 @@
 
 namespace expp::app {
 
+namespace {
+
+[[nodiscard]] int resolve_screen_rows(const ftxui::ScreenInteractive& screen) noexcept {
+    return ExplorerPresenter::resolveScreenRows(screen.dimy(), ftxui::Terminal::Size().dimy);
+}
+
+}  // namespace
+
 class ExplorerView::Impl {
 public:
     explicit Impl(std::shared_ptr<Explorer> explorer)
@@ -58,23 +67,21 @@ public:
         , mutationController_(explorer_, notifications_, directoryController_)
         , composer_(theme_) {
         explorer_->services().runtime->mailbox().setWakeCallback([this] { screen_.PostEvent(ftxui::Event::Custom); });
-        notifications_.setPublishObserver([this](NotificationCenter::Clock::time_point expires_at) {
-            scheduleToastExpiry(expires_at);
-        });
+        notifications_.setPublishObserver(
+            [this](NotificationCenter::Clock::time_point expires_at) { scheduleToastExpiry(expires_at); });
 
         overlayController_ = std::make_unique<ExplorerOverlayController>(
             explorer_, notifications_,
             [this](std::string input) { directoryController_.navigateToInput(std::move(input)); },
             [this](std::string name) { mutationController_.create(std::move(name)); },
             [this](std::string new_name) { mutationController_.rename(std::move(new_name)); },
-            [this]() { mutationController_.deleteSelected(); },
-            [this]() { mutationController_.trashSelected(); });
+            [this]() { mutationController_.deleteSelected(); }, [this]() { mutationController_.trashSelected(); });
 
         dispatcher_ = std::make_unique<ExplorerCommandDispatcher>(
             explorer_, notifications_,
             [this](ExplorerCommand cmd) {
                 if (cmd == ExplorerCommand::OpenHelp) {
-                    overlayController_->openHelpOverlay(helpEntries_, screen_.dimy());
+                    overlayController_->openHelpOverlay(helpEntries_, resolve_screen_rows(screen_));
                 } else {
                     overlayController_->openOverlayForCommand(cmd);
                 }
@@ -90,9 +97,7 @@ public:
         syncDerivedState(true);
     }
 
-    ~Impl() {
-        explorer_->services().runtime->mailbox().setWakeCallback({});
-    }
+    ~Impl() { explorer_->services().runtime->mailbox().setWakeCallback({}); }
 
     int run() {
         using namespace ftxui;
@@ -110,9 +115,7 @@ public:
         return 0;
     }
 
-    void requestExit() {
-        screen_.Exit();
-    }
+    void requestExit() { screen_.Exit(); }
 
 private:
     void handleAsyncCommand(ExplorerCommand command, const ui::ActionContext& ctx) {
@@ -255,7 +258,8 @@ private:
     }
 
     void syncDerivedState(bool force_preview = false) {
-        if (const int measured_rows = ExplorerPresenter::listViewportRows(screen_.dimy()); measured_rows > 0) {
+        const int screen_rows = resolve_screen_rows(screen_);
+        if (const int measured_rows = ExplorerPresenter::listViewportRows(screen_rows); measured_rows > 0) {
             explorer_->setViewportRows(measured_rows);
         }
 
@@ -263,7 +267,7 @@ private:
         directoryController_.updateViewportInterest();
 
         if (auto* help = std::get_if<HelpOverlayState>(&overlayController_->state())) {
-            help->viewport.viewportRows = ExplorerPresenter::helpViewportRows(screen_.dimy());
+            help->viewport.viewportRows = ExplorerPresenter::helpViewportRows(screen_rows);
             help->viewport = ui::clamp_help_viewport(help->viewport, help->model);
         }
     }

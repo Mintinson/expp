@@ -8,6 +8,10 @@
 
 namespace expp::app {
 
+int ExplorerPresenter::resolveScreenRows(int screen_rows, int fallback_rows) noexcept {
+    return std::max({1, screen_rows, fallback_rows});
+}
+
 int ExplorerPresenter::listViewportRows(int screen_rows) noexcept {
     constexpr int kRootLayoutRows = 2;
     constexpr int kPanelDecorRows = 4;
@@ -123,8 +127,7 @@ void setup_titles(ExplorerScreenModel& model, const std::filesystem::path& dir) 
  * @param mode The current UI mode (e.g., Visual mode).
  * @return Context-specific help text for the status line.
  */
-[[nodiscard]] std::string determine_help_text(const ExplorerOverlayState& overlay, ui::Mode mode
-) {
+[[nodiscard]] std::string determine_help_text(const ExplorerOverlayState& overlay, ui::Mode mode) {
     std::string text;
     if (std::holds_alternative<HelpOverlayState>(overlay)) {
         text = "HELP: j/k move, f filter, Enter done, Esc/~ close";

@@ -1,4 +1,5 @@
 #include "expp/app/explorer.hpp"
+#include "expp/app/explorer_presenter.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -74,6 +75,12 @@ TEST_CASE("Explorer scroll offset clamps after viewport expansion", "[app][explo
     const auto& state = explorer->state();
     CHECK(state.selection.currentSelected == 23);
     CHECK(state.selection.currentScrollOffset == 0);
+}
+
+TEST_CASE("Explorer presenter resolves startup screen rows from terminal fallback", "[app][explorer][viewport]") {
+    CHECK(expp::app::ExplorerPresenter::resolveScreenRows(7, 42) == 42);
+    CHECK(expp::app::ExplorerPresenter::resolveScreenRows(40, 20) == 40);
+    CHECK(expp::app::ExplorerPresenter::resolveScreenRows(0, 0) == 1);
 }
 
 TEST_CASE("Explorer create fails for missing startup directory", "[app][explorer][errors]") {
