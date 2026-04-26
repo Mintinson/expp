@@ -25,6 +25,7 @@ target_link_libraries(expp_tests
         expp_core
         expp_ui
         expp_app
+        expp_sanitizers
         Catch2::Catch2WithMain
 )
 

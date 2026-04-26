@@ -134,27 +134,6 @@ target_compile_options(expp_warnings INTERFACE
         >
 )
 
-# ==============================================================================
-# Sanitizers (Debug builds only)
-# ==============================================================================
-add_library(expp_sanitizers INTERFACE)
-if (EXPP_ENABLE_SANITIZERS)
-    if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-        if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-            target_compile_options(expp_sanitizers INTERFACE
-                    -fsanitize=address,undefined
-                    -fno-omit-frame-pointer
-            )
-            target_link_options(expp_sanitizers INTERFACE
-                    -fsanitize=address,undefined
-            )
-            message(STATUS "AddressSanitizer and UBSan enabled for Debug build")
-        elseif (MSVC)
-            target_compile_options(expp_sanitizers INTERFACE /fsanitize=address)
-            message(STATUS "AddressSanitizer enabled for Debug build (MSVC)")
-        endif ()
-    endif ()
-endif ()
 
 
 # ==============================================================================
@@ -226,6 +205,54 @@ else ()
     target_compile_definitions(expp_asio INTERFACE EXPP_PREPARE_IO_URING_BACKEND=0)
 endif ()
 
+# ==============================================================================
+# Sanitizers (Debug builds only)
+# ==============================================================================
+add_library(expp_sanitizers INTERFACE)
+if (EXPP_ENABLE_SANITIZERS)
+    if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+        if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(expp_sanitizers INTERFACE
+                    -fsanitize=address,undefined
+                    -fno-omit-frame-pointer
+            )
+            target_link_options(expp_sanitizers INTERFACE
+                    -fsanitize=address,undefined
+            )
+            message(STATUS "AddressSanitizer and UBSan enabled for Debug build")
+            if (TARGET Catch2)
+                target_compile_options(Catch2 PRIVATE                    
+                    -fsanitize=address,undefined
+                    -fno-omit-frame-pointer
+                )
+                target_link_options(Catch2 INTERFACE
+                    -fsanitize=address,undefined
+                )
+            endif ()
+            if (TARGET Catch2WithMain)
+                  target_compile_options(Catch2WithMain PRIVATE                    
+                    -fsanitize=address,undefined
+                    -fno-omit-frame-pointer
+                )
+                target_link_options(Catch2WithMain INTERFACE
+                    -fsanitize=address,undefined
+                )
+            endif ()
+        elseif (MSVC)
+            target_compile_options(expp_sanitizers INTERFACE /fsanitize=address)
+            message(STATUS "AddressSanitizer enabled for Debug build (MSVC)")
+            if (TARGET Catch2)
+                target_compile_options(Catch2 PRIVATE /fsanitize=address)
+            endif ()
+            if (TARGET Catch2WithMain)
+                target_compile_options(Catch2WithMain PRIVATE /fsanitize=address)
+            endif ()
+        endif ()
+        # endif ()
+    endif ()
+endif ()
+
+
 # --- FIX: Synchronize MSVC ABI flags for FTXUI ---
 # if (MSVC)
 #     # Apply strict standard conformance flags to match expp_warnings
@@ -254,6 +281,16 @@ if (MSVC)
             target_compile_options(${ftxui_target} PRIVATE /fsanitize=address)
         endif ()
     endforeach ()
+
+    # # Keep Catch2 STL annotation settings aligned with sanitized test/object files.
+    # if (EXPP_BUILD_TESTS AND EXPP_ENABLE_SANITIZERS AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
+    #     if (TARGET Catch2)
+    #         target_compile_options(Catch2 PRIVATE /fsanitize=address)
+    #     endif ()
+    #     if (TARGET Catch2WithMain)
+    #         target_compile_options(Catch2WithMain PRIVATE /fsanitize=address)
+    #     endif ()
+    # endif ()
 endif ()
 
 
