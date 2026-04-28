@@ -25,6 +25,7 @@
 #include <utility>
 #include <vector>
 
+#define TOML_EXCEPTIONS 0
 #include <toml++/toml.hpp>
 
 namespace expp::ui {
@@ -429,13 +430,19 @@ bool KeyMap::unbind(std::string_view keys, Mode mode) {
 
 core::Result<KeyLoadReport> KeyMap::loadFromFile(const std::filesystem::path& path,
                                                  const CommandResolver& resolve_command) {
-    toml::table table;
-    try {
-        table = toml::parse_file(path.string());
-    } catch (const toml::parse_error& error) {
-        return core::make_error(core::ErrorCategory::Config, std::format("Failed to parse keybinding config '{}': {}",
-                                                                         path.string(), error.description()));
+    toml::parse_result result = toml::parse_file(path.string());
+
+    if (!result) {
+        return core::make_error(core::ErrorCategory::Config,
+                                std::format("Failed to parse keybinding config '{}': {}", path.string(), result.error().description()));
     }
+    toml::table table = std::move(result).table();
+    // try {
+    //     table = toml::parse_file(path.string());
+    // } catch (const toml::parse_error& error) {
+    //     return core::make_error(core::ErrorCategory::Config, std::format("Failed to parse keybinding config '{}': {}",
+    //                                                                      path.string(), error.description()));
+    // }
 
     KeyLoadReport report;
     auto* keys = table["keys"].as_table();

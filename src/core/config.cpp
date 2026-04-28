@@ -19,6 +19,7 @@
 #include <utility>
 #include <vector>
 
+#define TOML_EXCEPTIONS 0
 #include <toml++/toml.hpp>
 
 namespace expp::core {
@@ -396,13 +397,19 @@ VoidResult ConfigManager::load() {
 }
 
 VoidResult ConfigManager::loadFrom(const std::filesystem::path& path) {
-    toml::table tbl;
-    try {
-        tbl = toml::parse_file(path.string());
-    } catch (const toml::parse_error& err) {
+    toml::parse_result result = toml::parse_file(path.string());
+
+    if (!result) {
         return make_error(ErrorCategory::Config,
-                          std::format("Failed to parse config file '{}': {}", path.string(), err.description()));
+                          std::format("Failed to parse config file '{}': {}", path.string(), result.error().description()));
     }
+    toml::table tbl = std::move(result).table();
+    // try {
+    //     tbl = toml::parse_file(path.string());
+    // } catch (const toml::parse_error& err) {
+    //     return make_error(ErrorCategory::Config,
+    //                       std::format("Failed to parse config file '{}': {}", path.string(), err.description()));
+    // }
 
     Config cfg = defaults();
     // Load into a temporary config so parse success is all-or-nothing from the

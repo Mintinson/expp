@@ -7,52 +7,60 @@
     },
     "configurePresets": [
         {
-            "name": "mixin-base",
+            "name": "base",
             "hidden": true,
+            "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/${presetName}",
             "installDir": "${sourceDir}/install/${presetName}",
-            "generator": "Ninja",
             "cacheVariables": {
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
             }
         },
         {
-            "name": "mixin-gcc",
+            "name": "compiler-gcc",
             "hidden": true,
+            "inherits": ["base"],
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            },
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "gcc",
                 "CMAKE_CXX_COMPILER": "g++"
-            },
+            }
+        },
+        {
+            "name": "compiler-clang",
+            "hidden": true,
+            "inherits": ["base"],
             "condition": {
                 "type": "equals",
                 "lhs": "${hostSystemName}",
                 "rhs": "Linux"
-            }
-        },
-        {
-            "name": "mixin-clang",
-            "hidden": true,
+            },
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "clang",
                 "CMAKE_CXX_COMPILER": "clang++"
-            },
-            "condition": {
-                "type": "equals",
-                "lhs": "${hostSystemName}",
-                "rhs": "Linux"
             }
         },
         {
-            "name": "mixin-libc++",
+            "name": "compiler-llvm-libcxx",
             "hidden": true,
-            "inherits": "mixin-clang",
+            "inherits": ["compiler-clang"],
             "cacheVariables": {
                 "CMAKE_CXX_FLAGS": "-stdlib=libc++"
             }
         },
         {
-            "name": "mixin-msvc",
+            "name": "compiler-msvc",
             "hidden": true,
+            "inherits": ["base"],
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
             "architecture": {
                 "value": "x64",
                 "strategy": "external"
@@ -60,56 +68,60 @@
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "cl.exe",
                 "CMAKE_CXX_COMPILER": "cl.exe"
-            },
+            }
+        },
+        {
+            "name": "compiler-clang-cl",
+            "hidden": true,
+            "inherits": ["base"],
             "condition": {
                 "type": "equals",
                 "lhs": "${hostSystemName}",
                 "rhs": "Windows"
-            }
-        },
-        {
-            "name": "mixin-clang-cl",
-            "hidden": true,
+            },
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "clang-cl.exe",
                 "CMAKE_CXX_COMPILER": "clang-cl.exe"
-            },
-            "condition": {
-                "type": "equals",
-                "lhs": "${hostSystemName}",
-                "rhs": "Windows"
             }
         },
         {
-            "name": "mixin-debug",
+            "name": "config-debug",
             "hidden": true,
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "EXPP_BUILD_TESTS": "ON"
+                "EXPP_BUILD_TESTS": "ON",
+                "EXPP_DISABLE_EXCEPTIONS": "OFF",
+                "EXPP_ENABLE_SANITIZERS": "OFF"
             }
         },
         {
-            "name": "mixin-release",
+            "name": "config-release",
             "hidden": true,
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "EXPP_BUILD_TESTS": "OFF"
+                "EXPP_BUILD_TESTS": "OFF",
+                "EXPP_DISABLE_EXCEPTIONS": "ON",
+                "EXPP_ENABLE_SANITIZERS": "OFF"
             }
         },
         {
-            "name": "mixin-relwithdebinfo",
+            "name": "config-relwithdebinfo",
             "hidden": true,
-            "inherits": "mixin-debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "EXPP_ENABLE_SANITIZERS": "OFF",
-                "EXPP_BUILD_TESTS": "ON"
+                "EXPP_BUILD_TESTS": "ON",
+                "EXPP_DISABLE_EXCEPTIONS": "OFF",
+                "EXPP_ENABLE_SANITIZERS": "OFF"
             }
         },
         {
-            "name": "mixin-asan",
+            "name": "config-asan",
             "hidden": true,
-            "inherits": "mixin-debug",
+            "inherits": ["config-debug"],
             "cacheVariables": {
                 "EXPP_ENABLE_SANITIZERS": "ON"
             }
@@ -117,272 +129,254 @@
         {
             "name": "gcc-debug",
             "displayName": "GCC Debug",
-            "inherits": [
-                "mixin-base",
-                "mixin-gcc",
-                "mixin-debug"
-            ]
+            "inherits": ["compiler-gcc", "config-debug"]
         },
         {
             "name": "gcc-release",
-            "displayName": "GCC Release",
-            "inherits": [
-                "mixin-base",
-                "mixin-gcc",
-                "mixin-release"
-            ]
+            "displayName": "GCC Release (No Exceptions)",
+            "inherits": ["compiler-gcc", "config-release"]
         },
         {
             "name": "gcc-relwithdebinfo",
             "displayName": "GCC RelWithDebInfo",
-            "inherits": [
-                "mixin-base",
-                "mixin-gcc",
-                "mixin-relwithdebinfo"
-            ]
+            "inherits": ["compiler-gcc", "config-relwithdebinfo"]
         },
         {
             "name": "gcc-asan",
             "displayName": "GCC ASan",
-            "inherits": [
-                "mixin-base",
-                "mixin-gcc",
-                "mixin-asan"
-            ]
+            "inherits": ["compiler-gcc", "config-asan"]
         },
         {
             "name": "clang-debug",
             "displayName": "Clang Debug",
-            "inherits": [
-                "mixin-base",
-                "mixin-clang",
-                "mixin-debug"
-            ]
+            "inherits": ["compiler-clang", "config-debug"]
         },
         {
             "name": "clang-release",
-            "displayName": "Clang Release",
-            "inherits": [
-                "mixin-base",
-                "mixin-clang",
-                "mixin-release"
-            ]
+            "displayName": "Clang Release (No Exceptions)",
+            "inherits": ["compiler-clang", "config-release"]
         },
         {
             "name": "clang-relwithdebinfo",
             "displayName": "Clang RelWithDebInfo",
-            "inherits": [
-                "mixin-base",
-                "mixin-clang",
-                "mixin-relwithdebinfo"
-            ]
+            "inherits": ["compiler-clang", "config-relwithdebinfo"]
         },
         {
             "name": "clang-asan",
             "displayName": "Clang ASan",
-            "inherits": [
-                "mixin-base",
-                "mixin-clang",
-                "mixin-asan"
-            ]
+            "inherits": ["compiler-clang", "config-asan"]
         },
         {
             "name": "llvm-debug",
-            "displayName": "LLVM Debug (With libc++)",
-            "inherits": [
-                "mixin-base",
-                "mixin-libc++",
-                "mixin-debug"
-            ]
+            "displayName": "LLVM Debug (libc++)",
+            "inherits": ["compiler-llvm-libcxx", "config-debug"]
         },
         {
             "name": "llvm-release",
-            "displayName": "LLVM Release (With libc++)",
-            "inherits": [
-                "mixin-base",
-                "mixin-libc++",
-                "mixin-release"
-            ]
+            "displayName": "LLVM Release (libc++, No Exceptions)",
+            "inherits": ["compiler-llvm-libcxx", "config-release"]
         },
         {
             "name": "llvm-relwithdebinfo",
-            "displayName": "LLVM RelWithDebInfo (With libc++)",
-            "inherits": [
-                "mixin-base",
-                "mixin-libc++",
-                "mixin-relwithdebinfo"
-            ]
+            "displayName": "LLVM RelWithDebInfo (libc++)",
+            "inherits": ["compiler-llvm-libcxx", "config-relwithdebinfo"]
         },
         {
             "name": "llvm-asan",
-            "displayName": "LLVM ASan (With libc++)",
-            "inherits": [
-                "mixin-base",
-                "mixin-libc++",
-                "mixin-asan"
-            ]
+            "displayName": "LLVM ASan (libc++)",
+            "inherits": ["compiler-llvm-libcxx", "config-asan"]
         },
         {
             "name": "msvc-debug",
             "displayName": "MSVC Debug",
-            "inherits": [
-                "mixin-base",
-                "mixin-msvc",
-                "mixin-debug"
-            ]
+            "inherits": ["compiler-msvc", "config-debug"]
         },
         {
             "name": "msvc-release",
-            "displayName": "MSVC Release",
-            "inherits": [
-                "mixin-base",
-                "mixin-msvc",
-                "mixin-release"
-            ]
+            "displayName": "MSVC Release (No Exceptions)",
+            "inherits": ["compiler-msvc", "config-release"]
         },
         {
             "name": "msvc-relwithdebinfo",
             "displayName": "MSVC RelWithDebInfo",
-            "inherits": [
-                "mixin-base",
-                "mixin-msvc",
-                "mixin-relwithdebinfo"
-            ]
+            "inherits": ["compiler-msvc", "config-relwithdebinfo"]
         },
         {
             "name": "msvc-asan",
             "displayName": "MSVC ASan",
-            "inherits": [
-                "mixin-base",
-                "mixin-msvc",
-                "mixin-asan"
-            ]
+            "inherits": ["compiler-msvc", "config-asan"]
         },
         {
             "name": "clang-cl-debug",
             "displayName": "Clang-Cl Debug",
-            "inherits": [
-                "mixin-base",
-                "mixin-clang-cl",
-                "mixin-debug"
-            ],
-            "cacheVariables": {
-                "EXPP_ENABLE_SANITIZERS": "OFF"
-            }
+            "inherits": ["compiler-clang-cl", "config-debug"]
         },
         {
             "name": "clang-cl-release",
-            "displayName": "Clang-Cl Release",
-            "inherits": [
-                "mixin-base",
-                "mixin-clang-cl",
-                "mixin-release"
-            ]
+            "displayName": "Clang-Cl Release (No Exceptions)",
+            "inherits": ["compiler-clang-cl", "config-release"]
         },
         {
             "name": "clang-cl-relwithdebinfo",
             "displayName": "Clang-Cl RelWithDebInfo",
-            "inherits": [
-                "mixin-base",
-                "mixin-clang-cl",
-                "mixin-relwithdebinfo"
-            ]
+            "inherits": ["compiler-clang-cl", "config-relwithdebinfo"]
         },
         {
             "name": "clang-cl-asan",
             "displayName": "Clang-Cl ASan",
-            "inherits": [
-                "mixin-base",
-                "mixin-clang-cl",
-                "mixin-asan"
-            ]
+            "inherits": ["compiler-clang-cl", "config-asan"],
+            "cacheVariables": {
+                "EXPP_ENABLE_SANITIZERS": "OFF"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "gcc-debug",
+            "configurePreset": "gcc-debug"
+        },
+        {
+            "name": "gcc-release",
+            "configurePreset": "gcc-release"
+        },
+        {
+            "name": "gcc-relwithdebinfo",
+            "configurePreset": "gcc-relwithdebinfo"
+        },
+        {
+            "name": "gcc-asan",
+            "configurePreset": "gcc-asan"
+        },
+        {
+            "name": "clang-debug",
+            "configurePreset": "clang-debug"
+        },
+        {
+            "name": "clang-release",
+            "configurePreset": "clang-release"
+        },
+        {
+            "name": "clang-relwithdebinfo",
+            "configurePreset": "clang-relwithdebinfo"
+        },
+        {
+            "name": "clang-asan",
+            "configurePreset": "clang-asan"
+        },
+        {
+            "name": "llvm-debug",
+            "configurePreset": "llvm-debug"
+        },
+        {
+            "name": "llvm-release",
+            "configurePreset": "llvm-release"
+        },
+        {
+            "name": "llvm-relwithdebinfo",
+            "configurePreset": "llvm-relwithdebinfo"
+        },
+        {
+            "name": "llvm-asan",
+            "configurePreset": "llvm-asan"
+        },
+        {
+            "name": "msvc-debug",
+            "configurePreset": "msvc-debug"
+        },
+        {
+            "name": "msvc-release",
+            "configurePreset": "msvc-release"
+        },
+        {
+            "name": "msvc-relwithdebinfo",
+            "configurePreset": "msvc-relwithdebinfo"
+        },
+        {
+            "name": "msvc-asan",
+            "configurePreset": "msvc-asan"
+        },
+        {
+            "name": "clang-cl-debug",
+            "configurePreset": "clang-cl-debug"
+        },
+        {
+            "name": "clang-cl-release",
+            "configurePreset": "clang-cl-release"
+        },
+        {
+            "name": "clang-cl-relwithdebinfo",
+            "configurePreset": "clang-cl-relwithdebinfo"
+        },
+        {
+            "name": "clang-cl-asan",
+            "configurePreset": "clang-cl-asan"
         }
     ],
     "testPresets": [
         {
-            "name": "gcc-debug",
-            "configurePreset": "gcc-debug",
+            "name": "test-base",
+            "hidden": true,
             "output": {
                 "outputOnFailure": true
             }
+        },
+        {
+            "name": "test-asan-base",
+            "hidden": true,
+            "inherits": ["test-base"],
+            "environment": {
+                "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1"
+            }
+        },
+        {
+            "name": "gcc-debug",
+            "inherits": ["test-base"],
+            "configurePreset": "gcc-debug"
         },
         {
             "name": "gcc-asan",
-            "configurePreset": "gcc-asan",
-            "output": {
-                "outputOnFailure": true
-            },
-            "environment": {
-                "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1"
-            }
+            "inherits": ["test-asan-base"],
+            "configurePreset": "gcc-asan"
         },
         {
             "name": "clang-debug",
-            "configurePreset": "clang-debug",
-            "output": {
-                "outputOnFailure": true
-            }
+            "inherits": ["test-base"],
+            "configurePreset": "clang-debug"
         },
         {
             "name": "clang-asan",
-            "configurePreset": "clang-asan",
-            "output": {
-                "outputOnFailure": true
-            },
-            "environment": {
-                "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1"
-            }
+            "inherits": ["test-asan-base"],
+            "configurePreset": "clang-asan"
         },
         {
             "name": "llvm-debug",
-            "configurePreset": "llvm-debug",
-            "output": {
-                "outputOnFailure": true
-            }
+            "inherits": ["test-base"],
+            "configurePreset": "llvm-debug"
         },
         {
             "name": "llvm-asan",
-            "configurePreset": "llvm-asan",
-            "output": {
-                "outputOnFailure": true
-            },
-            "environment": {
-                "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1"
-            }
+            "inherits": ["test-asan-base"],
+            "configurePreset": "llvm-asan"
         },
         {
             "name": "msvc-debug",
-            "configurePreset": "msvc-debug",
-            "output": {
-                "outputOnFailure": true
-            }
+            "inherits": ["test-base"],
+            "configurePreset": "msvc-debug"
         },
         {
             "name": "msvc-asan",
-            "configurePreset": "msvc-asan",
-            "output": {
-                "outputOnFailure": true
-            },
-            "environment": {
-                "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1"
-            }
+            "inherits": ["test-asan-base"],
+            "configurePreset": "msvc-asan"
         },
         {
             "name": "clang-cl-debug",
-            "configurePreset": "clang-cl-debug",
-            "output": {
-                "outputOnFailure": true
-            }
+            "inherits": ["test-base"],
+            "configurePreset": "clang-cl-debug"
         },
         {
             "name": "clang-cl-asan",
-            "configurePreset": "clang-cl-asan",
-            "output": {
-                "outputOnFailure": true
-            },
-            "environment": {
-                "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1"
-            }
+            "inherits": ["test-asan-base"],
+            "configurePreset": "clang-cl-asan"
         }
     ]
 }

@@ -168,99 +168,199 @@ template <typename Container>
 
 }  // anonymous namespace
 
+// bool is_executable(const fs::path& filepath) noexcept {
+//     try {
+//         if (!fs::is_regular_file(filepath)) {
+//             return false;
+//         }
+
+// #ifdef _WIN32
+//         // Windows: Check extension against PATHEXT environment variable
+//         // This is a common convention on Windows, but not foolproof. For a more robust solution, you might need to
+//         use
+//         // Windows API calls. But slower and more complex, so we stick to extension check for simplicity.
+//         std::string ext = filepath.extension().string();
+//         if (ext.empty()) {
+//             return false;
+//         }
+
+//         std::ranges::transform(ext, ext.begin(), ::toupper);
+
+//         size_t required_size{};
+//         char* pathext_buffer = nullptr;
+//         _dupenv_s(&pathext_buffer, &required_size, "PATHEXT");
+
+//         std::string pathext = pathext_buffer ? pathext_buffer : ".COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF";
+//         if (pathext_buffer) {
+//             free(pathext_buffer);  // NOLINT
+//         }
+
+//         size_t pos = pathext.find(ext);
+//         while (pos != std::string::npos) {
+//             bool start_valid = (pos == 0) || (pathext[pos - 1] == ';');
+//             bool end_valid = (pos + ext.length() == pathext.length()) || (pathext[pos + ext.length()] == ';');
+//             if (start_valid && end_valid) {
+//                 return true;
+//             }
+//             pos = pathext.find(ext, pos + 1);
+//         }
+//         return false;
+// #else
+//         // Linux/macOS: Rely on standard POSIX execute bits
+//         auto perm = fs::status(filepath).permissions();
+//         return (perm & fs::perms::owner_exec) != fs::perms::none || (perm & fs::perms::group_exec) != fs::perms::none
+//         ||
+//                (perm & fs::perms::others_exec) != fs::perms::none;
+// #endif
+//     } catch (...) {
+//         return false;
+//     }
+// }
+
 bool is_executable(const fs::path& filepath) noexcept {
-    try {
-        if (!fs::is_regular_file(filepath)) {
-            return false;
-        }
+    std::error_code ec;
 
-#ifdef _WIN32
-        // Windows: Check extension against PATHEXT environment variable
-        // This is a common convention on Windows, but not foolproof. For a more robust solution, you might need to use
-        // Windows API calls. But slower and more complex, so we stick to extension check for simplicity.
-        std::string ext = filepath.extension().string();
-        if (ext.empty()) {
-            return false;
-        }
-
-        std::ranges::transform(ext, ext.begin(), ::toupper);
-
-        size_t required_size{};
-        char* pathext_buffer = nullptr;
-        _dupenv_s(&pathext_buffer, &required_size, "PATHEXT");
-
-        std::string pathext = pathext_buffer ? pathext_buffer : ".COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF";
-        if (pathext_buffer) {
-            free(pathext_buffer);  // NOLINT
-        }
-
-        size_t pos = pathext.find(ext);
-        while (pos != std::string::npos) {
-            bool start_valid = (pos == 0) || (pathext[pos - 1] == ';');
-            bool end_valid = (pos + ext.length() == pathext.length()) || (pathext[pos + ext.length()] == ';');
-            if (start_valid && end_valid) {
-                return true;
-            }
-            pos = pathext.find(ext, pos + 1);
-        }
-        return false;
-#else
-        // Linux/macOS: Rely on standard POSIX execute bits
-        auto perm = fs::status(filepath).permissions();
-        return (perm & fs::perms::owner_exec) != fs::perms::none || (perm & fs::perms::group_exec) != fs::perms::none ||
-               (perm & fs::perms::others_exec) != fs::perms::none;
-#endif
-    } catch (...) {
+    if (!fs::is_regular_file(filepath, ec) || ec) {
         return false;
     }
+#ifdef _WIN32
+    // Windows: Check extension against PATHEXT environment variable
+    // This is a common convention on Windows, but not foolproof. For a more robust solution, you might need to use
+    // Windows API calls. But slower and more complex, so we stick to extension check for simplicity.
+    std::string ext = filepath.extension().string();
+    if (ext.empty()) {
+        return false;
+    }
+
+    std::ranges::transform(ext, ext.begin(), ::toupper);
+
+    size_t required_size{};
+    char* pathext_buffer = nullptr;
+    _dupenv_s(&pathext_buffer, &required_size, "PATHEXT");
+
+    std::string pathext = pathext_buffer ? pathext_buffer : ".COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF";
+    if (pathext_buffer) {
+        free(pathext_buffer);  // NOLINT
+    }
+
+    size_t pos = pathext.find(ext);
+    while (pos != std::string::npos) {
+        bool start_valid = (pos == 0) || (pathext[pos - 1] == ';');
+        bool end_valid = (pos + ext.length() == pathext.length()) || (pathext[pos + ext.length()] == ';');
+        if (start_valid && end_valid) {
+            return true;
+        }
+        pos = pathext.find(ext, pos + 1);
+    }
+    return false;
+#else
+    // Linux/macOS: Rely on standard POSIX execute bits
+    auto file_status = fs::status(filepath, ec);
+    if (ec) {
+        return false;
+    }
+    auto perm = file_status.permissions();
+    return (perm & fs::perms::owner_exec) != fs::perms::none || (perm & fs::perms::group_exec) != fs::perms::none ||
+           (perm & fs::perms::others_exec) != fs::perms::none;
+#endif
 }
 
 [[nodiscard]] FileType classify_file(const fs::directory_entry& entry) noexcept {
-    try {
-        if (entry.is_directory()) {
-            return FileType::Directory;
-        }
-        if (entry.is_symlink()) {
-            return FileType::Symlink;
-        }
-        if (!entry.is_regular_file()) {
-            return FileType::Unknown;
-        }
+    //     try {
+    //         if (entry.is_directory()) {
+    //             return FileType::Directory;
+    //         }
+    //         if (entry.is_symlink()) {
+    //             return FileType::Symlink;
+    //         }
+    //         if (!entry.is_regular_file()) {
+    //             return FileType::Unknown;
+    //         }
 
-        auto ext = to_lower(entry.path().extension().string());
+    //         auto ext = to_lower(entry.path().extension().string());
 
-        // Check executable first (platform-specific)
-#ifndef _WIN32
-        if (is_executable(entry.path())) {
-            return FileType::Executable;
-        }
-#else
-        if (ext == ".exe" || ext == ".bat" || ext == ".cmd" || ext == ".com" || ext == ".vbs" || ext == ".js" ||
-            ext == ".wsf") {
-            return FileType::Executable;
-        }
-#endif
+    //         // Check executable first (platform-specific)
+    // #ifndef _WIN32
+    //         if (is_executable(entry.path())) {
+    //             return FileType::Executable;
+    //         }
+    // #else
+    //         if (ext == ".exe" || ext == ".bat" || ext == ".cmd" || ext == ".com" || ext == ".vbs" || ext == ".js" ||
+    //             ext == ".wsf") {
+    //             return FileType::Executable;
+    //         }
+    // #endif
 
-        if (contains_extension(kArchiveExtensions, ext)) {
-            return FileType::Archive;
-        }
-        if (contains_extension(kImageExtensions, ext)) {
-            return FileType::Image;
-        }
-        if (contains_extension(kDocumentExtensions, ext)) {
-            return FileType::Document;
-        }
-        if (contains_extension(kSourceExtensions, ext)) {
-            return FileType::SourceCode;
-        }
-        if (contains_extension(kConfigExtensions, ext)) {
-            return FileType::Config;
-        }
+    //         if (contains_extension(kArchiveExtensions, ext)) {
+    //             return FileType::Archive;
+    //         }
+    //         if (contains_extension(kImageExtensions, ext)) {
+    //             return FileType::Image;
+    //         }
+    //         if (contains_extension(kDocumentExtensions, ext)) {
+    //             return FileType::Document;
+    //         }
+    //         if (contains_extension(kSourceExtensions, ext)) {
+    //             return FileType::SourceCode;
+    //         }
+    //         if (contains_extension(kConfigExtensions, ext)) {
+    //             return FileType::Config;
+    //         }
 
-        return FileType::RegularFile;
-    } catch (...) {
+    //         return FileType::RegularFile;
+    //     } catch (...) {
+    //         return FileType::Unknown;
+    //     }
+
+    std::error_code ec;
+
+    fs::file_status st = entry.symlink_status(ec);
+
+    if (ec) {
         return FileType::Unknown;
     }
+
+    switch (st.type()) {
+        case fs::file_type::directory:
+            return FileType::Directory;
+        case fs::file_type::symlink:
+            return FileType::Symlink;
+        case fs::file_type::regular:
+            break;
+        default:
+            return FileType::Unknown;
+    }
+
+    auto ext = to_lower(entry.path().extension().string());
+    // Check executable first (platform-specific)
+#ifndef _WIN32
+    if (is_executable(entry.path())) {
+        return FileType::Executable;
+    }
+#else
+    if (ext == ".exe" || ext == ".bat" || ext == ".cmd" || ext == ".com" || ext == ".vbs" || ext == ".js" ||
+        ext == ".wsf") {
+        return FileType::Executable;
+    }
+#endif
+
+    if (contains_extension(kArchiveExtensions, ext)) {
+        return FileType::Archive;
+    }
+    if (contains_extension(kImageExtensions, ext)) {
+        return FileType::Image;
+    }
+    if (contains_extension(kDocumentExtensions, ext)) {
+        return FileType::Document;
+    }
+    if (contains_extension(kSourceExtensions, ext)) {
+        return FileType::SourceCode;
+    }
+    if (contains_extension(kConfigExtensions, ext)) {
+        return FileType::Config;
+    }
+
+    return FileType::RegularFile;
 }
 
 bool is_previewable(const fs::path& path) noexcept {
@@ -269,52 +369,52 @@ bool is_previewable(const fs::path& path) noexcept {
 }
 
 [[nodiscard]] Result<FileEntry> inspect_directory_entry(const fs::directory_entry& entry) noexcept {
-    try {
-        FileEntry file_entry;
-        file_entry.path = entry.path();
-        file_entry.type = classify_file(entry);
+    // try {
+    FileEntry file_entry;
+    file_entry.path = entry.path();
+    file_entry.type = classify_file(entry);
 
-        const auto filename = entry.path().filename().string();
-        file_entry.isHidden = !filename.empty() && filename[0] == '.';
+    const auto filename = entry.path().filename().string();
+    file_entry.isHidden = !filename.empty() && filename[0] == '.';
 
-        if (file_entry.isSymlink()) {
-            std::error_code readlink_ec;
-            file_entry.symlinkTarget = fs::read_symlink(file_entry.path, readlink_ec);
-            if (readlink_ec) {
-                file_entry.symlinkTarget.clear();
-            }
-
-            std::error_code status_ec;
-            const auto symlink_status = fs::status(file_entry.path, status_ec);
-            if (status_ec == std::errc::too_many_symbolic_link_levels) {
-                file_entry.isRecursiveSymlink = true;
-            } else if (status_ec || symlink_status.type() == fs::file_type::not_found) {
-                file_entry.isBrokenSymlink = true;
-            }
+    if (file_entry.isSymlink()) {
+        std::error_code readlink_ec;
+        file_entry.symlinkTarget = fs::read_symlink(file_entry.path, readlink_ec);
+        if (readlink_ec) {
+            file_entry.symlinkTarget.clear();
         }
 
-        if (file_entry.type == FileType::RegularFile) {
-            std::error_code size_ec;
-            file_entry.size = entry.file_size(size_ec);
-            if (size_ec) {
-                file_entry.size = 0;
-            }
+        std::error_code status_ec;
+        const auto symlink_status = fs::status(file_entry.path, status_ec);
+        if (status_ec == std::errc::too_many_symbolic_link_levels) {
+            file_entry.isRecursiveSymlink = true;
+        } else if (status_ec || symlink_status.type() == fs::file_type::not_found) {
+            file_entry.isBrokenSymlink = true;
         }
-
-        std::error_code time_ec;
-        file_entry.lastModified = entry.last_write_time(time_ec);
-        if (time_ec) {
-            file_entry.lastModified = fs::file_time_type::min();
-        }
-
-        auto birth_time_result = query_birth_time(file_entry.path);
-        file_entry.birthTime = birth_time_result ? *birth_time_result : file_entry.lastModified;
-
-        return file_entry;
-    } catch (...) {
-        return make_error(ErrorCategory::FileSystem,
-                          std::format("Failed to inspect directory entry '{}'", entry.path().string()));
     }
+
+    if (file_entry.type == FileType::RegularFile) {
+        std::error_code size_ec;
+        file_entry.size = entry.file_size(size_ec);
+        if (size_ec) {
+            file_entry.size = 0;
+        }
+    }
+
+    std::error_code time_ec;
+    file_entry.lastModified = entry.last_write_time(time_ec);
+    if (time_ec) {
+        file_entry.lastModified = fs::file_time_type::min();
+    }
+
+    auto birth_time_result = query_birth_time(file_entry.path);
+    file_entry.birthTime = birth_time_result ? *birth_time_result : file_entry.lastModified;
+
+    return file_entry;
+    // } catch (...) {
+    //     return make_error(ErrorCategory::FileSystem,
+    //                       std::format("Failed to inspect directory entry '{}'", entry.path().string()));
+    // }
 }
 
 [[nodiscard]] Result<std::vector<FileEntry>> list_directory(const fs::path& dir, bool include_hidden) noexcept {
