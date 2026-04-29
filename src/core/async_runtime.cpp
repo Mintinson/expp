@@ -2,7 +2,26 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <print>
 #include <utility>
+
+#if defined(ASIO_NO_EXCEPTIONS)
+
+namespace asio::detail {
+
+template <typename Exception>
+[[noreturn]] void throw_exception(const Exception& e ASIO_SOURCE_LOCATION_PARAM) {
+    // Asio requires the application to provide this definition when
+    // ASIO_NO_EXCEPTIONS is enabled. Returning from this hook is invalid
+    // because the original Asio call site expects stack unwinding semantics.
+    std::println(stderr, "Fatal: Asio runtime error: {}", e.what());
+    std::terminate();
+}
+
+}  // namespace asio::detail
+
+#endif
+
 
 namespace expp::core {
 
@@ -18,7 +37,7 @@ void UiMailbox::post(Closure closure) {
         queue_.push(std::move(closure));
         wake = wakeCallback_;
     }
-    // Trigger the wake mechanism outside the lock to prevent deadlocks 
+    // Trigger the wake mechanism outside the lock to prevent deadlocks
     // or unnecessary blocking of the UI thread's wake handler.
     if (wake) {
         wake();
@@ -63,13 +82,13 @@ AsioRuntime::AsioRuntime(std::size_t io_threads, std::size_t cpu_threads)
 AsioRuntime::~AsioRuntime() {
     // 1. Drop the work guard. This tells ioContext it can exit once pending work is done.
     ioWork_.reset();
-    
+
     // 2. Forcefully stop ioContext_ (aborts pending IO and timers immediately).
     ioContext_.stop();
-    
-    // Note: ioThreads_ (jthreads) will automatically join here upon destruction 
+
+    // Note: ioThreads_ (jthreads) will automatically join here upon destruction
     // because ioContext_.run() will have returned due to the .stop() above.
-    
+
     // 3. Gracefully wait for all background thread pools to finish currently executing tasks.
     diskPool_.join();
     cpuPool_.join();

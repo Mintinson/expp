@@ -94,7 +94,7 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "EXPP_BUILD_TESTS": "ON",
-                "EXPP_DISABLE_EXCEPTIONS": "OFF",
+                "EXPP_DISABLE_EXCEPTIONS": "ON",
                 "EXPP_ENABLE_SANITIZERS": "OFF"
             }
         },

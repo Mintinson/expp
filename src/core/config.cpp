@@ -19,7 +19,7 @@
 #include <utility>
 #include <vector>
 
-#define TOML_EXCEPTIONS 0
+// #define TOML_EXCEPTIONS 0
 #include <toml++/toml.hpp>
 
 namespace expp::core {
@@ -31,7 +31,7 @@ namespace {
 template <typename ConfigT, typename MemberT>
 struct ScalarFieldSpec {
     std::string_view key;
-    MemberT ConfigT::*member;
+    MemberT ConfigT::* member;
 };
 
 template <typename ConfigT, std::size_t N>
@@ -75,32 +75,32 @@ void insert_int_fields(toml::table& tbl,
 }
 
 constexpr auto kPreviewBoolFields = std::array{
-    ScalarFieldSpec<PreviewConfig, bool>{"enabled", &PreviewConfig::enabled},
+    ScalarFieldSpec<PreviewConfig, bool>{"enabled",          &PreviewConfig::enabled        },
     ScalarFieldSpec<PreviewConfig, bool>{"syntax_highlight", &PreviewConfig::syntaxHighlight},
 };
 
 constexpr auto kPreviewIntFields = std::array{
-    ScalarFieldSpec<PreviewConfig, int>{"max_lines", &PreviewConfig::maxLines},
+    ScalarFieldSpec<PreviewConfig, int>{"max_lines",       &PreviewConfig::maxLines     },
     ScalarFieldSpec<PreviewConfig, int>{"max_line_length", &PreviewConfig::maxLineLength},
 };
 
 constexpr auto kLayoutBoolFields = std::array{
     ScalarFieldSpec<LayoutConfig, bool>{"show_preview_panel", &LayoutConfig::showPreviewPanel},
-    ScalarFieldSpec<LayoutConfig, bool>{"show_parent_panel", &LayoutConfig::showParentPanel},
-    ScalarFieldSpec<LayoutConfig, bool>{"show_status_bar", &LayoutConfig::showStatusBar},
+    ScalarFieldSpec<LayoutConfig, bool>{"show_parent_panel",  &LayoutConfig::showParentPanel },
+    ScalarFieldSpec<LayoutConfig, bool>{"show_status_bar",    &LayoutConfig::showStatusBar   },
 };
 
 constexpr auto kLayoutIntFields = std::array{
-    ScalarFieldSpec<LayoutConfig, int>{"parent_panel_width", &LayoutConfig::parentPanelWidth},
+    ScalarFieldSpec<LayoutConfig, int>{"parent_panel_width",  &LayoutConfig::parentPanelWidth },
     ScalarFieldSpec<LayoutConfig, int>{"preview_panel_width", &LayoutConfig::previewPanelWidth},
 };
 
 constexpr auto kBehaviorBoolFields = std::array{
-    ScalarFieldSpec<BehaviorConfig, bool>{"show_hidden_files", &BehaviorConfig::showHiddenFiles},
-    ScalarFieldSpec<BehaviorConfig, bool>{"confirm_delete", &BehaviorConfig::confirmDelete},
-    ScalarFieldSpec<BehaviorConfig, bool>{"confirm_trash", &BehaviorConfig::confirmTrash},
+    ScalarFieldSpec<BehaviorConfig, bool>{"show_hidden_files",      &BehaviorConfig::showHiddenFiles     },
+    ScalarFieldSpec<BehaviorConfig, bool>{"confirm_delete",         &BehaviorConfig::confirmDelete       },
+    ScalarFieldSpec<BehaviorConfig, bool>{"confirm_trash",          &BehaviorConfig::confirmTrash        },
     ScalarFieldSpec<BehaviorConfig, bool>{"sort_directories_first", &BehaviorConfig::sortDirectoriesFirst},
-    ScalarFieldSpec<BehaviorConfig, bool>{"case_sensitive_search", &BehaviorConfig::caseSensitiveSearch},
+    ScalarFieldSpec<BehaviorConfig, bool>{"case_sensitive_search",  &BehaviorConfig::caseSensitiveSearch },
 };
 
 constexpr auto kBehaviorIntFields = std::array{
@@ -109,7 +109,7 @@ constexpr auto kBehaviorIntFields = std::array{
 
 constexpr auto kNotificationBoolFields = std::array{
     ScalarFieldSpec<NotificationConfig, bool>{"show_success", &NotificationConfig::showSuccess},
-    ScalarFieldSpec<NotificationConfig, bool>{"show_info", &NotificationConfig::showInfo},
+    ScalarFieldSpec<NotificationConfig, bool>{"show_info",    &NotificationConfig::showInfo   },
 };
 
 constexpr auto kNotificationIntFields = std::array{
@@ -117,7 +117,7 @@ constexpr auto kNotificationIntFields = std::array{
 };
 
 constexpr auto kRuntimeIntFields = std::array{
-    ScalarFieldSpec<RuntimeConfig, int>{"io_threads", &RuntimeConfig::ioThreads},
+    ScalarFieldSpec<RuntimeConfig, int>{"io_threads",  &RuntimeConfig::ioThreads },
     ScalarFieldSpec<RuntimeConfig, int>{"cpu_threads", &RuntimeConfig::cpuThreads},
 };
 
@@ -127,7 +127,7 @@ constexpr auto kListingIntFields = std::array{
 };
 
 constexpr auto kAnalysisBoolFields = std::array{
-    ScalarFieldSpec<AnalysisConfig, bool>{"mime_sniffing", &AnalysisConfig::mimeSniffing},
+    ScalarFieldSpec<AnalysisConfig, bool>{"mime_sniffing",      &AnalysisConfig::mimeSniffing     },
     ScalarFieldSpec<AnalysisConfig, bool>{"highlight_previews", &AnalysisConfig::highlightPreviews},
 };
 
@@ -152,7 +152,7 @@ Result<uint32_t> parse_hex_color(std::string_view str) {
     uint32_t value = 0;
     static constexpr int kHexBase = 16;
     auto [ptr, ec] = std::from_chars(str.data(), str.data() + str.size(), value, kHexBase);
-    if (ec != std::errc{} || ptr != str.data() + str.size()) { // NOLINT
+    if (ec != std::errc{} || ptr != str.data() + str.size()) {  // NOLINT
         return make_error(ErrorCategory::Config, std::format("Failed to parse hex color '{}'", str));
     }
 
@@ -171,7 +171,7 @@ void load_color_theme(const toml::table& tbl, ColorTheme& theme) {
         theme.name = *val;
     }
 
-    if (const auto *ft = tbl["filetype_colors"].as_table()) {
+    if (const auto* ft = tbl["filetype_colors"].as_table()) {
         // Color parsing is tolerant here by design: invalid individual color
         // fields fall back to the existing default instead of rejecting the
         // entire theme section.
@@ -194,7 +194,7 @@ void load_color_theme(const toml::table& tbl, ColorTheme& theme) {
         try_color("hidden", theme.hidden);
     }
 
-    if (const auto *ui = tbl["ui_colors"].as_table()) {
+    if (const auto* ui = tbl["ui_colors"].as_table()) {
         auto try_color = [&](std::string_view key, uint32_t& target) {
             if (auto v = (*ui)[key].value<std::string>()) {
                 if (auto parsed = parse_hex_color(*v)) {
@@ -359,6 +359,7 @@ struct ConfigManager::Impl {
 };
 
 ConfigManager::ConfigManager() : impl_(std::make_unique<Impl>()) {}
+
 ConfigManager::~ConfigManager() = default;
 
 VoidResult ConfigManager::load() {
@@ -398,10 +399,9 @@ VoidResult ConfigManager::load() {
 
 VoidResult ConfigManager::loadFrom(const std::filesystem::path& path) {
     toml::parse_result result = toml::parse_file(path.string());
-
     if (!result) {
-        return make_error(ErrorCategory::Config,
-                          std::format("Failed to parse config file '{}': {}", path.string(), result.error().description()));
+        return make_error(ErrorCategory::Config, std::format("Failed to parse config file '{}': {}", path.string(),
+                                                             result.error().description()));
     }
     toml::table tbl = std::move(result).table();
     // try {
@@ -415,39 +415,39 @@ VoidResult ConfigManager::loadFrom(const std::filesystem::path& path) {
     // Load into a temporary config so parse success is all-or-nothing from the
     // caller's perspective.
 
-    if (auto *theme = tbl["theme"].as_table()) {
+    if (auto* theme = tbl["theme"].as_table()) {
         load_color_theme(*theme, cfg.theme);
     }
 
-    if (auto *icons = tbl["icons"].as_table()) {
+    if (auto* icons = tbl["icons"].as_table()) {
         load_icon_config(*icons, cfg.icons);
     }
 
-    if (auto *preview = tbl["preview"].as_table()) {
+    if (auto* preview = tbl["preview"].as_table()) {
         load_preview_config(*preview, cfg.preview);
     }
 
-    if (auto *layout = tbl["layout"].as_table()) {
+    if (auto* layout = tbl["layout"].as_table()) {
         load_layout_config(*layout, cfg.layout);
     }
 
-    if (auto *behavior = tbl["behavior"].as_table()) {
+    if (auto* behavior = tbl["behavior"].as_table()) {
         load_behavior_config(*behavior, cfg.behavior);
     }
 
-    if (auto *notifications = tbl["notifications"].as_table()) {
+    if (auto* notifications = tbl["notifications"].as_table()) {
         load_notification_config(*notifications, cfg.notifications);
     }
 
-    if (auto *runtime = tbl["runtime"].as_table()) {
+    if (auto* runtime = tbl["runtime"].as_table()) {
         load_runtime_config(*runtime, cfg.runtime);
     }
 
-    if (auto *listing = tbl["listing"].as_table()) {
+    if (auto* listing = tbl["listing"].as_table()) {
         load_listing_config(*listing, cfg.listing);
     }
 
-    if (auto *analysis = tbl["analysis"].as_table()) {
+    if (auto* analysis = tbl["analysis"].as_table()) {
         load_analysis_config(*analysis, cfg.analysis);
     }
 
@@ -562,7 +562,7 @@ std::filesystem::path ConfigManager::userConfigPath() {
     }
     return "config.toml";
     // if (const char* appdata = std::getenv("APPDATA")) {
-    
+
     //     return std::filesystem::path(appdata) / "expp" / "config.toml";
     // }
     // return "config.toml";

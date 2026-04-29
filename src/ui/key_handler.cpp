@@ -25,7 +25,7 @@
 #include <utility>
 #include <vector>
 
-#define TOML_EXCEPTIONS 0
+// #define TOML_EXCEPTIONS 0
 #include <toml++/toml.hpp>
 
 namespace expp::ui {

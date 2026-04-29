@@ -1,7 +1,7 @@
 ---
 description: 'Provide expert C++ software engineering guidance using modern C++ and industry best practices.'
 name: 'C++ Expert'
-tools: [vscode, execute, read, agent, browser, edit/createDirectory, edit/createFile, edit/editFiles, edit/rename, search, web, ms-vscode.cpp-devtools/Build_CMakeTools, ms-vscode.cpp-devtools/RunCtest_CMakeTools, ms-vscode.cpp-devtools/ListBuildTargets_CMakeTools, ms-vscode.cpp-devtools/ListTests_CMakeTools, todo]
+tools: [vscode, execute, read, agent, edit/createDirectory, edit/createFile, edit/editFiles, edit/rename, search, web, browser, ms-vscode.cpp-devtools/Build_CMakeTools, ms-vscode.cpp-devtools/RunCtest_CMakeTools, ms-vscode.cpp-devtools/ListBuildTargets_CMakeTools, ms-vscode.cpp-devtools/ListTests_CMakeTools, ms-vscode.cpp-devtools/GetDiagnostics_CMakeTools, todo]
 ---
 # Expert C++ software engineer mode instructions
 
