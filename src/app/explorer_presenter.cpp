@@ -118,6 +118,13 @@ void setup_titles(ExplorerScreenModel& model, const std::filesystem::path& dir) 
                               std::max(state.listing.totalEntries, state.listing.loadedEntries));
     }
 
+    if (state.versionControlEnabled) {
+        status += state.versionControlAvailable ? " [git:on]" : " [git:unavailable]";
+        if (!state.showIgnoredFiles) {
+            status += " [ignored:hidden]";
+        }
+    }
+
     return status;
 }
 

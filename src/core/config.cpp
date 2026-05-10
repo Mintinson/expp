@@ -131,6 +131,11 @@ constexpr auto kAnalysisBoolFields = std::array{
     ScalarFieldSpec<AnalysisConfig, bool>{"highlight_previews", &AnalysisConfig::highlightPreviews},
 };
 
+constexpr auto kVersionControlBoolFields = std::array{
+    ScalarFieldSpec<VersionControlConfig, bool>{"enabled",            &VersionControlConfig::enabled         },
+    ScalarFieldSpec<VersionControlConfig, bool>{"show_ignored_files", &VersionControlConfig::showIgnoredFiles},
+};
+
 /**
  * @brief Parses a hex color string ("0xRRGGBB" or "#RRGGBB") to uint32_t
  */
@@ -260,6 +265,10 @@ void load_analysis_config(const toml::table& tbl, AnalysisConfig& analysis) {
     load_bool_fields(tbl, analysis, kAnalysisBoolFields);
 }
 
+void load_version_control_config(const toml::table& tbl, VersionControlConfig& version_control) {
+    load_bool_fields(tbl, version_control, kVersionControlBoolFields);
+}
+
 toml::table serialize_color_theme(const ColorTheme& theme) {
     toml::table tbl;
     tbl.insert("name", theme.name);
@@ -340,6 +349,12 @@ toml::table serialize_listing_config(const ListingConfig& listing) {
 toml::table serialize_analysis_config(const AnalysisConfig& analysis) {
     toml::table tbl;
     insert_bool_fields(tbl, analysis, kAnalysisBoolFields);
+    return tbl;
+}
+
+toml::table serialize_version_control_config(const VersionControlConfig& version_control) {
+    toml::table tbl;
+    insert_bool_fields(tbl, version_control, kVersionControlBoolFields);
     return tbl;
 }
 
@@ -451,6 +466,10 @@ VoidResult ConfigManager::loadFrom(const std::filesystem::path& path) {
         load_analysis_config(*analysis, cfg.analysis);
     }
 
+    if (auto* version_control = tbl["version_control"].as_table()) {
+        load_version_control_config(*version_control, cfg.versionControl);
+    }
+
     // Note: [keys] section is handled separately by KeyMap::loadFromFile()
     // because keybindings need the ActionRegistry context.
 
@@ -495,6 +514,7 @@ VoidResult ConfigManager::save() const {
         root.insert("runtime", serialize_runtime_config(impl_->config.runtime));
         root.insert("listing", serialize_listing_config(impl_->config.listing));
         root.insert("analysis", serialize_analysis_config(impl_->config.analysis));
+        root.insert("version_control", serialize_version_control_config(impl_->config.versionControl));
     }
 
     std::ofstream ofs(path);

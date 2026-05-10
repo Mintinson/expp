@@ -1,12 +1,12 @@
 #include "expp/core/config.hpp"
 
-#include <catch2/catch_test_macros.hpp>
-
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <optional>
 #include <string>
+
+#include <catch2/catch_test_macros.hpp>
 
 namespace fs = std::filesystem;
 
@@ -110,6 +110,8 @@ TEST_CASE("Notification config defaults are stable", "[core][config]") {
     CHECK(defaults.notifications.durationMs == 2500);
     CHECK(defaults.notifications.showSuccess);
     CHECK(defaults.notifications.showInfo);
+    CHECK_FALSE(defaults.versionControl.enabled);
+    CHECK(defaults.versionControl.showIgnoredFiles);
 }
 
 TEST_CASE("Config scalar sections save and load round-trip", "[core][config]") {
@@ -135,6 +137,8 @@ TEST_CASE("Config scalar sections save and load round-trip", "[core][config]") {
     config.notifications.durationMs = 1800;
     config.notifications.showSuccess = false;
     config.notifications.showInfo = true;
+    config.versionControl.enabled = true;
+    config.versionControl.showIgnoredFiles = false;
     manager.setConfig(config);
 
     auto save_result = manager.save();
@@ -156,4 +160,26 @@ TEST_CASE("Config scalar sections save and load round-trip", "[core][config]") {
     CHECK(reloaded.config().notifications.durationMs == 1800);
     CHECK_FALSE(reloaded.config().notifications.showSuccess);
     CHECK(reloaded.config().notifications.showInfo);
+    CHECK(reloaded.config().versionControl.enabled);
+    CHECK_FALSE(reloaded.config().versionControl.showIgnoredFiles);
+}
+
+TEST_CASE("Version control config loads from TOML", "[core][config]") {
+    TempDirectory tmp;
+    const auto config_path = tmp.path() / "config.toml";
+
+    std::ofstream out(config_path);
+    out << R"(
+[version_control]
+enabled = true
+show_ignored_files = false
+)";
+    out.close();
+
+    expp::core::ConfigManager manager;
+    auto result = manager.loadFrom(config_path);
+
+    REQUIRE(result.has_value());
+    CHECK(manager.config().versionControl.enabled);
+    CHECK_FALSE(manager.config().versionControl.showIgnoredFiles);
 }

@@ -121,6 +121,38 @@ void ExplorerDirectoryController::toggleHidden() {
     startDirectoryLoad(explorer_->state().currentDir, reselect);
 }
 
+void ExplorerDirectoryController::toggleIgnored() {
+    // if (!core::global_config().config().versionControl.enabled) {
+    if (!explorer_->state().versionControlEnabled) {
+        notifications_.publish(ui::ToastSeverity::Warning, "Version tracking is disabled");
+        return;
+    }
+    if (!versionStatusAvailable_) {
+        notifications_.publish(ui::ToastSeverity::Warning, "Git status is not available in this directory");
+        return;
+    }
+
+    const auto reselect = explorer_->selectedPath();
+    explorer_->setShowIgnoredFiles(!explorer_->showIgnoredFiles());
+    startDirectoryLoad(explorer_->state().currentDir, reselect);
+}
+
+void ExplorerDirectoryController::toggleGitEnabled() {
+    // Toggle Git integration
+    const auto new_state = explorer_->toggleGitEnabled();
+
+    // If enabling, validate that Git status is available before reloading
+    if (new_state && !versionStatusAvailable_) {
+        notifications_.publish(ui::ToastSeverity::Warning, "Git status is not available in this directory");
+        // Revert toggle (this would be handled by the Explorer class)
+        return;
+    }
+
+    // Reload to apply changes (show/hide Git status and untracked files)
+    const auto reselect = explorer_->selectedPath();
+    startDirectoryLoad(explorer_->state().currentDir, reselect);
+}
+
 void ExplorerDirectoryController::updateViewportInterest() {
     scheduleMimePreload();
 }
@@ -138,8 +170,11 @@ void ExplorerDirectoryController::startDirectoryLoad(fs::path directory, std::op
     // 1. Reset state & Cancel previous in-flight operations
     listingCancellation_.cancel();
     listingCancellation_.reset();
+    versionStatusCancellation_.cancel();
+    versionStatusCancellation_.reset();
     reselectPath_ = std::move(reselect);
     mimeCache_.clear();
+    versionStatusAvailable_ = false;
     preloadStart_ = -1;
     preloadEnd_ = -1;
     preloadEntryCount_ = 0;
@@ -182,6 +217,7 @@ void ExplorerDirectoryController::startDirectoryLoad(fs::path directory, std::op
                 }
                 explorer_->beginDirectoryListing(canonical_directory, generation);
                 scheduleMimePreload();
+                scheduleVersionStatus(canonical_directory, generation);
             });
 
             // Step C: Stream directory contents progressively (Generator pattern)
@@ -232,6 +268,7 @@ void ExplorerDirectoryController::startDirectoryLoad(fs::path directory, std::op
                     explorer_->selectPathIfPresent(*reselectPath_);
                 }
                 scheduleMimePreload();
+                scheduleVersionStatus(explorer_->state().currentDir, generation);
             });
         },
         asio::detached);
@@ -349,6 +386,47 @@ void ExplorerDirectoryController::scheduleMimePreload() {
                     };
                 });
             }
+        },
+        asio::detached);
+}
+
+void ExplorerDirectoryController::scheduleVersionStatus(const fs::path& directory,
+                                                        const std::uint64_t listing_generation) {
+    // if (!core::global_config().config().versionControl.enabled || !explorer_->services().versionControl) {
+    if (!explorer_->state().versionControlEnabled || !explorer_->services().versionControl) {
+        explorer_->clearVersionStatus(false);
+        return;
+    }
+
+    versionStatusCancellation_.cancel();
+    versionStatusCancellation_.reset();
+
+    const auto runtime = explorer_->services().runtime;
+    const auto version_control = explorer_->services().versionControl;
+    const auto token = versionStatusCancellation_.token();
+    const auto generation = ++versionStatusGeneration_;
+
+    asio::co_spawn(
+        runtime->ioExecutor(),
+        [this, runtime, version_control, directory, token, generation, listing_generation]() -> core::Task<void> {
+            auto result = co_await version_control->loadStatus(VersionStatusRequest{
+                .directory = directory,
+                .cancellation = token,
+            });
+
+            runtime->postToUi([this, generation, listing_generation, result = std::move(result)]() mutable {
+                if (generation != versionStatusGeneration_ || listing_generation != listingGeneration_) {
+                    return;
+                }
+                if (!result) {
+                    versionStatusAvailable_ = false;
+                    explorer_->clearVersionStatus(false);
+                    return;
+                }
+
+                versionStatusAvailable_ = result->repositoryFound;
+                explorer_->applyVersionStatus(*result);
+            });
         },
         asio::detached);
 }

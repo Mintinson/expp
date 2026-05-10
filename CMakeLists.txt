@@ -346,15 +346,15 @@ if (MSVC)
         endif ()
     endforeach ()
 
-    # # Keep Catch2 STL annotation settings aligned with sanitized test/object files.
-    # if (EXPP_BUILD_TESTS AND EXPP_ENABLE_SANITIZERS AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
-    #     if (TARGET Catch2)
-    #         target_compile_options(Catch2 PRIVATE /fsanitize=address)
-    #     endif ()
-    #     if (TARGET Catch2WithMain)
-    #         target_compile_options(Catch2WithMain PRIVATE /fsanitize=address)
-    #     endif ()
-    # endif ()
+    # Keep Catch2 STL annotation settings aligned with sanitized test/object files.
+    if (EXPP_BUILD_TESTS AND EXPP_ENABLE_SANITIZERS AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
+        if (TARGET Catch2)
+            target_compile_options(Catch2 PRIVATE /fsanitize=address)
+        endif ()
+        if (TARGET Catch2WithMain)
+            target_compile_options(Catch2WithMain PRIVATE /fsanitize=address)
+        endif ()
+    endif ()
 endif ()
 
 
@@ -365,6 +365,7 @@ add_library(expp_core STATIC
         src/core/filesystem.cpp
         src/core/config.cpp
         src/core/async_runtime.cpp
+        src/core/version_control.cpp
 )
 expp_apply_target_defaults(expp_core)
 # target_compile_definitions(tomlplusplus INTERFACE TOML_EXCEPTIONS=0)

@@ -4,7 +4,6 @@
 #include <array>
 #include <vector>
 
-
 namespace expp::app {
 
 namespace {
@@ -220,6 +219,18 @@ constexpr std::array kBaseCommands = {
                 .category = "View",
                 .repeatable = false,
                 .visualModePolicy = VisualModePolicy::Preserve},
+    CommandSpec{.command = ExplorerCommand::ToggleGitEnabled,
+                .name = "toggle_git_enabled",
+                .description = "Toggle Git integration (shows Git status and untracked files)",
+                .category = "View",
+                .repeatable = false,
+                .visualModePolicy = VisualModePolicy::Preserve},
+    CommandSpec{.command = ExplorerCommand::ToggleGitIgnored,
+                .name = "toggle_ignored",
+                .description = "Toggle the visibility of Git-ignored files",
+                .category = "View",
+                .repeatable = false,
+                .visualModePolicy = VisualModePolicy::Preserve},
     CommandSpec{.command = ExplorerCommand::OpenHelp,
                 .name = "open_help",
                 .description = "Open help menu",
@@ -413,10 +424,18 @@ constexpr std::array kBaseBindings = {
                 .keys = "N",          .command = ExplorerCommand::PrevMatch,     .mode = ui::Mode::Normal, .description = "Prev match"        },
     BindingSpec{
                 .keys = "\\",         .command = ExplorerCommand::ClearSearch,   .mode = ui::Mode::Normal, .description = "Clear search"      },
-    BindingSpec{.keys = ".",
+    BindingSpec{.keys = "..",
                 .command = ExplorerCommand::ToggleHidden,
                 .mode = ui::Mode::Normal,
                 .description = "Toggle hidden files"                                                                                          },
+    BindingSpec{.keys = ".G",
+                .command = ExplorerCommand::ToggleGitEnabled,
+                .mode = ui::Mode::Normal,
+                .description = "Toggle Git integration"                                                                                       },
+    BindingSpec{.keys = ".g",
+                .command = ExplorerCommand::ToggleGitIgnored,
+                .mode = ui::Mode::Normal,
+                .description = "Toggle Git-ignored files"                                                                                     },
     BindingSpec{.keys = "j",
                 .command = ExplorerCommand::MoveDown,
                 .mode = ui::Mode::Visual,

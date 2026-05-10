@@ -88,6 +88,16 @@ struct ColorTheme {
     uint32_t border{0x666666};
     uint32_t statusBar{0x333333};
     uint32_t searchHighlight{0xFFFF00};
+
+    // Git status colors
+    uint32_t modified{0xFFA500};     // Orange
+    uint32_t added{0x00FF00};        // Green
+    uint32_t deleted{0xFF0000};      // Red
+    uint32_t renamed{0x00FFFF};      // Cyan
+    uint32_t copied{0xFF00FF};       // Magenta
+    uint32_t untracked{0x5555FF};   // Blue
+    uint32_t ignored{0x555555};     // Dark gray
+    uint32_t conflicted{0xE32636};   // Amaranth red
 };
 
 /**
@@ -157,6 +167,15 @@ struct AnalysisConfig {
 };
 
 /**
+ * @brief Git-aware version tracking configuration.
+ */
+struct VersionControlConfig {
+    bool enabled{true};
+    bool showIgnoredFiles{true};
+    
+};
+
+/**
  * @brief Main configuration container
  */
 struct Config {
@@ -169,6 +188,7 @@ struct Config {
     RuntimeConfig runtime;
     ListingConfig listing;
     AnalysisConfig analysis;
+    VersionControlConfig versionControl;
 };
 
 /**

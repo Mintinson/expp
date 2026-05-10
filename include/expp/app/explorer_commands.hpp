@@ -59,6 +59,8 @@ enum class ExplorerCommand : ui::CommandId {
     PrevMatch,
     ClearSearch,
     ToggleHidden,
+    ToggleGitEnabled,
+    ToggleGitIgnored,
     SortModified,
     SortModifiedDesc,
     SortBirth,

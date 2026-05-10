@@ -20,6 +20,7 @@ The project targets performance and maintainability for very large directories, 
 - Copy/cut/paste workflows with overwrite support
 - Trash and permanent delete operations
 - Search, hidden-file toggle, and multiple sort modes
+- Optional Git-aware version markers and ignored-file visibility toggle
 - Built-in help overlay with filtering
 - TOML-driven configuration (theme, icons, behavior, layout)
 - Cross-platform build system with CMake presets
@@ -51,7 +52,8 @@ Search and view:
 - `/`: search
 - `n` / `N`: next / previous match
 - `\\`: clear search highlights
-- `.`: toggle hidden files
+- `..`: toggle hidden files
+- `.g`: toggle Git-ignored files when version tracking is enabled
 - `,m ,b ,e ,a ,n ,s`: sort by modified/birth/ext/alpha/natural/size
 - Uppercase sort key toggles descending order (for example `,M`)
 
@@ -177,6 +179,10 @@ Minimal example:
 ```toml
 [behavior]
 showHiddenFiles = false
+
+[version_control]
+enabled = false
+show_ignored_files = true
 
 [preview]
 enabled = true

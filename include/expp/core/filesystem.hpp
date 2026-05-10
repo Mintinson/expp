@@ -17,6 +17,7 @@
 #define EXPP_CORE_FILESYSTEM_HPP
 
 #include "expp/core/error.hpp"
+#include "expp/core/version_control.hpp"
 
 #include <bitset>
 #include <chrono>
@@ -63,6 +64,7 @@ struct FileEntry {
     bool isWritable{false};
     bool isBrokenSymlink{false};
     bool isRecursiveSymlink{false};
+    VersionStatus versionStatus{VersionStatus::Clean};
 
     [[nodiscard]] std::string filename() const { return path.filename().string(); }
 

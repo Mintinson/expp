@@ -186,6 +186,12 @@ private:
             case ExplorerCommand::ToggleHidden:
                 directoryController_.toggleHidden();
                 break;
+            case ExplorerCommand::ToggleGitIgnored:
+                directoryController_.toggleIgnored();
+                break;
+            case ExplorerCommand::ToggleGitEnabled:
+                directoryController_.toggleGitEnabled();
+                break;
             default:
                 break;
         }

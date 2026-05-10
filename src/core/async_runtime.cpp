@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <exception>
+#include <format>
 #include <print>
+#include <string>
 #include <utility>
 
 #if defined(ASIO_NO_EXCEPTIONS)
@@ -21,7 +24,6 @@ template <typename Exception>
 }  // namespace asio::detail
 
 #endif
-
 
 namespace expp::core {
 
@@ -113,5 +115,32 @@ UiMailbox& AsioRuntime::mailbox() noexcept {
 const UiMailbox& AsioRuntime::mailbox() const noexcept {
     return mailbox_;
 }
+#if _HAS_EXCEPTIONS
+void AsioRuntime::spawnDetached(IoExecutor executor,
+                                Task<void> task,
+                                std::string_view name,
+                                std::function<void(Error)> on_error) {
+    const std::string task_name{name};
+    asio::co_spawn(executor, std::move(task),
+                   [this, task_name, on_error = std::move(on_error)](std::exception_ptr exception) mutable {
+                       if (!exception || !on_error) {
+                           return;
+                       }
+
+                       std::string message = std::format("{} failed", task_name);
+                       try {
+                           std::rethrow_exception(exception);
+                       } catch (const std::exception& error) {
+                           message += std::format(": {}", error.what());
+                       } catch (...) {
+                           message += ": unknown error";
+                       }
+
+                       postToUi([on_error = std::move(on_error), message = std::move(message)]() mutable {
+                           on_error(Error{ErrorCategory::System, std::move(message)});
+                       });
+                   });
+}
+#endif
 
 }  // namespace expp::core

@@ -1,11 +1,12 @@
 #include "expp/app/explorer_commands.hpp"
 #include "expp/ui/key_handler.hpp"
 
-#include <catch2/catch_test_macros.hpp>
 #include <ftxui/component/event.hpp>
 
 #include <filesystem>
 #include <fstream>
+
+#include <catch2/catch_test_macros.hpp>
 
 namespace fs = std::filesystem;
 
@@ -92,10 +93,9 @@ move_down = "j"
 TEST_CASE("Default binding catalog installs directory jump and help bindings", "[ui][keymap]") {
     expp::ui::KeyMap keymap;
     for (const auto& binding : expp::app::default_bindings()) {
-        REQUIRE(keymap.bind(binding.keys,
-                            expp::app::to_command_id(binding.command),
-                            binding.mode,
-                            std::string{binding.description})
+        REQUIRE(keymap
+                    .bind(binding.keys, expp::app::to_command_id(binding.command), binding.mode,
+                          std::string{binding.description})
                     .has_value());
     }
 
@@ -107,7 +107,24 @@ TEST_CASE("Default binding catalog installs directory jump and help bindings", "
           nullptr);
     CHECK(keymap.findExact({expp::ui::Key::fromChar('g'), expp::ui::Key::fromChar(':')}, expp::ui::Mode::Normal) !=
           nullptr);
+    const auto* hidden =
+        keymap.findExact({expp::ui::Key::fromChar('.'), expp::ui::Key::fromChar('.')}, expp::ui::Mode::Normal);
+    REQUIRE(hidden != nullptr);
+    CHECK(hidden->commandId == expp::app::to_command_id(expp::app::ExplorerCommand::ToggleHidden));
+
+    const auto* ignored =
+        keymap.findExact({expp::ui::Key::fromChar('.'), expp::ui::Key::fromChar('g')}, expp::ui::Mode::Normal);
+    REQUIRE(ignored != nullptr);
+    CHECK(ignored->commandId == expp::app::to_command_id(expp::app::ExplorerCommand::ToggleGitIgnored));
+
     CHECK(keymap.findExact({expp::ui::Key::fromChar('~')}, expp::ui::Mode::Normal) != nullptr);
+}
+
+TEST_CASE("Command catalog resolves Git ignored toggle by config name", "[ui][keymap][catalog]") {
+    const auto command = expp::app::command_from_name("toggle_ignored");
+
+    REQUIRE(command.has_value());
+    CHECK(*command == expp::app::ExplorerCommand::ToggleGitIgnored);
 }
 
 TEST_CASE("Command catalog resolves every default binding", "[ui][keymap][catalog]") {
@@ -123,24 +140,19 @@ TEST_CASE("KeyHandler executes numeric prefixes and multi-key sequences", "[ui][
 
     int move_down_count = 0;
     int go_top_count = 0;
-    handler.actions().registerAction(expp::app::to_command_id(expp::app::ExplorerCommand::MoveDown),
-                                     [&](const expp::ui::ActionContext& ctx) { move_down_count = ctx.count; },
-                                     "Move cursor down",
-                                     "Navigation",
-                                     true);
-    handler.actions().registerAction(expp::app::to_command_id(expp::app::ExplorerCommand::GoTop),
-                                     [&](const expp::ui::ActionContext&) { ++go_top_count; },
-                                     "Go to top",
-                                     "Navigation",
-                                     false);
+    handler.actions().registerAction(
+        expp::app::to_command_id(expp::app::ExplorerCommand::MoveDown),
+        [&](const expp::ui::ActionContext& ctx) { move_down_count = ctx.count; }, "Move cursor down", "Navigation",
+        true);
+    handler.actions().registerAction(
+        expp::app::to_command_id(expp::app::ExplorerCommand::GoTop),
+        [&](const expp::ui::ActionContext&) { ++go_top_count; }, "Go to top", "Navigation", false);
 
-    REQUIRE(handler.keymap().bind("j",
-                                  expp::app::to_command_id(expp::app::ExplorerCommand::MoveDown),
-                                  expp::ui::Mode::Normal)
+    REQUIRE(handler.keymap()
+                .bind("j", expp::app::to_command_id(expp::app::ExplorerCommand::MoveDown), expp::ui::Mode::Normal)
                 .has_value());
-    REQUIRE(handler.keymap().bind("gg",
-                                  expp::app::to_command_id(expp::app::ExplorerCommand::GoTop),
-                                  expp::ui::Mode::Normal)
+    REQUIRE(handler.keymap()
+                .bind("gg", expp::app::to_command_id(expp::app::ExplorerCommand::GoTop), expp::ui::Mode::Normal)
                 .has_value());
 
     CHECK(handler.handle(ftxui::Event::Character('3')));

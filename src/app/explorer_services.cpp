@@ -37,8 +37,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-
-
 // Move the original directory listing logic to a blocking function that can be called on a background thread.
 [[nodiscard]] core::Result<DirectoryListResult> slice_directory_result(const DirectoryListRequest& request) {
     if (request.cancellation.isCancellationRequested()) {
@@ -83,13 +81,13 @@ namespace {
 /**
  * @brief Quickly estimates the MIME type of a file based solely on its file extension.
  *
- * This function performs a fast, memory-only lookup using a predefined mapping of common 
+ * This function performs a fast, memory-only lookup using a predefined mapping of common
  * extensions. It does not perform any file I/O. If the extension is unknown, it falls back
  * to basic text or binary stream classifications based on the `core::filesystem::is_previewable` heuristic.
  *
  * @param path The file path to analyze.
  * @return A string representing the guessed MIME type.
- * 
+ *
  * @note This is a heuristic approach. A file's extension does not guarantee its actual content.
  */
 [[nodiscard]] std::string guess_mime_from_extension(const fs::path& path) {
@@ -114,7 +112,7 @@ namespace {
     };
 
     const auto extension = lower_extension(path);
-    if (const auto  it = std::ranges::find(kMimeMap, extension, &decltype(kMimeMap)::value_type::first);
+    if (const auto it = std::ranges::find(kMimeMap, extension, &decltype(kMimeMap)::value_type::first);
         it != kMimeMap.end()) {
         return std::string{it->second};
     }
@@ -128,16 +126,16 @@ namespace {
 /**
  * @brief Synchronously detects the MIME type of a file, potentially using deep content sniffing.
  *
- * This function determines the MIME type by first performing a fast extension-based guess. 
- * If compiled with libmagic support (`EXPP_HAS_LIBMAGIC`) and if content sniffing is enabled 
- * in the global configuration, it will proceed to read the file's magic numbers (binary headers) 
+ * This function determines the MIME type by first performing a fast extension-based guess.
+ * If compiled with libmagic support (`EXPP_HAS_LIBMAGIC`) and if content sniffing is enabled
+ * in the global configuration, it will proceed to read the file's magic numbers (binary headers)
  * for an accurate detection, overriding the initial guess if necessary.
  *
  * @warning This function performs blocking disk I/O and should not be executed directly on the UI/IO threads.
  *
  * @param request The request object containing the target file path and a cancellation token.
- * 
- * @return A `core::Result` containing the `MimePayload` on success, or an error if the operation 
+ *
+ * @return A `core::Result` containing the `MimePayload` on success, or an error if the operation
  *         was cancelled or failed.
  */
 [[nodiscard]] core::Result<MimePayload> detect_mime_blocking(const MimeRequest& request) {
@@ -246,47 +244,51 @@ public:
 
     [[nodiscard]] core::Task<core::Result<DirectoryListResult>> listDirectory(
         const DirectoryListRequest& request) const override {
-        co_return co_await core::invoke_on(runtime_->diskExecutor(), [request] { return slice_directory_result(request); });
+        co_return co_await core::invoke_on(runtime_->diskExecutor(),
+                                           [request] { return slice_directory_result(request); });
     }
 
     [[nodiscard]] core::Task<core::Result<fs::path>> canonicalize(const fs::path& path) const override {
-        co_return co_await core::invoke_on(runtime_->diskExecutor(), [path] { return core::filesystem::canonicalize(path); });
+        co_return co_await core::invoke_on(runtime_->diskExecutor(),
+                                           [path] { return core::filesystem::canonicalize(path); });
     }
 
     [[nodiscard]] fs::path normalize(const fs::path& path) const override { return core::filesystem::normalize(path); }
 
     [[nodiscard]] core::Task<core::VoidResult> createDirectory(const fs::path& path) const override {
         co_return co_await core::invoke_on(runtime_->diskExecutor(),
-                                     [path] { return core::filesystem::create_directory(path); });
+                                           [path] { return core::filesystem::create_directory(path); });
     }
 
     [[nodiscard]] core::Task<core::VoidResult> createFile(const fs::path& path) const override {
-        co_return co_await core::invoke_on(runtime_->diskExecutor(), [path] { return core::filesystem::create_file(path); });
+        co_return co_await core::invoke_on(runtime_->diskExecutor(),
+                                           [path] { return core::filesystem::create_file(path); });
     }
 
     [[nodiscard]] core::Task<core::VoidResult> rename(const fs::path& old_path,
                                                       const fs::path& new_path) const override {
-        co_return co_await core::invoke_on(runtime_->diskExecutor(),
-                                     [old_path, new_path] { return core::filesystem::rename(old_path, new_path); });
+        co_return co_await core::invoke_on(
+            runtime_->diskExecutor(), [old_path, new_path] { return core::filesystem::rename(old_path, new_path); });
     }
 
     [[nodiscard]] core::Task<core::VoidResult> removeFile(const fs::path& path) const override {
-        co_return co_await core::invoke_on(runtime_->diskExecutor(), [path] { return core::filesystem::remove_file(path); });
+        co_return co_await core::invoke_on(runtime_->diskExecutor(),
+                                           [path] { return core::filesystem::remove_file(path); });
     }
 
     [[nodiscard]] core::Task<core::VoidResult> removeDirectory(const fs::path& path) const override {
         co_return co_await core::invoke_on(runtime_->diskExecutor(),
-                                     [path] { return core::filesystem::remove_directory(path); });
+                                           [path] { return core::filesystem::remove_directory(path); });
     }
 
     [[nodiscard]] core::Task<core::VoidResult> moveToTrash(const fs::path& path) const override {
         co_return co_await core::invoke_on(runtime_->diskExecutor(),
-                                     [path] { return core::filesystem::move_to_trash(path); });
+                                           [path] { return core::filesystem::move_to_trash(path); });
     }
 
     [[nodiscard]] core::Task<core::VoidResult> openWithDefault(const fs::path& path) const override {
         co_return co_await core::invoke_on(runtime_->diskExecutor(),
-                                     [path] { return core::filesystem::open_with_default(path); });
+                                           [path] { return core::filesystem::open_with_default(path); });
     }
 
     [[nodiscard]] core::Task<core::VoidResult> copy(const fs::path& source,
@@ -321,7 +323,8 @@ public:
     explicit DefaultMimeService(std::shared_ptr<core::AsioRuntime> runtime) : runtime_(std::move(runtime)) {}
 
     [[nodiscard]] core::Task<core::Result<MimePayload>> detectMime(const MimeRequest& request) const override {
-        co_return co_await core::invoke_on(runtime_->cpuExecutor(), [request] { return detect_mime_blocking(request); });
+        co_return co_await core::invoke_on(runtime_->cpuExecutor(),
+                                           [request] { return detect_mime_blocking(request); });
     }
 
 private:
@@ -359,6 +362,25 @@ public:
             }
             return core::Result<ImageInfo>(
                 core::make_error(core::ErrorCategory::NoSupport, "Image inspection is not implemented yet"));
+        });
+    }
+
+private:
+    std::shared_ptr<core::AsioRuntime> runtime_;
+};
+
+class DefaultVersionControlService final : public ExplorerVersionControlService {
+public:
+    explicit DefaultVersionControlService(std::shared_ptr<core::AsioRuntime> runtime) : runtime_(std::move(runtime)) {}
+
+    [[nodiscard]] core::Task<core::Result<core::VersionStatusSnapshot>> loadStatus(
+        const VersionStatusRequest& request) const override {
+        co_return co_await core::invoke_on(runtime_->diskExecutor(), [request] {
+            if (request.cancellation.isCancellationRequested()) {
+                return core::Result<core::VersionStatusSnapshot>(
+                    core::make_error(core::ErrorCategory::InvalidState, "Version status load cancelled"));
+            }
+            return core::load_git_status(request.directory);
         });
     }
 
@@ -555,6 +577,7 @@ ExplorerServices make_default_explorer_services(std::shared_ptr<core::AsioRuntim
     auto mime = std::make_shared<DefaultMimeService>(shared_runtime);
     auto highlight = std::make_shared<DefaultHighlightService>(shared_runtime);
     auto image = std::make_shared<DefaultImageService>(shared_runtime);
+    auto version_control = std::make_shared<DefaultVersionControlService>(shared_runtime);
     auto preview = std::make_shared<DefaultPreviewService>(shared_runtime, mime, highlight, image);
     auto clipboard = std::make_shared<DefaultClipboardService>(shared_runtime);
 
@@ -565,6 +588,7 @@ ExplorerServices make_default_explorer_services(std::shared_ptr<core::AsioRuntim
         .mime = std::move(mime),
         .highlight = std::move(highlight),
         .image = std::move(image),
+        .versionControl = std::move(version_control),
         .clipboard = std::move(clipboard),
     };
 }

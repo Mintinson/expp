@@ -56,6 +56,12 @@ public:
     /// Toggles the visibility of hidden files and reloads the current directory.
     void toggleHidden();
 
+    /// Toggles the visibility of Git-ignored files and reloads the current directory.
+    void toggleIgnored();
+
+    /// Toggles Git integration (showing Git status and untracked files) and reloads the current directory.
+    void toggleGitEnabled();
+
     /**
      * @brief Called by the UI when the user scrolls. Recalculates the visible window
      *        and schedules MIME detection for newly visible files.
@@ -76,10 +82,12 @@ private:
     // Cancellation tokens to abort ongoing operations when the user navigates away.
     core::CancellationSource listingCancellation_;
     core::CancellationSource enrichmentCancellation_;
+    core::CancellationSource versionStatusCancellation_;
 
     // Monotonically increasing counters to discard results from aborted/past operations.
     std::uint64_t listingGeneration_{0};
     std::uint64_t enrichmentGeneration_{0};
+    std::uint64_t versionStatusGeneration_{0};
 
     // Sliding window state for MIME preloading.
     int preloadStart_{-1};
@@ -91,6 +99,11 @@ private:
 
     // In-memory cache for MIME types within the current directory.
     std::unordered_map<std::filesystem::path, CachedMime> mimeCache_;
+
+    // Last Git status result for the current directory, used by toggle validation.
+    bool versionStatusAvailable_{false};
+
+
 
     /**
      * @brief The core engine for loading a directory. Spawns coroutines to fetch data in chunks.
@@ -110,6 +123,11 @@ private:
      * @brief Calculates the visible viewport and schedules background MIME detection for files inside it.
      */
     void scheduleMimePreload();
+
+    /**
+     * @brief Schedules Git status loading for the active directory.
+     */
+    void scheduleVersionStatus(const std::filesystem::path& directory, std::uint64_t listing_generation);
 };
 
 }  // namespace expp::app

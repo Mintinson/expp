@@ -39,6 +39,10 @@ namespace {
             return {name, true};
         }
     }
+    // if (const std::string_view marker = core::version_control::status_marker(entry.versionStatus); !marker.empty()) {
+    //     name += " ";
+    //     name += marker;
+    // }
     return {name, false};
 }
 }  // namespace
@@ -71,14 +75,23 @@ struct FileListComponent::Impl {
 
             std::string prefix = is_selected ? config.selectionPrefix : config.normalPrefix;
             const auto [display_name, should_highlight] = proper_display_name(entry);
-            // std::string display_name = entry.filename();
-
             auto base_color = should_highlight ? Color::Red : config.theme->getFileEntryColor(entry);
-
-            auto element =
+            // std::string display_name = entry.filename();
+            auto left_content =
                 text(std::format("{}{} {}", prefix, config.showIcons ? config.theme->getFileTypeIcon(entry) : "",
-                                 display_name)) |
-                color(base_color);
+                                 display_name));
+            auto right_content = text(std::format("{}", core::status_marker(entry.versionStatus)));
+            if (entry.versionStatus != core::VersionStatus::Clean) {
+                right_content |= color(config.theme->getVersionStatusColor(entry.versionStatus));
+            }
+
+            // auto version_marker = core::version_control::status_marker(entry.versionStatus);
+            // auto element =
+            //     text(std::format("{}{}{} {}", prefix, version_marker, config.showIcons ?
+            //     config.theme->getFileTypeIcon(entry) : "",
+            //                      display_name)) |
+            //     color(base_color);
+            auto element = hbox({left_content, filler(), right_content}) | color(base_color);
 
             if (config.boldDirectories && entry.isDirectory()) {
                 element |= bold;
@@ -104,6 +117,7 @@ struct FileListComponent::Impl {
 };
 
 FileListComponent::FileListComponent(const FileListConfig& config) : impl_(std::make_unique<Impl>(config)) {}
+
 FileListComponent::~FileListComponent() = default;
 FileListComponent::FileListComponent(FileListComponent&&) noexcept = default;
 FileListComponent& FileListComponent::operator=(FileListComponent&&) noexcept = default;
@@ -156,6 +170,7 @@ struct StatusBarComponent::Impl {
 };
 
 StatusBarComponent::StatusBarComponent(const Theme* theme) : impl_(std::make_unique<Impl>(theme)) {}
+
 StatusBarComponent::~StatusBarComponent() = default;
 StatusBarComponent::StatusBarComponent(StatusBarComponent&&) noexcept = default;
 StatusBarComponent& StatusBarComponent::operator=(StatusBarComponent&&) noexcept = default;
@@ -222,6 +237,7 @@ struct ToastComponent::Impl {
 };
 
 ToastComponent::ToastComponent(const Theme* theme) : impl_(std::make_unique<Impl>(theme)) {}
+
 ToastComponent::~ToastComponent() = default;
 ToastComponent::ToastComponent(ToastComponent&&) noexcept = default;
 ToastComponent& ToastComponent::operator=(ToastComponent&&) noexcept = default;
@@ -467,6 +483,7 @@ struct HelpMenuComponent::Impl {
 };
 
 HelpMenuComponent::HelpMenuComponent(const Theme* theme) : impl_(std::make_unique<Impl>(theme)) {}
+
 HelpMenuComponent::~HelpMenuComponent() = default;
 HelpMenuComponent::HelpMenuComponent(HelpMenuComponent&&) noexcept = default;
 HelpMenuComponent& HelpMenuComponent::operator=(HelpMenuComponent&&) noexcept = default;
@@ -530,6 +547,7 @@ struct DialogComponent::Impl {
 };
 
 DialogComponent::DialogComponent() : impl_(std::make_unique<Impl>()) {}
+
 DialogComponent::~DialogComponent() = default;
 DialogComponent::DialogComponent(DialogComponent&&) noexcept = default;
 DialogComponent& DialogComponent::operator=(DialogComponent&&) noexcept = default;
@@ -593,6 +611,7 @@ struct PanelComponent::Impl {
 };
 
 PanelComponent::PanelComponent(const PanelConfig& config) : impl_(std::make_unique<Impl>(config)) {}
+
 PanelComponent::~PanelComponent() = default;
 PanelComponent::PanelComponent(PanelComponent&&) noexcept = default;
 PanelComponent& PanelComponent::operator=(PanelComponent&&) noexcept = default;
@@ -671,6 +690,7 @@ struct PreviewComponent::Impl {
 };
 
 PreviewComponent::PreviewComponent(const PreviewConfig& config) : impl_(std::make_unique<Impl>(config)) {}
+
 PreviewComponent::~PreviewComponent() = default;
 PreviewComponent::PreviewComponent(PreviewComponent&&) noexcept = default;
 PreviewComponent& PreviewComponent::operator=(PreviewComponent&&) noexcept = default;

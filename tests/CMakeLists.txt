@@ -12,6 +12,7 @@ add_executable(expp_tests
     core/test_config.cpp
     core/test_async_runtime.cpp
     core/test_error.cpp
+    core/test_version_control.cpp
     ui/test_key_handler.cpp
     ui/test_help_menu.cpp
     app/test_explorer_scrolling.cpp

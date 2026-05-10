@@ -1,6 +1,7 @@
 #ifndef EXPP_CORE_ASYNC_RUNTIME_HPP
 #define EXPP_CORE_ASYNC_RUNTIME_HPP
 
+#include "expp/core/error.hpp"
 #include "expp/core/task.hpp"
 
 #include <asio/co_spawn.hpp>
@@ -11,11 +12,15 @@
 
 #include <chrono>
 #include <concepts>
+#include <exception>
+#include <format>
 #include <functional>
 #include <future>
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -118,9 +123,30 @@ public:
                            }
                            promise.set_value(std::move(result));
                        });
-
+#if !_HAS_EXCEPTIONS
         return future.get();
+#else
+        try {
+            return future.get();
+        } catch (const std::exception& error) {
+            if constexpr (requires { T{make_error(ErrorCategory::System, std::string{})}; }) {
+                return T{
+                    make_error(ErrorCategory::System, std::format("blocking async task failed: {}", error.what()))};
+            } else {
+                throw;
+            }
+        }
+#endif
     }
+#if _HAS_EXCEPTIONS
+    /**
+     * @brief Spawns a coroutine and reports exceptional failures through the UI mailbox.
+     */
+    void spawnDetached(IoExecutor executor,
+                       Task<void> task,
+                       std::string_view name,
+                       std::function<void(Error)> on_error);
+#endif
 
     /**
      * @brief Posts a callable directly to the UI thread via the mailbox.
@@ -187,7 +213,6 @@ public:
 
     [[nodiscard]] virtual bool available() const noexcept = 0;
 };
-
 
 }  // namespace expp::core
 

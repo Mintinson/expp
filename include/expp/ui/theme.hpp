@@ -3,6 +3,7 @@
 
 #include "expp/core/config.hpp"
 #include "expp/core/filesystem.hpp"
+#include "expp/core/version_control.hpp"
 
 #include <ftxui/screen/color.hpp>
 
@@ -58,6 +59,8 @@ public:
     [[nodiscard]] ftxui::Color getStatusBarColor() const noexcept { return statusBarColor_; }
     [[nodiscard]] ftxui::Color getSearchHighlightColor() const noexcept { return searchHighlightColor_; }
 
+    [[nodiscard]] ftxui::Color getVersionStatusColor(core::VersionStatus status) const noexcept;
+
     /**
      * @brief Reloads theme colors from configuration
      * @param config New color theme configuration
@@ -90,6 +93,16 @@ private:
     ftxui::Color borderColor_;
     ftxui::Color statusBarColor_;
     ftxui::Color searchHighlightColor_;
+
+    // Version control status colors
+    ftxui::Color modifiedColor_;
+    ftxui::Color addedColor_;
+    ftxui::Color deletedColor_;
+    ftxui::Color renamedColor_;
+    ftxui::Color copiedColor_;
+    ftxui::Color untrackedColor_;
+    ftxui::Color ignoredColor_;
+    ftxui::Color conflictedColor_;
 
     // Icons
     std::unordered_map<std::string, std::string> iconMap_;
