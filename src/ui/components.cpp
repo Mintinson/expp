@@ -634,12 +634,12 @@ void PanelComponent::setConfig(const PanelConfig& config) {
 // PreviewComponent Implementation
 // ============================================================================
 struct PreviewComponent::Impl {
-    explicit Impl(PreviewConfig in_config) : config(std::move(in_config)) {}
+    explicit Impl(PreviewRenderConfig in_config) : config(std::move(in_config)) {}
 
-    PreviewConfig config;
+    PreviewRenderConfig config;
 
     [[nodiscard]] int resolveMaxLines() const {
-        int max_lines = config.maxLines;
+        int max_lines = config.maxRenderLines;
         if (max_lines < 0) {
             const auto terminal_size = ftxui::Terminal::Size();
             if (terminal_size.dimy > 0) {
@@ -649,10 +649,13 @@ struct PreviewComponent::Impl {
         return std::max(1, max_lines);
     }
 
-    [[nodiscard]] ftxui::Element renderLines(const std::vector<std::string>& lines, int max_lines) const {
+    [[nodiscard]] ftxui::Element renderLines(const std::vector<std::string>& lines, int max_lines = -1) const {
         using namespace ftxui;
         if (lines.empty()) {
             return text(config.emptyMessage) | dim | center;
+        }
+        if (max_lines < 0) {
+            max_lines = static_cast<int>(lines.size());
         }
 
         Elements elements;
@@ -689,7 +692,7 @@ struct PreviewComponent::Impl {
     }
 };
 
-PreviewComponent::PreviewComponent(const PreviewConfig& config) : impl_(std::make_unique<Impl>(config)) {}
+PreviewComponent::PreviewComponent(const PreviewRenderConfig& config) : impl_(std::make_unique<Impl>(config)) {}
 
 PreviewComponent::~PreviewComponent() = default;
 PreviewComponent::PreviewComponent(PreviewComponent&&) noexcept = default;
@@ -703,7 +706,7 @@ ftxui::Element PreviewComponent::renderLines(const std::vector<std::string>& lin
     return impl_->renderLines(lines, impl_->resolveMaxLines());
 }
 
-void PreviewComponent::setConfig(const PreviewConfig& config) {
+void PreviewComponent::setConfig(const PreviewRenderConfig& config) {
     impl_->config = config;
 }
 

@@ -214,6 +214,24 @@ void load_color_theme(const toml::table& tbl, ColorTheme& theme) {
         try_color("status_bar", theme.statusBar);
         try_color("search_highlight", theme.searchHighlight);
     }
+
+    if (const auto* vc = tbl["version_control_colors"].as_table()) {
+        auto try_color = [&](std::string_view key, uint32_t& target) {
+            if (auto v = (*vc)[key].value<std::string>()) {
+                if (auto parsed = parse_hex_color(*v)) {
+                    target = *parsed;
+                }
+            }
+        };
+        try_color("modified", theme.modified);
+        try_color("added", theme.added);
+        try_color("deleted", theme.deleted);
+        try_color("renamed", theme.renamed);
+        try_color("copied", theme.copied);
+        try_color("untracked", theme.untracked);
+        try_color("ignored", theme.ignored);
+        try_color("conflicted", theme.conflicted);
+    }
 }
 
 void load_icon_config(const toml::table& tbl, IconConfig& icons) {
@@ -294,6 +312,17 @@ toml::table serialize_color_theme(const ColorTheme& theme) {
     ui.insert("status_bar", format_hex_color(theme.statusBar));
     ui.insert("search_highlight", format_hex_color(theme.searchHighlight));
     tbl.insert("ui_colors", std::move(ui));
+
+    toml::table vc;
+    vc.insert("modified", format_hex_color(theme.modified));
+    vc.insert("added", format_hex_color(theme.added));
+    vc.insert("deleted", format_hex_color(theme.deleted));
+    vc.insert("renamed", format_hex_color(theme.renamed));
+    vc.insert("copied", format_hex_color(theme.copied));
+    vc.insert("untracked", format_hex_color(theme.untracked));
+    vc.insert("ignored", format_hex_color(theme.ignored));
+    vc.insert("conflicted", format_hex_color(theme.conflicted));
+    tbl.insert("version_control_colors", std::move(vc));
 
     return tbl;
 }

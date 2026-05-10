@@ -325,10 +325,10 @@ private:
 /**
  * @brief Preview rendering configuration.
  */
-struct PreviewConfig {
+struct PreviewRenderConfig {
     const Theme* theme{&global_theme()};
     /// Maximum number of preview lines to display.
-    int maxLines{};
+    int maxRenderLines{};
     /// Message rendered when no preview is available.
     std::string emptyMessage{"[Empty]"};
     /// Prefix used for preview error output.
@@ -365,7 +365,7 @@ using PreviewModel = std::variant<PreviewIdleState, PreviewLoadingState, Preview
  */
 class PreviewComponent {
 public:
-    explicit PreviewComponent(const PreviewConfig& config = {});
+    explicit PreviewComponent(const PreviewRenderConfig& config = {});
     ~PreviewComponent();
 
     PreviewComponent(PreviewComponent&&) noexcept;
@@ -384,7 +384,7 @@ public:
     /**
      * @brief Replaces the preview rendering configuration.
      */
-    void setConfig(const PreviewConfig& config);
+    void setConfig(const PreviewRenderConfig& config);
 
 private:
     struct Impl;

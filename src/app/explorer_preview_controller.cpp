@@ -34,13 +34,17 @@ void ExplorerPreviewController::sync(const std::optional<std::filesystem::path>&
     const auto token = previewCancellation_.token();
     const auto generation = previewGeneration_;
     const auto target = *current_target;
-    const int max_lines = std::max(1, core::global_config().config().preview.maxLines);
+
+    // Negative maxLines means "auto": read generously so the display side
+    // (which resolves negative to terminal height) has enough data.
+    const int config_max_lines = core::global_config().config().preview.maxLines;
+    const int max_read_lines = config_max_lines < 0 ? 500 : std::max(1, config_max_lines);
 
     asio::co_spawn(runtime->ioExecutor(),
-                   [this, runtime, preview_service, token, generation, target, max_lines]() -> core::Task<void> {
+                   [this, runtime, preview_service, token, generation, target, max_read_lines]() -> core::Task<void> {
                        auto result = co_await preview_service->loadPreview(PreviewRequest{
                            .target = target,
-                           .maxLines = max_lines,
+                           .maxLines = max_read_lines,
                            .cancellation = token,
                        });
 

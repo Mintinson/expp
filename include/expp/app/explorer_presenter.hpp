@@ -21,41 +21,6 @@
 
 namespace expp::app {
 
-namespace fs = std::filesystem;
-
-/**
- * @brief Preview state when no target is selected.
- */
-struct PreviewIdle {};
-
-/**
- * @brief Preview state while a request is in flight.
- */
-struct PreviewLoading {
-    fs::path target;
-};
-
-/**
- * @brief Preview state after content has been loaded successfully.
- */
-struct PreviewReady {
-    fs::path target;
-    std::vector<std::string> lines;
-};
-
-/**
- * @brief Preview state after a request fails.
- */
-struct PreviewError {
-    fs::path target;
-    std::string message;
-};
-
-/**
- * @brief Discriminated preview model consumed by the UI layer.
- */
-using PreviewModel = std::variant<PreviewIdle, PreviewLoading, PreviewReady, PreviewError>;
-
 /**
  * @brief Overlay state for the help dialog.
  */

@@ -18,9 +18,9 @@ ExplorerRenderComposer::ExplorerRenderComposer(const ui::Theme* theme) : theme_(
     // Initialize all reusable render components once; compose() only arranges
     // state into these primitives each frame.
     fileList_ = std::make_unique<ui::FileListComponent>(ui::FileListConfig{.theme = theme_});
-    preview_ = std::make_unique<ui::PreviewComponent>(ui::PreviewConfig{
+    preview_ = std::make_unique<ui::PreviewComponent>(ui::PreviewRenderConfig{
         .theme = theme_,
-        .maxLines = cfg.preview.maxLines,
+        .maxRenderLines = cfg.preview.maxLines,
     });
     statusBar_ = std::make_unique<ui::StatusBarComponent>(theme_);
     toast_ = std::make_unique<ui::ToastComponent>(theme_);
