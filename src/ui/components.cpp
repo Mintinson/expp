@@ -671,18 +671,18 @@ struct PreviewComponent::Impl {
         return vbox(std::move(elements));
     }
 
-    [[nodiscard]] ftxui::Element render(const PreviewModel& model) const {
+    [[nodiscard]] ftxui::Element render(const app::PreviewModel& model) const {
         using namespace ftxui;
         const int max_lines = resolveMaxLines();
 
         return std::visit(
             [&](const auto& state) -> Element {
                 using State = std::decay_t<decltype(state)>;
-                if constexpr (std::is_same_v<State, PreviewIdleState>) {
+                if constexpr (std::is_same_v<State, app::PreviewIdleState>) {
                     return text(config.emptyMessage) | dim | center;
-                } else if constexpr (std::is_same_v<State, PreviewLoadingState>) {
+                } else if constexpr (std::is_same_v<State, app::PreviewLoadingState>) {
                     return text(std::format("[Loading: {}]", state.target.filename().string())) | dim | center;
-                } else if constexpr (std::is_same_v<State, PreviewReadyState>) {
+                } else if constexpr (std::is_same_v<State, app::PreviewReadyState>) {
                     return renderLines(state.lines, max_lines);
                 } else {
                     return text(config.errorPrefix + state.message + "]") | color(Color::Red) | dim;
@@ -698,7 +698,7 @@ PreviewComponent::~PreviewComponent() = default;
 PreviewComponent::PreviewComponent(PreviewComponent&&) noexcept = default;
 PreviewComponent& PreviewComponent::operator=(PreviewComponent&&) noexcept = default;
 
-ftxui::Element PreviewComponent::render(const PreviewModel& model) const {
+ftxui::Element PreviewComponent::render(const app::PreviewModel& model) const {
     return impl_->render(model);
 }
 

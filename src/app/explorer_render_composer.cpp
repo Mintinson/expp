@@ -40,7 +40,7 @@ ExplorerRenderComposer::ExplorerRenderComposer(const ui::Theme* theme) : theme_(
 
 ftxui::Element ExplorerRenderComposer::compose(const ExplorerState& state,
                                                const ExplorerScreenModel& screen_model,
-                                               const ui::PreviewModel& preview_model,
+                                               const app::PreviewModel& preview_model,
                                                const ExplorerOverlayState& overlay_state,
                                                ftxui::Component active_input,
                                                const std::optional<ui::ToastInfo>& current_toast) {
@@ -72,7 +72,7 @@ ftxui::Element ExplorerRenderComposer::compose(const ExplorerState& state,
 
 ftxui::Element ExplorerRenderComposer::composeMainLayout(const ExplorerState& state,
                                                          const ExplorerScreenModel& screen_model,
-                                                         const ui::PreviewModel& preview_model) {
+                                                         const app::PreviewModel& preview_model) {
     using namespace ftxui;
 
     // Render parent directory list

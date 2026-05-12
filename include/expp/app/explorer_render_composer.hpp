@@ -50,7 +50,7 @@ public:
      */
     [[nodiscard]] ftxui::Element compose(const ExplorerState& state,
                                          const ExplorerScreenModel& screen_model,
-                                         const ui::PreviewModel& preview_model,
+                                         const app::PreviewModel& preview_model,
                                          const ExplorerOverlayState& overlay_state,
                                          ftxui::Component active_input,
                                          const std::optional<ui::ToastInfo>& current_toast);
@@ -73,7 +73,7 @@ private:
      */
     [[nodiscard]] ftxui::Element composeMainLayout(const ExplorerState& state,
                                                    const ExplorerScreenModel& screen_model,
-                                                   const ui::PreviewModel& preview_model);
+                                                   const app::PreviewModel& preview_model);
     /**
      * @brief Layers the active overlay over the base layout.
      */

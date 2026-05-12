@@ -49,7 +49,7 @@ namespace {
     if (it == std::ranges::crend(text)) {
         return {};
     }
-    return std::string_view(text.data(), std::ranges::distance(text.begin(), it.base()));
+    return {text.data(), static_cast<size_t>(std::ranges::distance(text.begin(), it.base()))};
 }
 
 /**

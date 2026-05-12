@@ -23,11 +23,11 @@ void ExplorerPreviewController::sync(const std::optional<std::filesystem::path>&
     ++previewGeneration_;
 
     if (!current_target.has_value()) {
-        previewModel_ = ui::PreviewIdleState{};
+        previewModel_ = app::PreviewIdleState{};
         return;
     }
 
-    previewModel_ = ui::PreviewLoadingState{.target = *current_target};
+    previewModel_ = app::PreviewLoadingState{.target = *current_target};
 
     const auto runtime = explorer_->services().runtime;
     const auto preview_service = explorer_->services().preview;
@@ -54,14 +54,14 @@ void ExplorerPreviewController::sync(const std::optional<std::filesystem::path>&
                            }
 
                            if (!result) {
-                               previewModel_ = ui::PreviewErrorState{
+                               previewModel_ = app::PreviewErrorState{
                                    .target = target,
                                    .message = result.error().message(),
                                };
                                return;
                            }
 
-                           previewModel_ = ui::PreviewReadyState{
+                           previewModel_ = app::PreviewReadyState{
                                .target = target,
                                .lines = std::move(result->lines),
                            };

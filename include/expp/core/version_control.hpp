@@ -52,7 +52,7 @@ struct VersionStatusEntry {
 struct VersionStatusSnapshot {
     fs::path repositoryRoot;
     fs::path directory;
-    std::unordered_map<std::string, VersionStatus> statusesByPath;
+    std::unordered_map<std::string, VersionStatus> statusesByPath{};
     bool repositoryFound{false};
 };
 

@@ -277,7 +277,7 @@ TEST_CASE("ExplorerPreviewController ignores stale preview completions", "[app][
         (void)runtime->mailbox().drain();
     }
 
-    const auto* ready = std::get_if<expp::ui::PreviewReadyState>(&preview_controller.model());
+    const auto* ready = std::get_if<expp::app::PreviewReadyState>(&preview_controller.model());
     REQUIRE(ready != nullptr);
     CHECK(ready->target == fs::path{"fast.txt"});
     REQUIRE(ready->lines.size() == 1);
