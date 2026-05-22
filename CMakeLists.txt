@@ -65,11 +65,13 @@ endif ()
 # Options
 # ==============================================================================
 option(EXPP_BUILD_TESTS "Build test suite" ON)
-option(EXPP_BUILD_EXAMPLES "Build example programs" OFF)
+option(EXPP_BUILD_EXAMPLES "Build example programs" ON)
 option(EXPP_ENABLE_SANITIZERS "Enable sanitizers in Debug builds" ON)
 option(EXPP_ENABLE_CLANG_TIDY "Enable clang-tidy checks" OFF)
 option(EXPP_ENABLE_CPPCHECK "Enable cppcheck static analysis" OFF)
 option(EXPP_ENABLE_LIBMAGIC "Use libmagic for MIME sniffing when available" OFF)
+option(EXPP_ENABLE_LIBGIT2 "Use libgit2 for Git status when available" ON)
+option(EXPP_FETCH_LIBGIT2 "Fetch and build libgit2 when no package target is found" ON)
 option(EXPP_PREPARE_IO_URING_BACKEND "Enable Linux io_uring extension hooks" ON)
 
 
@@ -222,6 +224,14 @@ FetchContent_Declare(asio_src
         GIT_TAG asio-1-38-0
 )
 
+if (EXPP_ENABLE_LIBGIT2 AND EXPP_FETCH_LIBGIT2)
+    FetchContent_Declare(libgit2
+            GIT_REPOSITORY https://github.com/libgit2/libgit2
+            GIT_TAG v1.9.1
+            GIT_SUBMODULES ""
+    )
+endif ()
+
 
 FetchContent_MakeAvailable(ftxui tomlplusplus asio_src)
 if (EXPP_BUILD_TESTS)
@@ -264,6 +274,44 @@ if (EXPP_ENABLE_LIBMAGIC)
 else ()
     target_compile_definitions(expp_magic INTERFACE EXPP_HAS_LIBMAGIC=0)
 endif ()
+
+add_library(expp_git2 INTERFACE)
+set(EXPP_LIBGIT2_COMPILED_IN 0)
+if (EXPP_ENABLE_LIBGIT2)
+    find_package(libgit2 CONFIG QUIET)
+    if (TARGET libgit2::libgit2)
+        target_link_libraries(expp_git2 INTERFACE libgit2::libgit2)
+        set(EXPP_LIBGIT2_COMPILED_IN 1)
+    elseif (TARGET libgit2::git2)
+        target_link_libraries(expp_git2 INTERFACE libgit2::git2)
+        set(EXPP_LIBGIT2_COMPILED_IN 1)
+    elseif (EXPP_FETCH_LIBGIT2)
+        set(BUILD_CLAR OFF CACHE BOOL "Build libgit2 tests" FORCE)
+        set(BUILD_TESTS OFF CACHE BOOL "Build libgit2 tests" FORCE)
+        set(BUILD_CLI OFF CACHE BOOL "Build libgit2 command-line tools" FORCE)
+        set(BUILD_EXAMPLES OFF CACHE BOOL "Build libgit2 examples" FORCE)
+        set(BUILD_FUZZERS OFF CACHE BOOL "Build libgit2 fuzzers" FORCE)
+        set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
+        set(USE_HTTPS OFF CACHE STRING "libgit2 HTTPS backend" FORCE)
+        set(USE_SSH OFF CACHE STRING "libgit2 SSH backend" FORCE)
+        FetchContent_MakeAvailable(libgit2)
+        if (TARGET libgit2package)
+            target_link_libraries(expp_git2 INTERFACE libgit2package)
+            target_include_directories(expp_git2 SYSTEM INTERFACE
+                "${libgit2_SOURCE_DIR}/include"
+                "${libgit2_BINARY_DIR}/include"
+            )
+            set(EXPP_LIBGIT2_COMPILED_IN 1)
+        elseif (TARGET git2)
+            target_link_libraries(expp_git2 INTERFACE git2)
+            set(EXPP_LIBGIT2_COMPILED_IN 1)
+        elseif (TARGET libgit2)
+            target_link_libraries(expp_git2 INTERFACE libgit2)
+            set(EXPP_LIBGIT2_COMPILED_IN 1)
+        endif ()
+    endif ()
+endif ()
+target_compile_definitions(expp_git2 INTERFACE EXPP_HAS_LIBGIT2=${EXPP_LIBGIT2_COMPILED_IN})
 
 # if (UNIX AND NOT APPLE AND EXPP_PREPARE_IO_URING_BACKEND)
 #     target_compile_definitions(expp_asio INTERFACE EXPP_PREPARE_IO_URING_BACKEND=1)
@@ -373,6 +421,7 @@ target_link_libraries(expp_core
     PUBLIC
         expp_asio
         expp_magic
+        expp_git2
         tomlplusplus::tomlplusplus
 )
 # Platform-specific libraries for trash functionality
@@ -571,4 +620,5 @@ message(STATUS "Build examples:      ${EXPP_BUILD_EXAMPLES}")
 message(STATUS "Sanitizers:          ${EXPP_ENABLE_SANITIZERS}")
 message(STATUS "clang-tidy:          ${EXPP_ENABLE_CLANG_TIDY}")
 message(STATUS "libmagic:            ${EXPP_ENABLE_LIBMAGIC}")
+message(STATUS "libgit2:             ${EXPP_LIBGIT2_COMPILED_IN}")
 message(STATUS "")

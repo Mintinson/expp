@@ -19,6 +19,7 @@ add_executable(expp_tests
     app/test_async_behavior.cpp
     app/test_navigation_utils.cpp
     app/test_notification_center.cpp
+    app/test_cli.cpp
 )
 
 target_link_libraries(expp_tests
