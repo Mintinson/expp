@@ -49,7 +49,9 @@ endif()
 # Global settings
 # ==============================================================================
 set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
@@ -95,6 +97,7 @@ target_compile_definitions(expp_project_options INTERFACE
     TOML_EXCEPTIONS=0       # toml++ is configured to never throw, so this is a global definition rather than a conditional one.
     EXPP_PREPARE_IO_URING_BACKEND=${EXPP_IO_URING_COMPILED_IN}
     $<$<AND:$<BOOL:${EXPP_DISABLE_EXCEPTIONS}>,$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>>:_HAS_EXCEPTIONS=0>
+    # $<$<BOOL:${EXPP_DISABLE_EXCEPTIONS}>:_HAS_EXCEPTIONS=0>
 )
 target_compile_options(expp_project_options INTERFACE
     # Frontend-variant checks keep clang-cl aligned with cl.exe while still
@@ -294,7 +297,31 @@ if (EXPP_ENABLE_LIBGIT2)
         set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
         set(USE_HTTPS OFF CACHE STRING "libgit2 HTTPS backend" FORCE)
         set(USE_SSH OFF CACHE STRING "libgit2 SSH backend" FORCE)
+
+        if (UNIX AND NOT APPLE)
+            # Linux force system to use st_mtim，write the result directly to the internal cache
+            set(GIT_USE_STAT_MTIM 1 CACHE INTERNAL "Force libgit2 stat mtim on Linux")
+        elseif (APPLE)
+            # macOS uses st_mtimespec
+            set(GIT_USE_STAT_MTIMESPEC 1 CACHE INTERNAL "Force libgit2 stat mtimespec on macOS")
+        endif()
+
+        set(BACKUP_CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+        set(BACKUP_CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}") # 以防万一它用到C++编译器
+
+        if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+            # -w close all warnings
+            set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
+        elseif(MSVC)
+            # MSVC's equivalent
+            set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /w")
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /w")
+        endif()
+
         FetchContent_MakeAvailable(libgit2)
+        set(CMAKE_C_FLAGS "${BACKUP_CMAKE_C_FLAGS}")
+        set(CMAKE_CXX_FLAGS "${BACKUP_CMAKE_CXX_FLAGS}")
         if (TARGET libgit2package)
             target_link_libraries(expp_git2 INTERFACE libgit2package)
             target_include_directories(expp_git2 SYSTEM INTERFACE

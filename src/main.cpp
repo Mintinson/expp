@@ -70,6 +70,9 @@ void print_fatal(const expp::core::Error& error) {
 }  // namespace
 
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+#endif
     using namespace expp;
 
     // Load configuration from default locations

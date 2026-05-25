@@ -152,8 +152,7 @@ TEST_CASE("Option configuration", "[app][cli][option]") {
     }
 
     SECTION("valueName sets custom value placeholder") {
-        auto opt =
-            Option::withLong("output").setTakesValue().valueName("FILE");
+        auto opt = Option::withLong("output").setTakesValue().valueName("FILE");
 
         CHECK(opt.valueName() == "FILE");
     }
@@ -167,9 +166,7 @@ TEST_CASE("Option configuration", "[app][cli][option]") {
     }
 
     SECTION("choices sets valid values and marks hasChoices") {
-        auto opt = Option::withLong("color")
-                       .setTakesValue()
-                       .choices({"red", "green", "blue"});
+        auto opt = Option::withLong("color").setTakesValue().choices({"red", "green", "blue"});
 
         CHECK(opt.hasChoices());
         REQUIRE(opt.choices().size() == 3);
@@ -183,6 +180,20 @@ TEST_CASE("Option configuration", "[app][cli][option]") {
 
         CHECK(opt.hasChoices());
         CHECK(opt.choices().empty());
+    }
+
+    SECTION("validator registers custom value validation") {
+        auto opt = Option::withLong("path").setTakesValue().validator(
+            [](std::string_view value) -> VoidResult {
+                if (value.starts_with('/')) {
+                    return ok();
+                }
+                return err(ErrorCode::ConstraintViolation, "path must be absolute");
+            });
+
+        REQUIRE(opt.validators().size() == 1);
+        CHECK(opt.validators()[0]("/tmp").has_value());
+        CHECK_FALSE(opt.validators()[0]("tmp").has_value());
     }
 }
 
@@ -651,15 +662,13 @@ TEST_CASE("Command description", "[app][cli][command]") {
                    .longDescription("This command compiles all source files and links them.");
 
     CHECK(cmd.description() == "Build the project");
-    CHECK(cmd.longDescription() ==
-          "This command compiles all source files and links them.");
+    CHECK(cmd.longDescription() == "This command compiles all source files and links them.");
 }
 
 TEST_CASE("Command options registration", "[app][cli][command]") {
     SECTION("register option with long name") {
-        auto cmd =
-            Command::create("test")
-                .option(Option::withLong("verbose").description("Verbose output"));
+        auto cmd = Command::create("test").option(
+            Option::withLong("verbose").description("Verbose output"));
 
         REQUIRE(cmd.options().size() == 1);
         CHECK(cmd.options()[0].longName() == "verbose");
@@ -677,13 +686,30 @@ TEST_CASE("Command options registration", "[app][cli][command]") {
     }
 
     SECTION("register option with alias makes alias findable") {
-        auto cmd =
-            Command::create("test")
-                .option(Option::withLong("output").alias("out"));
+        auto cmd = Command::create("test").option(Option::withLong("output").alias("out"));
 
         auto found = cmd.findOption("out");
         REQUIRE(found != nullptr);
         CHECK(found->longName() == "output");
+    }
+
+    SECTION("duplicate long option definition is ignored") {
+        auto cmd = Command::create("test")
+                       .option(Option::withLong("verbose").description("first"))
+                       .option(Option::withLong("verbose").description("second"));
+
+        REQUIRE(cmd.options().size() == 1);
+        REQUIRE(cmd.findOption("verbose") != nullptr);
+        CHECK(cmd.findOption("verbose")->description() == "first");
+    }
+
+    SECTION("duplicate alias definition is ignored") {
+        auto cmd = Command::create("test")
+                       .option(Option::withLong("output").alias("out"))
+                       .option(Option::withLong("other").alias("out"));
+
+        REQUIRE(cmd.options().size() == 1);
+        CHECK(cmd.findOption("other") == nullptr);
     }
 
     SECTION("findOption with unknown name returns null") {
@@ -770,12 +796,11 @@ TEST_CASE("Command handler and execute", "[app][cli][command]") {
         bool called = false;
         std::string received_name;
 
-        auto cmd = Command::create("test").handler(
-            [&](const ParsedCommand& p) -> VoidResult {
-                called = true;
-                received_name = p.name;
-                return ok();
-            });
+        auto cmd = Command::create("test").handler([&](const ParsedCommand& p) -> VoidResult {
+            called = true;
+            received_name = p.name;
+            return ok();
+        });
 
         ParsedCommand parsed;
         parsed.name = "test";
@@ -787,11 +812,9 @@ TEST_CASE("Command handler and execute", "[app][cli][command]") {
     }
 
     SECTION("handler can return error") {
-        auto cmd = Command::create("test").handler(
-            [](const ParsedCommand&) -> VoidResult {
-                return std::unexpected(
-                    ParseError(ErrorCode::InternalError, "handler failed"));
-            });
+        auto cmd = Command::create("test").handler([](const ParsedCommand&) -> VoidResult {
+            return std::unexpected(ParseError(ErrorCode::InternalError, "handler failed"));
+        });
 
         ParsedCommand parsed;
         auto result = cmd.execute(parsed);
@@ -822,8 +845,7 @@ TEST_CASE("Command usage", "[app][cli][command]") {
     }
 
     SECTION("usage with subcommands") {
-        auto cmd =
-            Command::create("tool").subcommand(Command::create("build"));
+        auto cmd = Command::create("tool").subcommand(Command::create("build"));
 
         auto usage = cmd.usageString("myapp");
         CHECK(usage.find("<command>") != std::string::npos);
@@ -840,8 +862,7 @@ TEST_CASE("Command usage", "[app][cli][command]") {
     }
 
     SECTION("usage override") {
-        auto cmd =
-            Command::create("build").usage("myapp build [--options] <target>");
+        auto cmd = Command::create("build").usage("myapp build [--options] <target>");
 
         CHECK(cmd.usageString("ignored") == "myapp build [--options] <target>");
     }
@@ -946,8 +967,7 @@ TEST_CASE("Tokenizer basic token types", "[app][cli][tokenizer]") {
     }
 }
 
-TEST_CASE("Tokenizer negative numbers treated as positional",
-          "[app][cli][tokenizer]") {
+TEST_CASE("Tokenizer negative numbers treated as positional", "[app][cli][tokenizer]") {
     Tokenizer tokenizer;
 
     SECTION("negative integer") {
@@ -1002,8 +1022,7 @@ TEST_CASE("Tokenizer single dash produces error", "[app][cli][tokenizer]") {
 
 TEST_CASE("Tokenizer preserves originalIndex", "[app][cli][tokenizer]") {
     Tokenizer tokenizer;
-    std::vector<std::string_view> args = {"prog", "--verbose", "-o",
-                                           "file.txt"};
+    std::vector<std::string_view> args = {"prog", "--verbose", "-o", "file.txt"};
     auto result = tokenizer.tokenize(args);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 3);
@@ -1016,8 +1035,7 @@ TEST_CASE("Tokenizer complex args", "[app][cli][tokenizer]") {
     Tokenizer tokenizer;
 
     SECTION("mix of options and positionals") {
-        std::vector<std::string_view> args = {"prog", "--verbose", "-o",
-                                               "output.txt", "input.txt"};
+        std::vector<std::string_view> args = {"prog", "--verbose", "-o", "output.txt", "input.txt"};
         auto result = tokenizer.tokenize(args);
         REQUIRE(result.has_value());
         REQUIRE(result->size() == 4);
@@ -1089,8 +1107,8 @@ TEST_CASE("TokenStream basic operations", "[app][cli][token_stream]") {
         tokens.push_back(t);
 
         TokenStream stream(std::move(tokens));
-        auto consumed = stream.consumeIf(
-            [](const Token& tok) { return tok.type == TokenType::PositionArg; });
+        auto consumed =
+            stream.consumeIf([](const Token& tok) { return tok.type == TokenType::PositionArg; });
 
         REQUIRE(consumed.has_value());
         CHECK(consumed->value == "arg1");
@@ -1105,8 +1123,8 @@ TEST_CASE("TokenStream basic operations", "[app][cli][token_stream]") {
         tokens.push_back(t);
 
         TokenStream stream(std::move(tokens));
-        auto consumed = stream.consumeIf(
-            [](const Token& tok) { return tok.type == TokenType::LongOption; });
+        auto consumed =
+            stream.consumeIf([](const Token& tok) { return tok.type == TokenType::LongOption; });
 
         CHECK_FALSE(consumed.has_value());
         CHECK(stream.hasMore());  // Token still available
@@ -1198,8 +1216,7 @@ TEST_CASE("TokenStream doubleDash tracking", "[app][cli][token_stream]") {
 // Parser tests
 // ============================================================================
 
-std::vector<std::string_view> make_args(
-    std::initializer_list<const char*> args) {
+std::vector<std::string_view> make_args(std::initializer_list<const char*> args) {
     return std::vector<std::string_view>(args.begin(), args.end());
 }
 
@@ -1221,8 +1238,7 @@ TEST_CASE("Parser help request", "[app][cli][parser]") {
     }
 
     SECTION("--help after subcommand") {
-        auto cmd =
-            Command::create("prog").subcommand(Command::create("build"));
+        auto cmd = Command::create("prog").subcommand(Command::create("build"));
         auto args = make_args({"prog", "build", "--help"});
         auto result = Parser::parse(args, cmd);
         REQUIRE(result.has_value());
@@ -1251,9 +1267,8 @@ TEST_CASE("Parser flag options", "[app][cli][parser]") {
 }
 
 TEST_CASE("Parser options with values", "[app][cli][parser]") {
-    auto cmd = Command::create("prog")
-                   .option(Option::withLong("output").setTakesValue().valueName(
-                       "FILE"));
+    auto cmd = Command::create("prog").option(
+        Option::withLong("output").setTakesValue().valueName("FILE"));
 
     SECTION("--output=value form") {
         auto args = make_args({"prog", "--output=result.txt"});
@@ -1262,19 +1277,33 @@ TEST_CASE("Parser options with values", "[app][cli][parser]") {
         CHECK(result->options.get<std::string>("output") == "result.txt");
     }
 
+    SECTION("--output= preserves empty attached value") {
+        auto args = make_args({"prog", "--output="});
+        auto result = Parser::parse(args, cmd);
+        REQUIRE(result.has_value());
+        CHECK(result->options.get<std::string>("output") == "");
+    }
+
     SECTION("--output value form") {
         auto args = make_args({"prog", "--output", "result.txt"});
         auto result = Parser::parse(args, cmd);
         REQUIRE(result.has_value());
         CHECK(result->options.get<std::string>("output") == "result.txt");
     }
+
+    SECTION("overly long option value is preserved") {
+        std::string long_value(4096, 'x');
+        std::vector<std::string_view> args = {"prog", "--output", long_value};
+
+        auto result = Parser::parse(args, cmd);
+        REQUIRE(result.has_value());
+        CHECK(result->options.get<std::string>("output") == long_value);
+    }
 }
 
 TEST_CASE("Parser short options with values", "[app][cli][parser]") {
-    auto cmd = Command::create("prog")
-                   .option(Option::withName("output", 'o')
-                               .setTakesValue()
-                               .valueName("FILE"));
+    auto cmd = Command::create("prog").option(
+        Option::withName("output", 'o').setTakesValue().valueName("FILE"));
 
     SECTION("-o value form") {
         auto args = make_args({"prog", "-o", "result.txt"});
@@ -1289,15 +1318,20 @@ TEST_CASE("Parser short options with values", "[app][cli][parser]") {
         REQUIRE(result.has_value());
         CHECK(result->options.get<std::string>("output") == "result.txt");
     }
+
+    SECTION("-o value consumes option-like token literally") {
+        auto args = make_args({"prog", "-o", "--literal"});
+        auto result = Parser::parse(args, cmd);
+        REQUIRE(result.has_value());
+        CHECK(result->options.get<std::string>("output") == "--literal");
+    }
 }
 
 TEST_CASE("Parser combined short options", "[app][cli][parser]") {
     auto cmd = Command::create("prog")
                    .flag("verbose", 'v', "Verbose")
                    .flag("debug", 'd', "Debug")
-                   .option(Option::withName("output", 'o')
-                               .setTakesValue()
-                               .valueName("FILE"));
+                   .option(Option::withName("output", 'o').setTakesValue().valueName("FILE"));
 
     SECTION("-vd sets two flags") {
         auto args = make_args({"prog", "-vd"});
@@ -1329,14 +1363,21 @@ TEST_CASE("Parser double dash stops option parsing", "[app][cli][parser]") {
         CHECK(result->positionalArgs[0] == "--verbose");
         CHECK(result->positionalArgs[1] == "file.txt");
     }
+
+    SECTION("--help after -- is positional") {
+        auto args = make_args({"prog", "--", "--help"});
+        auto result = Parser::parse(args, cmd);
+        REQUIRE(result.has_value());
+        CHECK_FALSE(result->helpRequested);
+        REQUIRE(result->positionalArgs.size() == 1);
+        CHECK(result->positionalArgs[0] == "--help");
+    }
 }
 
 TEST_CASE("Parser subcommands", "[app][cli][parser]") {
     auto cmd = Command::create("prog")
-                   .subcommand(
-                       Command::create("build").description("Build project"))
-                   .subcommand(
-                       Command::create("test").description("Run tests"));
+                   .subcommand(Command::create("build").description("Build project"))
+                   .subcommand(Command::create("test").description("Run tests"));
 
     SECTION("parse subcommand changes name") {
         auto args = make_args({"prog", "build"});
@@ -1405,8 +1446,7 @@ TEST_CASE("Parser unknown option errors", "[app][cli][parser]") {
 }
 
 TEST_CASE("Parser missing option value errors", "[app][cli][parser]") {
-    auto cmd = Command::create("prog")
-                   .option(Option::withLong("output").setTakesValue());
+    auto cmd = Command::create("prog").option(Option::withLong("output").setTakesValue());
 
     SECTION("long option without value at end") {
         auto args = make_args({"prog", "--output"});
@@ -1416,8 +1456,7 @@ TEST_CASE("Parser missing option value errors", "[app][cli][parser]") {
     }
 
     SECTION("short option without value") {
-        auto cmd2 = Command::create("prog").option(
-            Option::withName("output", 'o').setTakesValue());
+        auto cmd2 = Command::create("prog").option(Option::withName("output", 'o').setTakesValue());
         auto args = make_args({"prog", "-o"});
         auto result = Parser::parse(args, cmd2);
         CHECK_FALSE(result.has_value());
@@ -1426,10 +1465,8 @@ TEST_CASE("Parser missing option value errors", "[app][cli][parser]") {
 }
 
 TEST_CASE("Parser choice validation", "[app][cli][parser]") {
-    auto cmd = Command::create("prog")
-                   .option(Option::withLong("color")
-                               .setTakesValue()
-                               .choices({"red", "green", "blue"}));
+    auto cmd = Command::create("prog").option(
+        Option::withLong("color").setTakesValue().choices({"red", "green", "blue"}));
 
     SECTION("valid choice accepted") {
         auto args = make_args({"prog", "--color=red"});
@@ -1446,16 +1483,85 @@ TEST_CASE("Parser choice validation", "[app][cli][parser]") {
     }
 }
 
+TEST_CASE("Parser custom option validators", "[app][cli][parser]") {
+    auto cmd = Command::create("prog").option(Option::withLong("path").setTakesValue().validator(
+        [](std::string_view value) -> VoidResult {
+            if (value.starts_with('/')) {
+                return ok();
+            }
+            return err(ErrorCode::ConstraintViolation,
+                       std::format("path '{}' must be absolute", value));
+        }));
+
+    SECTION("valid value passes custom validator") {
+        auto args = make_args({"prog", "--path", "/tmp/cache"});
+        auto result = Parser::parse(args, cmd);
+        REQUIRE(result.has_value());
+        CHECK(result->options.get<std::string>("path") == "/tmp/cache");
+    }
+
+    SECTION("invalid value returns validator error") {
+        auto args = make_args({"prog", "--path", "tmp/cache"});
+        auto result = Parser::parse(args, cmd);
+        CHECK_FALSE(result.has_value());
+        CHECK(result.error().code() == ErrorCode::ConstraintViolation);
+        CHECK(result.error().message().find("must be absolute") != std::string::npos);
+    }
+}
+
+TEST_CASE("Parser applies option defaults", "[app][cli][parser]") {
+    SECTION("default value is present in parsed options") {
+        auto cmd = Command::create("prog").option(Option::withLong("count").defaultValue(10));
+
+        auto args = make_args({"prog"});
+        auto result = Parser::parse(args, cmd);
+        REQUIRE(result.has_value());
+        CHECK(result->options.get<int>("count") == 10);
+        CHECK(result->options.rawOption("count") == "10");
+    }
+
+    SECTION("explicit value overrides default") {
+        auto cmd = Command::create("prog").option(
+            Option::withLong("count").setTakesValue().defaultValue(10));
+
+        auto args = make_args({"prog", "--count", "20"});
+        auto result = Parser::parse(args, cmd);
+        REQUIRE(result.has_value());
+        CHECK(result->options.get<int>("count") == 20);
+    }
+
+    SECTION("root and subcommand defaults are both applied") {
+        auto cmd = Command::create("prog")
+                       .option(Option::withLong("profile").defaultValue("dev"))
+                       .subcommand(Command::create("run").option(
+                           Option::withLong("port").defaultValue(8080)));
+
+        auto args = make_args({"prog", "run"});
+        auto result = Parser::parse(args, cmd);
+        REQUIRE(result.has_value());
+        CHECK(result->options.get<std::string>("profile") == "dev");
+        CHECK(result->options.get<int>("port") == 8080);
+    }
+
+    SECTION("invalid default fails through normal validation") {
+        auto cmd = Command::create("prog").option(
+            Option::withLong("color").defaultValue("yellow").choices({"red", "green", "blue"}));
+
+        auto args = make_args({"prog"});
+        auto result = Parser::parse(args, cmd);
+        CHECK_FALSE(result.has_value());
+        CHECK(result.error().code() == ErrorCode::InvalidValue);
+    }
+}
+
 // ============================================================================
 // Validator tests
 // ============================================================================
 
 TEST_CASE("Validator required options", "[app][cli][validator]") {
     SECTION("required option present passes") {
-        auto cmd = Command::create("prog")
-                       .option(Option::withLong("config")
-                                   .setTakesValue()
-                                   .required());
+        auto cmd =
+            Command::create("prog").option(Option::withLong("config").setTakesValue().required());
 
         ParsedCommand parsed;
         parsed.options.set("config", "config.toml");
@@ -1465,10 +1571,8 @@ TEST_CASE("Validator required options", "[app][cli][validator]") {
     }
 
     SECTION("required option missing fails") {
-        auto cmd = Command::create("prog")
-                       .option(Option::withLong("config")
-                                   .setTakesValue()
-                                   .required());
+        auto cmd =
+            Command::create("prog").option(Option::withLong("config").setTakesValue().required());
 
         ParsedCommand parsed;
         auto result = Validator::validate(parsed, cmd);
@@ -1477,10 +1581,8 @@ TEST_CASE("Validator required options", "[app][cli][validator]") {
     }
 
     SECTION("required option with only short name") {
-        auto cmd = Command::create("prog")
-                       .option(Option::withShort('c')
-                                   .setTakesValue()
-                                   .required());
+        auto cmd =
+            Command::create("prog").option(Option::withShort('c').setTakesValue().required());
 
         ParsedCommand parsed;
         parsed.options.set("c", "value");
@@ -1492,8 +1594,7 @@ TEST_CASE("Validator required options", "[app][cli][validator]") {
 
 TEST_CASE("Validator required arguments", "[app][cli][validator]") {
     SECTION("required argument present passes") {
-        auto cmd =
-            Command::create("prog").argument(Argument::create("input").required());
+        auto cmd = Command::create("prog").argument(Argument::create("input").required());
 
         ParsedCommand parsed;
         parsed.positionalArgs = {"file.txt"};
@@ -1503,8 +1604,7 @@ TEST_CASE("Validator required arguments", "[app][cli][validator]") {
     }
 
     SECTION("required argument missing fails") {
-        auto cmd =
-            Command::create("prog").argument(Argument::create("input").required());
+        auto cmd = Command::create("prog").argument(Argument::create("input").required());
 
         ParsedCommand parsed;
         auto result = Validator::validate(parsed, cmd);
@@ -1513,8 +1613,7 @@ TEST_CASE("Validator required arguments", "[app][cli][validator]") {
     }
 
     SECTION("optional argument missing is ok") {
-        auto cmd = Command::create("prog")
-                       .argument(Argument::create("extra").optional());
+        auto cmd = Command::create("prog").argument(Argument::create("extra").optional());
 
         ParsedCommand parsed;
         auto result = Validator::validate(parsed, cmd);
@@ -1522,8 +1621,7 @@ TEST_CASE("Validator required arguments", "[app][cli][validator]") {
     }
 
     SECTION("variadic argument can take any number") {
-        auto cmd = Command::create("prog")
-                       .argument(Argument::create("files").variadic());
+        auto cmd = Command::create("prog").argument(Argument::create("files").variadic());
 
         ParsedCommand parsed;
         parsed.positionalArgs = {"a.txt", "b.txt", "c.txt", "d.txt"};
@@ -1535,8 +1633,7 @@ TEST_CASE("Validator required arguments", "[app][cli][validator]") {
 
 TEST_CASE("Validator unexpected arguments", "[app][cli][validator]") {
     SECTION("extra argument without variadic fails") {
-        auto cmd =
-            Command::create("prog").argument(Argument::create("input"));
+        auto cmd = Command::create("prog").argument(Argument::create("input"));
 
         ParsedCommand parsed;
         parsed.positionalArgs = {"a.txt", "b.txt"};
@@ -1553,8 +1650,7 @@ TEST_CASE("Validator validateChoices", "[app][cli][validator]") {
     }
 
     SECTION("non-matching choice returns false") {
-        CHECK_FALSE(
-            Validator::validateChoices("yellow", {"red", "green", "blue"}));
+        CHECK_FALSE(Validator::validateChoices("yellow", {"red", "green", "blue"}));
     }
 
     SECTION("empty choices always returns true") {
@@ -1627,18 +1723,16 @@ TEST_CASE("HelpGenerator sections", "[app][cli][help]") {
     }
 
     SECTION("help includes options section when options exist") {
-        auto cmd = Command::create("myapp")
-                       .option(Option::withLong("verbose").description(
-                           "Verbose output"));
+        auto cmd = Command::create("myapp").option(
+            Option::withLong("verbose").description("Verbose output"));
         auto text = gen.generate(cmd, "myapp");
         CHECK(text.find("Options:") != std::string::npos);
         CHECK(text.find("--verbose") != std::string::npos);
     }
 
     SECTION("help includes arguments section when arguments exist") {
-        auto cmd = Command::create("myapp")
-                       .argument(
-                           Argument::create("input").description("Input file"));
+        auto cmd =
+            Command::create("myapp").argument(Argument::create("input").description("Input file"));
         auto text = gen.generate(cmd, "myapp");
         CHECK(text.find("Arguments:") != std::string::npos);
         CHECK(text.find("<input>") != std::string::npos);
@@ -1653,26 +1747,21 @@ TEST_CASE("HelpGenerator sections", "[app][cli][help]") {
     }
 
     SECTION("help shows defaults when configured") {
-        auto cmd = Command::create("myapp")
-                       .option(Option::withLong("count").defaultValue(5));
+        auto cmd = Command::create("myapp").option(Option::withLong("count").defaultValue(5));
         auto text = gen.generate(cmd, "myapp");
         CHECK(text.find("[default: 5]") != std::string::npos);
     }
 
     SECTION("help shows required marker when configured") {
-        auto cmd = Command::create("myapp")
-                       .option(Option::withLong("config")
-                                   .setTakesValue()
-                                   .required());
+        auto cmd =
+            Command::create("myapp").option(Option::withLong("config").setTakesValue().required());
         auto text = gen.generate(cmd, "myapp");
         CHECK(text.find("[required]") != std::string::npos);
     }
 
     SECTION("help shows choices when present") {
-        auto cmd = Command::create("myapp")
-                       .option(Option::withLong("color")
-                                   .setTakesValue()
-                                   .choices({"red", "green", "blue"}));
+        auto cmd = Command::create("myapp").option(
+            Option::withLong("color").setTakesValue().choices({"red", "green", "blue"}));
         auto text = gen.generate(cmd, "myapp");
         CHECK(text.find("[choices:") != std::string::npos);
     }
@@ -1684,8 +1773,7 @@ TEST_CASE("HelpGenerator sections", "[app][cli][help]") {
     }
 }
 
-TEST_CASE("HelpGenerator generate2 matches generate structure",
-          "[app][cli][help]") {
+TEST_CASE("HelpGenerator generate2 matches generate structure", "[app][cli][help]") {
     HelpGenerator gen(no_color_config());
     auto cmd = Command::create("myapp")
                    .description("Test app")
@@ -1702,9 +1790,8 @@ TEST_CASE("HelpGenerator generate2 matches generate structure",
 }
 
 TEST_CASE("HelpGenerator shortUsage", "[app][cli][help]") {
-    auto cmd = Command::create("build")
-                   .description("Build project")
-                   .option(Option::withLong("release"));
+    auto cmd =
+        Command::create("build").description("Build project").option(Option::withLong("release"));
 
     auto usage = HelpGenerator::shortUsage(cmd, "myapp");
     CHECK(usage.find("myapp") != std::string::npos);
@@ -1765,19 +1852,16 @@ TEST_CASE("CLI create and fromCommand", "[app][cli][cli]") {
 }
 
 TEST_CASE("CLI configuration chain", "[app][cli][cli]") {
-    auto cli = CLI::create("myapp")
-                   .description("My application")
-                   .version("1.0.0")
-                   .author("Test Author");
+    auto cli =
+        CLI::create("myapp").description("My application").version("1.0.0").author("Test Author");
 
     CHECK(cli.root().description() == "My application");
 }
 
 TEST_CASE("CLI option and flag registration", "[app][cli][cli]") {
     SECTION("option added to root command") {
-        auto cli = CLI::create("myapp")
-                       .option(
-                           Option::withLong("config").description("Config file"));
+        auto cli =
+            CLI::create("myapp").option(Option::withLong("config").description("Config file"));
 
         CHECK(cli.root().options().size() == 1);
     }
@@ -1791,8 +1875,7 @@ TEST_CASE("CLI option and flag registration", "[app][cli][cli]") {
 }
 
 TEST_CASE("CLI subcommand registration", "[app][cli][cli]") {
-    auto cli = CLI::create("myapp")
-                   .command(Command::create("build").description("Build"));
+    auto cli = CLI::create("myapp").command(Command::create("build").description("Build"));
 
     CHECK(cli.root().hasSubcommands());
     CHECK(cli.root().findSubcommand("build") != nullptr);
@@ -1803,12 +1886,11 @@ TEST_CASE("CLI handler execution", "[app][cli][cli]") {
         bool called = false;
         std::string captured;
 
-        auto cli = CLI::create("myapp")
-                       .handler([&](const ParsedCommand& cmd) -> VoidResult {
-                           called = true;
-                           captured = cmd.name;
-                           return ok();
-                       });
+        auto cli = CLI::create("myapp").handler([&](const ParsedCommand& cmd) -> VoidResult {
+            called = true;
+            captured = cmd.name;
+            return ok();
+        });
 
         auto args = make_args({"myapp"});
         auto result = cli.parse(args);
@@ -1830,9 +1912,8 @@ TEST_CASE("CLI parse error", "[app][cli][cli]") {
 }
 
 TEST_CASE("CLI getHelpText", "[app][cli][cli]") {
-    auto cli = CLI::create("myapp")
-                   .description("Application description")
-                   .helpConfig(no_color_config());
+    auto cli =
+        CLI::create("myapp").description("Application description").helpConfig(no_color_config());
 
     auto help = cli.getHelpText("myapp");
     CHECK(help.find("Application description") != std::string::npos);
@@ -1873,19 +1954,16 @@ TEST_CASE("CLI double dash handling in parse", "[app][cli][cli]") {
 
 TEST_CASE("simple_cli creates CLI with handler", "[app][cli][convenience]") {
     bool called = false;
-    auto cli = simple_cli(
-        "greet", "Greet command",
-        [&](const ParsedCommand&) -> VoidResult {
-            called = true;
-            return ok();
-        });
+    auto cli = simple_cli("greet", "Greet command", [&](const ParsedCommand&) -> VoidResult {
+        called = true;
+        return ok();
+    });
 
     CHECK(cli.root().name() == "greet");
     CHECK(cli.root().description() == "Greet command");
 }
 
-TEST_CASE("make_option creates option with names and description",
-          "[app][cli][convenience]") {
+TEST_CASE("make_option creates option with names and description", "[app][cli][convenience]") {
     SECTION("flag option (no value)") {
         auto opt = make_option("verbose", 'v', "Verbose output");
         CHECK(opt.longName() == "verbose");
@@ -1906,8 +1984,7 @@ TEST_CASE("make_flag creates flag option", "[app][cli][convenience]") {
     CHECK(opt.description() == "Debug mode");
 }
 
-TEST_CASE("make_required_option creates required value option",
-          "[app][cli][convenience]") {
+TEST_CASE("make_required_option creates required value option", "[app][cli][convenience]") {
     auto opt = make_required_option("config", 'c', "Config file", "TOML");
 
     CHECK(opt.longName() == "config");
@@ -1917,8 +1994,7 @@ TEST_CASE("make_required_option creates required value option",
     CHECK(opt.valueName() == "TOML");
 }
 
-TEST_CASE("make_argument creates argument definition",
-          "[app][cli][convenience]") {
+TEST_CASE("make_argument creates argument definition", "[app][cli][convenience]") {
     SECTION("required by default") {
         auto arg = make_argument("input", "Input file");
         CHECK(arg.name() == "input");
@@ -1936,26 +2012,21 @@ TEST_CASE("make_argument creates argument definition",
 // Nested / complex scenario tests
 // ============================================================================
 
-TEST_CASE("Complex scenario: nested subcommands with options and args",
-          "[app][cli][scenario]") {
+TEST_CASE("Complex scenario: nested subcommands with options and args", "[app][cli][scenario]") {
     auto cmd =
         Command::create("tool")
             .description("Development tool")
             .option(Option::withLong("verbose").alias("v"))
-            .subcommand(
-                Command::create("config")
-                    .description("Configuration management")
-                    .option(Option::withLong("global")
-                                .description("Use global config"))
-                    .subcommand(
-                        Command::create("set")
-                            .description("Set a config value")
-                            .argument(Argument::create("key").required())
-                            .argument(Argument::create("value").required())));
+            .subcommand(Command::create("config")
+                            .description("Configuration management")
+                            .option(Option::withLong("global").description("Use global config"))
+                            .subcommand(Command::create("set")
+                                            .description("Set a config value")
+                                            .argument(Argument::create("key").required())
+                                            .argument(Argument::create("value").required())));
 
     SECTION("navigate to deep subcommand") {
-        auto args =
-            make_args({"tool", "config", "set", "theme", "dark"});
+        auto args = make_args({"tool", "config", "set", "theme", "dark"});
         auto result = Parser::parse(args, cmd);
         REQUIRE(result.has_value());
         CHECK(result->name == "set");
@@ -1968,8 +2039,7 @@ TEST_CASE("Complex scenario: nested subcommands with options and args",
     }
 
     SECTION("root option before subcommand") {
-        auto args =
-            make_args({"tool", "--verbose", "config", "set", "key", "val"});
+        auto args = make_args({"tool", "--verbose", "config", "set", "key", "val"});
         auto result = Parser::parse(args, cmd);
         REQUIRE(result.has_value());
         CHECK(result->name == "set");
@@ -1977,17 +2047,13 @@ TEST_CASE("Complex scenario: nested subcommands with options and args",
     }
 }
 
-TEST_CASE("Complex scenario: variadic positional arguments",
-          "[app][cli][scenario]") {
+TEST_CASE("Complex scenario: variadic positional arguments", "[app][cli][scenario]") {
     auto cmd = Command::create("cat")
-                   .argument(Argument::create("files")
-                                 .variadic()
-                                 .description("Files to display"))
+                   .argument(Argument::create("files").variadic().description("Files to display"))
                    .option(Option::withLong("number").alias("n"));
 
     SECTION("variadic with multiple args") {
-        auto args = make_args(
-            {"cat", "a.txt", "b.txt", "c.txt", "d.txt", "e.txt"});
+        auto args = make_args({"cat", "a.txt", "b.txt", "c.txt", "d.txt", "e.txt"});
         auto result = Parser::parse(args, cmd);
         REQUIRE(result.has_value());
         CHECK(result->positionalArgs.size() == 5);
@@ -2009,12 +2075,11 @@ TEST_CASE("Complex scenario: variadic positional arguments",
     }
 }
 
-TEST_CASE("Complex scenario: options with aliases in subcommands",
-          "[app][cli][scenario]") {
-    auto cmd = Command::create("app")
-                   .option(Option::withLong("quiet").alias("q"))
-                   .subcommand(Command::create("run").option(
-                       Option::withLong("release").alias("r")));
+TEST_CASE("Complex scenario: options with aliases in subcommands", "[app][cli][scenario]") {
+    auto cmd =
+        Command::create("app")
+            .option(Option::withLong("quiet").alias("q"))
+            .subcommand(Command::create("run").option(Option::withLong("release").alias("r")));
 
     SECTION("alias at root level") {
         auto args = make_args({"app", "--q"});
@@ -2031,11 +2096,9 @@ TEST_CASE("Complex scenario: options with aliases in subcommands",
     }
 }
 
-TEST_CASE("Complex scenario: validation of full parse results",
-          "[app][cli][scenario]") {
+TEST_CASE("Complex scenario: validation of full parse results", "[app][cli][scenario]") {
     auto cmd = Command::create("copy")
-                   .option(Option::withLong("force")
-                               .description("Force overwrite"))
+                   .option(Option::withLong("force").description("Force overwrite"))
                    .argument(Argument::create("source").required())
                    .argument(Argument::create("dest").required());
 
@@ -2053,13 +2116,11 @@ TEST_CASE("Complex scenario: validation of full parse results",
         REQUIRE(result.has_value());
         auto validation = Validator::validate(*result, cmd);
         CHECK_FALSE(validation.has_value());
-        CHECK(validation.error().code() ==
-              ErrorCode::MissingRequiredArgument);
+        CHECK(validation.error().code() == ErrorCode::MissingRequiredArgument);
     }
 
     SECTION("too many arguments fails validation") {
-        auto args =
-            make_args({"copy", "--force", "a.txt", "b.txt", "c.txt"});
+        auto args = make_args({"copy", "--force", "a.txt", "b.txt", "c.txt"});
         auto result = Parser::parse(args, cmd);
         REQUIRE(result.has_value());
         auto validation = Validator::validate(*result, cmd);
@@ -2082,12 +2143,10 @@ TEST_CASE("Edge case: empty command arguments", "[app][cli][edge]") {
     CHECK_FALSE(result->helpRequested);
 }
 
-TEST_CASE("Edge case: option with same short name as another in subcommand",
-          "[app][cli][edge]") {
+TEST_CASE("Edge case: option with same short name as another in subcommand", "[app][cli][edge]") {
     auto cmd = Command::create("prog")
                    .option(Option::withShort('v'))
-                   .subcommand(
-                       Command::create("sub").option(Option::withShort('v')));
+                   .subcommand(Command::create("sub").option(Option::withShort('v')));
 
     SECTION("root short option consumed at root") {
         auto args = make_args({"prog", "-v", "sub"});
@@ -2104,13 +2163,12 @@ TEST_CASE("Edge case: option with same short name as another in subcommand",
     }
 }
 
-TEST_CASE("Edge case: option with choices in combined shorts",
-          "[app][cli][edge]") {
-    auto cmd = Command::create("prog")
-                   .flag("verbose", 'v', "")
-                   .option(Option::withName("format", 'f')
-                               .setTakesValue()
-                               .choices({"json", "xml", "yaml"}));
+TEST_CASE("Edge case: option with choices in combined shorts", "[app][cli][edge]") {
+    auto cmd =
+        Command::create("prog")
+            .flag("verbose", 'v', "")
+            .option(
+                Option::withName("format", 'f').setTakesValue().choices({"json", "xml", "yaml"}));
 
     SECTION("valid choice in combined shorts") {
         auto args = make_args({"prog", "-vf", "json"});
@@ -2127,8 +2185,7 @@ TEST_CASE("Edge case: option with choices in combined shorts",
     }
 }
 
-TEST_CASE("Edge case: argument after variadic is rejected by Command",
-          "[app][cli][edge]") {
+TEST_CASE("Edge case: argument after variadic is rejected by Command", "[app][cli][edge]") {
     auto cmd = Command::create("prog")
                    .argument(Argument::create("files").variadic())
                    .argument(Argument::create("extra"));
@@ -2146,10 +2203,8 @@ TEST_CASE("Edge case: help request in middle of args", "[app][cli][edge]") {
     CHECK(result->helpRequested);
 }
 
-TEST_CASE("Edge case: option value that looks like an option",
-          "[app][cli][edge]") {
-    auto cmd = Command::create("prog")
-                   .option(Option::withLong("name").setTakesValue());
+TEST_CASE("Edge case: option value that looks like an option", "[app][cli][edge]") {
+    auto cmd = Command::create("prog").option(Option::withLong("name").setTakesValue());
 
     SECTION("next token consumed even if it looks like an option") {
         auto args = make_args({"prog", "--name", "--not-an-option"});
@@ -2159,8 +2214,7 @@ TEST_CASE("Edge case: option value that looks like an option",
     }
 }
 
-TEST_CASE("Edge case: unknown word becomes positional",
-          "[app][cli][edge]") {
+TEST_CASE("Edge case: unknown word becomes positional", "[app][cli][edge]") {
     auto cmd = Command::create("prog").argument(Argument::create("file"));
 
     auto args = make_args({"prog", "build"});
@@ -2170,10 +2224,8 @@ TEST_CASE("Edge case: unknown word becomes positional",
     CHECK(result->positionalArgs[0] == "build");
 }
 
-TEST_CASE("Edge case: default values applied via handler",
-          "[app][cli][edge]") {
-    auto cmd = Command::create("prog")
-                   .option(Option::withLong("count").defaultValue(10));
+TEST_CASE("Edge case: default values applied via handler", "[app][cli][edge]") {
+    auto cmd = Command::create("prog").option(Option::withLong("count").defaultValue(10));
 
     auto args = make_args({"prog"});
     auto result = Parser::parse(args, cmd);
@@ -2181,10 +2233,8 @@ TEST_CASE("Edge case: default values applied via handler",
     CHECK(result->options.getOr<int>("count", 10) == 10);
 }
 
-TEST_CASE("Edge case: raw option values can be accessed",
-          "[app][cli][edge]") {
-    auto cmd = Command::create("prog")
-                   .option(Option::withLong("output").setTakesValue());
+TEST_CASE("Edge case: raw option values can be accessed", "[app][cli][edge]") {
+    auto cmd = Command::create("prog").option(Option::withLong("output").setTakesValue());
 
     auto args = make_args({"prog", "--output", "result.txt"});
     auto result = Parser::parse(args, cmd);
@@ -2201,8 +2251,7 @@ TEST_CASE("Edge case: raw option values can be accessed",
 
 TEST_CASE("Error code enumeration coverage", "[app][cli][error_code]") {
     CHECK(static_cast<int>(ErrorCode::None) == 0);
-    CHECK(static_cast<int>(ErrorCode::UnknownOption) !=
-          static_cast<int>(ErrorCode::None));
+    CHECK(static_cast<int>(ErrorCode::UnknownOption) != static_cast<int>(ErrorCode::None));
     CHECK(static_cast<int>(ErrorCode::MissingOptionArgument) !=
           static_cast<int>(ErrorCode::UnknownOption));
     CHECK(static_cast<int>(ErrorCode::InvalidOptionFormat) !=
@@ -2231,29 +2280,19 @@ TEST_CASE("Error code enumeration coverage", "[app][cli][error_code]") {
           static_cast<int>(ErrorCode::NoCommandProvided));
 }
 
-TEST_CASE("Error severity enumeration coverage",
-          "[app][cli][error_severity]") {
-    CHECK(static_cast<int>(ErrorSeverity::Warning) !=
-          static_cast<int>(ErrorSeverity::Error));
-    CHECK(static_cast<int>(ErrorSeverity::Error) !=
-          static_cast<int>(ErrorSeverity::Fatal));
+TEST_CASE("Error severity enumeration coverage", "[app][cli][error_severity]") {
+    CHECK(static_cast<int>(ErrorSeverity::Warning) != static_cast<int>(ErrorSeverity::Error));
+    CHECK(static_cast<int>(ErrorSeverity::Error) != static_cast<int>(ErrorSeverity::Fatal));
 }
 
 TEST_CASE("Token type enumeration coverage", "[app][cli][token_type]") {
-    CHECK(static_cast<int>(TokenType::LongOption) !=
-          static_cast<int>(TokenType::ShortOption));
-    CHECK(static_cast<int>(TokenType::ShortOption) !=
-          static_cast<int>(TokenType::ShortOptions));
-    CHECK(static_cast<int>(TokenType::ShortOptions) !=
-          static_cast<int>(TokenType::OptionValue));
-    CHECK(static_cast<int>(TokenType::OptionValue) !=
-          static_cast<int>(TokenType::PositionArg));
-    CHECK(static_cast<int>(TokenType::PositionArg) !=
-          static_cast<int>(TokenType::Command));
-    CHECK(static_cast<int>(TokenType::Command) !=
-          static_cast<int>(TokenType::DoubleDash));
-    CHECK(static_cast<int>(TokenType::DoubleDash) !=
-          static_cast<int>(TokenType::HelpRequest));
+    CHECK(static_cast<int>(TokenType::LongOption) != static_cast<int>(TokenType::ShortOption));
+    CHECK(static_cast<int>(TokenType::ShortOption) != static_cast<int>(TokenType::ShortOptions));
+    CHECK(static_cast<int>(TokenType::ShortOptions) != static_cast<int>(TokenType::OptionValue));
+    CHECK(static_cast<int>(TokenType::OptionValue) != static_cast<int>(TokenType::PositionArg));
+    CHECK(static_cast<int>(TokenType::PositionArg) != static_cast<int>(TokenType::Command));
+    CHECK(static_cast<int>(TokenType::Command) != static_cast<int>(TokenType::DoubleDash));
+    CHECK(static_cast<int>(TokenType::DoubleDash) != static_cast<int>(TokenType::HelpRequest));
 }
 
 // ============================================================================
@@ -2315,8 +2354,7 @@ TEST_CASE("ParseContext basic usage", "[app][cli][parse_context]") {
 // Additional edge cases
 // ============================================================================
 
-TEST_CASE("ParsedOptions type mismatch edge cases",
-          "[app][cli][parsed_options]") {
+TEST_CASE("ParsedOptions type mismatch edge cases", "[app][cli][parsed_options]") {
     ParsedOptions opts;
 
     SECTION("get int from non-numeric string returns nullopt") {
@@ -2331,12 +2369,22 @@ TEST_CASE("ParsedOptions type mismatch edge cases",
 }
 
 TEST_CASE("Command option with multiple aliases", "[app][cli][command]") {
-    auto cmd = Command::create("prog")
-                   .option(Option::withLong("output").alias("o").alias("out"));
+    auto cmd = Command::create("prog").option(Option::withLong("output").alias("o").alias("out"));
 
     CHECK(cmd.findOption("output") != nullptr);
     CHECK(cmd.findOption("o") != nullptr);
     CHECK(cmd.findOption("out") != nullptr);
+}
+
+TEST_CASE("Parser aliases store values under canonical option names", "[app][cli][parser]") {
+    auto cmd =
+        Command::create("prog").option(Option::withLong("output").alias("out").setTakesValue());
+
+    auto args = make_args({"prog", "--out", "result.txt"});
+    auto result = Parser::parse(args, cmd);
+    REQUIRE(result.has_value());
+    CHECK(result->options.get<std::string>("output") == "result.txt");
+    CHECK_FALSE(result->options.has("out"));
 }
 
 TEST_CASE("Parser negative numbers positional", "[app][cli][parser]") {
@@ -2374,11 +2422,10 @@ TEST_CASE("Tokenizer --option= with empty value", "[app][cli][tokenizer]") {
 TEST_CASE("Panic handler tracing toggle", "[app][cli][cli]") {
     SECTION("handler can toggle state") {
         int counter = 0;
-        auto cli = CLI::create("counter")
-                       .handler([&](const ParsedCommand&) -> VoidResult {
-                           ++counter;
-                           return ok();
-                       });
+        auto cli = CLI::create("counter").handler([&](const ParsedCommand&) -> VoidResult {
+            ++counter;
+            return ok();
+        });
 
         auto args1 = make_args({"counter"});
         auto result1 = cli.parse(args1);
@@ -2394,8 +2441,7 @@ TEST_CASE("Panic handler tracing toggle", "[app][cli][cli]") {
     }
 }
 
-TEST_CASE("String value preserves special characters",
-          "[app][cli][value_parser]") {
+TEST_CASE("String value preserves special characters", "[app][cli][value_parser]") {
     SECTION("preserves spaces") {
         auto result = ValueParser<std::string>::parse("hello world foo bar");
         REQUIRE(result.has_value());
