@@ -68,6 +68,7 @@ endif ()
 # ==============================================================================
 option(EXPP_BUILD_TESTS "Build test suite" ON)
 option(EXPP_BUILD_EXAMPLES "Build example programs" ON)
+option(EXPP_ENABLE_BENCHMARKS "Build benchmarks" ON)
 option(EXPP_ENABLE_SANITIZERS "Enable sanitizers in Debug builds" ON)
 option(EXPP_ENABLE_CLANG_TIDY "Enable clang-tidy checks" OFF)
 option(EXPP_ENABLE_CPPCHECK "Enable cppcheck static analysis" OFF)
@@ -214,7 +215,7 @@ FetchContent_Declare(tomlplusplus
 )
 
 # Catch2 - Testing framework
-if (EXPP_BUILD_TESTS)
+if (EXPP_BUILD_TESTS OR EXPP_ENABLE_BENCHMARKS)
     FetchContent_Declare(Catch2
             GIT_REPOSITORY https://github.com/catchorg/Catch2
             GIT_TAG v3.5.2
@@ -237,7 +238,7 @@ endif ()
 
 
 FetchContent_MakeAvailable(ftxui tomlplusplus asio_src)
-if (EXPP_BUILD_TESTS)
+if (EXPP_BUILD_TESTS OR EXPP_ENABLE_BENCHMARKS)
     FetchContent_MakeAvailable(Catch2)
 endif ()
 
@@ -304,6 +305,8 @@ if (EXPP_ENABLE_LIBGIT2)
         elseif (APPLE)
             # macOS uses st_mtimespec
             set(GIT_USE_STAT_MTIMESPEC 1 CACHE INTERNAL "Force libgit2 stat mtimespec on macOS")
+        elseif(MSVC)
+            set(STATIC_CRT OFF CACHE BOOL "Do not link against static CRT" FORCE)
         endif()
 
         set(BACKUP_CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
@@ -340,72 +343,7 @@ if (EXPP_ENABLE_LIBGIT2)
 endif ()
 target_compile_definitions(expp_git2 INTERFACE EXPP_HAS_LIBGIT2=${EXPP_LIBGIT2_COMPILED_IN})
 
-# if (UNIX AND NOT APPLE AND EXPP_PREPARE_IO_URING_BACKEND)
-#     target_compile_definitions(expp_asio INTERFACE EXPP_PREPARE_IO_URING_BACKEND=1)
-# else ()
-#     target_compile_definitions(expp_asio INTERFACE EXPP_PREPARE_IO_URING_BACKEND=0)
-# endif ()
 
-
-
-# if (EXPP_ENABLE_SANITIZERS)
-#     if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-#         if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-#             target_compile_options(expp_sanitizers INTERFACE
-#                     -fsanitize=address,undefined
-#                     -fno-omit-frame-pointer
-#             )
-#             target_link_options(expp_sanitizers INTERFACE
-#                     -fsanitize=address,undefined
-#             )
-#             message(STATUS "AddressSanitizer and UBSan enabled for Debug build")
-#             if (TARGET Catch2)
-#                 target_compile_options(Catch2 PRIVATE                    
-#                     -fsanitize=address,undefined
-#                     -fno-omit-frame-pointer
-#                 )
-#                 target_link_options(Catch2 INTERFACE
-#                     -fsanitize=address,undefined
-#                 )
-#             endif ()
-#             if (TARGET Catch2WithMain)
-#                   target_compile_options(Catch2WithMain PRIVATE                    
-#                     -fsanitize=address,undefined
-#                     -fno-omit-frame-pointer
-#                 )
-#                 target_link_options(Catch2WithMain INTERFACE
-#                     -fsanitize=address,undefined
-#                 )
-#             endif ()
-#         elseif (MSVC)
-#             target_compile_options(expp_sanitizers INTERFACE /fsanitize=address)
-#             message(STATUS "AddressSanitizer enabled for Debug build (MSVC)")
-#             if (TARGET Catch2)
-#                 target_compile_options(Catch2 PRIVATE /fsanitize=address)
-#             endif ()
-#             if (TARGET Catch2WithMain)
-#                 target_compile_options(Catch2WithMain PRIVATE /fsanitize=address)
-#             endif ()
-#         endif ()
-#         # endif ()
-#     endif ()
-# endif ()
-
-
-# --- FIX: Synchronize MSVC ABI flags for FTXUI ---
-# if (MSVC)
-#     # Apply strict standard conformance flags to match expp_warnings
-#     foreach (ftxui_target screen dom component)
-#         target_compile_options(${ftxui_target} PRIVATE /permissive- /Zc:__cplusplus /Zc:preprocessor)
-#         target_compile_options(${ftxui_target} PRIVATE /EHsc)
-
-#         # Apply AddressSanitizer if enabled to match expp_sanitizers
-#         if (EXPP_ENABLE_SANITIZERS AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
-#             target_compile_options(${ftxui_target} PRIVATE /fsanitize=address)
-#         endif ()
-#     endforeach ()
-# endif ()
-# --- FIX: Synchronize MSVC ABI flags for FTXUI ---
 if (MSVC)
     # Apply strict standard conformance flags to match expp_warnings
     foreach (ftxui_target screen dom component)
@@ -422,7 +360,9 @@ if (MSVC)
     endforeach ()
 
     # Keep Catch2 STL annotation settings aligned with sanitized test/object files.
-    if (EXPP_BUILD_TESTS AND EXPP_ENABLE_SANITIZERS AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
+    if ((EXPP_BUILD_TESTS AND EXPP_ENABLE_SANITIZERS AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
+    #  OR (EXPP_ENABLE_BENCHMARKS)
+     )
         if (TARGET Catch2)
             target_compile_options(Catch2 PRIVATE /fsanitize=address)
         endif ()
@@ -587,6 +527,13 @@ if (EXPP_BUILD_EXAMPLES)
 endif ()
 
 # ==============================================================================
+# Benchmarks
+# ==============================================================================
+if (EXPP_ENABLE_BENCHMARKS)
+    add_subdirectory(bench)
+endif()
+
+# ==============================================================================
 # clang-tidy integration
 # ==============================================================================
 if (EXPP_ENABLE_CLANG_TIDY)
@@ -644,6 +591,7 @@ message(STATUS "C++ Compiler:        ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPIL
 message(STATUS "Disable exceptions:  ${EXPP_DISABLE_EXCEPTIONS}")
 message(STATUS "Build tests:         ${EXPP_BUILD_TESTS}")
 message(STATUS "Build examples:      ${EXPP_BUILD_EXAMPLES}")
+message(STATUS "Build benchmarks:    ${EXPP_ENABLE_BENCHMARKS}")
 message(STATUS "Sanitizers:          ${EXPP_ENABLE_SANITIZERS}")
 message(STATUS "clang-tidy:          ${EXPP_ENABLE_CLANG_TIDY}")
 message(STATUS "libmagic:            ${EXPP_ENABLE_LIBMAGIC}")

@@ -806,9 +806,7 @@ public:
      * @brief Checks whether an option with the given name is present.
      * @param name The option's canonical long name.
      */
-    [[nodiscard]] constexpr bool has(std::string_view name) const noexcept {
-        return options_.contains(name);
-    }
+    [[nodiscard]] bool has(std::string_view name) const noexcept { return options_.contains(name); }
 
     /**
      * @brief Retrieves a typed value for the given option.
@@ -857,7 +855,7 @@ public:
     /**
      * @brief Checks whether a flag option is set.
      */
-    [[nodiscard]] constexpr bool isFlag(std::string_view name) const noexcept {
+    [[nodiscard]] bool isFlag(std::string_view name) const noexcept {
         return flags_.contains(name);
     }
 
@@ -877,8 +875,7 @@ public:
      * @brief Retrieves the raw string value of an option, without type parsing.
      * @return The raw string or `std::nullopt` if not found.
      */
-    [[nodiscard]] constexpr std::optional<std::string> rawOption(
-        std::string_view name) const noexcept {
+    [[nodiscard]] std::optional<std::string> rawOption(std::string_view name) const noexcept {
         auto it = options_.find(name);
         if (it == options_.end()) {
             return std::nullopt;
@@ -978,7 +975,7 @@ public:
      * @brief Creates a new command with the given primary name.
      * @param name The command name used for invocation and help output.
      */
-    static constexpr Command create(std::string name) noexcept {
+    static Command create(std::string name) noexcept {
         Command cmd;
         cmd.name_ = std::move(name);
         return cmd;
@@ -1156,7 +1153,7 @@ public:
      * @param name Long name or alias (without `--` prefix).
      * @return Pointer to the `Option`, or `nullptr` if not found.
      */
-    [[nodiscard]] constexpr const Option* findOption(std::string_view name) const noexcept {
+    [[nodiscard]] const Option* findOption(std::string_view name) const noexcept {
         auto it = longOptionMap_.find(name);
         if (it != longOptionMap_.end() && it->second < options_.size()) {
             return &options_[it->second];
@@ -1169,7 +1166,7 @@ public:
      * @param short_name Short option character.
      * @return Pointer to the `Option`, or `nullptr` if not found.
      */
-    [[nodiscard]] constexpr const Option* findOption(char short_name) const noexcept {
+    [[nodiscard]] const Option* findOption(char short_name) const noexcept {
         auto it = shortOptionMap_.find(short_name);
         if (it != shortOptionMap_.end() && it->second < options_.size()) {
             return &options_[it->second];
@@ -1182,7 +1179,7 @@ public:
      * @param name The subcommand name.
      * @return Pointer to the `Command`, or `nullptr` if not found.
      */
-    [[nodiscard]] constexpr const Command* findSubcommand(std::string_view name) const noexcept {
+    [[nodiscard]] const Command* findSubcommand(std::string_view name) const noexcept {
         auto it = subcommands_.find(name);
         if (it != subcommands_.end()) {
             return it->second.get();
@@ -1191,7 +1188,7 @@ public:
     }
 
     /// @return `true` if this command has any subcommands.
-    [[nodiscard]] constexpr bool hasSubcommands() const noexcept { return !subcommands_.empty(); }
+    [[nodiscard]] bool hasSubcommands() const noexcept { return !subcommands_.empty(); }
 
     /**
      * @brief Executes this command's handler with the given parsed result.
@@ -1371,7 +1368,7 @@ struct HelpConfig {
     /**
      * @brief Creates a default configuration with colors auto-detected.
      */
-    static constexpr HelpConfig defaults() noexcept {
+    static HelpConfig defaults() noexcept {
         HelpConfig config;
         config.useColors = isTerminal();
         return config;
@@ -1383,7 +1380,7 @@ struct HelpConfig {
      * When output is piped to a file or another command, colors are
      * automatically disabled to avoid escape-code noise.
      */
-    static constexpr bool isTerminal() noexcept { return isatty(STDOUT_FILENO) != 0; }
+    static bool isTerminal() noexcept { return isatty(STDOUT_FILENO) != 0; }
 };
 
 /**
@@ -1602,7 +1599,7 @@ private:
     }
 
     /// Formats a single positional argument line for help output.
-    [[nodiscard]] constexpr std::string formatArgument(const Argument& arg) const noexcept {
+    [[nodiscard]] std::string formatArgument(const Argument& arg) const noexcept {
         auto arg_str = arg.usageString();
         std::size_t current_width = config_.optionIndent + arg_str.size();
         std::size_t padding = current_width >= config_.descriptionIndent
@@ -2153,8 +2150,8 @@ public:
      * @param root The root command definition.
      * @return A `ParsedCommand` on success, or a `ParseError` on failure.
      */
-    [[nodiscard]] static constexpr cli_error::Result<ParsedCommand> parse(
-        std::span<std::string_view> args, const Command& root) {
+    [[nodiscard]] static cli_error::Result<ParsedCommand> parse(std::span<std::string_view> args,
+                                                                const Command& root) {
         Tokenizer tokenizer;
         auto token_result = tokenizer.tokenize(args);
         if (!token_result) {
@@ -2165,8 +2162,10 @@ public:
 
 private:
     /// Attempts to match the token as a subcommand; falls back to positional.
-    [[nodiscard]] static constexpr cli_error::Result<bool> handleSubcommandOrPositional(
-        TokenStream& stream, ParseContext& context, ParsedCommand& result, const Token* token) {
+    [[nodiscard]] static cli_error::Result<bool> handleSubcommandOrPositional(TokenStream& stream,
+                                                                              ParseContext& context,
+                                                                              ParsedCommand& result,
+                                                                              const Token* token) {
         if (context.current().hasSubcommands() && result.positionalArgs.empty()) {
             const auto* subcmd = context.current().findSubcommand(token->value);
             if (subcmd) {
