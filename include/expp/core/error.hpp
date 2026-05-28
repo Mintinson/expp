@@ -96,18 +96,22 @@ public:
         : category_(category)
         , message_(std::move(message))
         , location_(location) {}
+
     /**
      * @brief Constructs an Error with just a message (Unknown category)
      * @param message Human-readable error message
      * @param location Source location
      */
-    explicit Error(std::string message, std::source_location location = std::source_location::current()) noexcept
+    explicit Error(std::string message,
+                   std::source_location location = std::source_location::current()) noexcept
         : category_(ErrorCategory::Unknown)
         , message_(std::move(message))
         , location_(location) {}
 
     [[nodiscard]] ErrorCategory category() const noexcept { return category_; }
+
     [[nodiscard]] const std::string& message() const noexcept { return message_; }
+
     [[nodiscard]] std::source_location location() const noexcept { return location_; }
 
     /**
@@ -115,8 +119,8 @@ public:
      * @return Formatted error string
      */
     [[nodiscard]] std::string format() const {
-        return std::format("{}: {} [{}:{}]", category_to_string(category_), message_, location_.file_name(),
-                           location_.line());
+        return std::format("{}: {} [{}:{}]", category_to_string(category_), message_,
+                           location_.file_name(), location_.line());
     }
 
     /**
@@ -152,6 +156,7 @@ using Result = std::expected<T, Error>;
  * @brief VoidResult for operations that return nothing on success
  */
 using VoidResult = Result<void>;
+
 /**
  * @brief Factory function to create an unexpected error
  * @param category Error category
@@ -159,20 +164,22 @@ using VoidResult = Result<void>;
  * @param location Source location
  * @return std::unexpected containing the Error
  */
-[[nodiscard]] inline auto make_error(ErrorCategory category,
-                                    std::string message,
-                                    std::source_location location = std::source_location::current()) {
-    return std::unexpected(Error{category, std::move(message), location});
+[[nodiscard]] inline auto make_error(
+    ErrorCategory category,
+    std::string message,
+    std::source_location location = std::source_location::current()) {
+    return std::unexpected<Error>(std::in_place, category, std::move(message), location);
 }
+
 /**
  * @brief Factory function to create an unexpected error with just message
  * @param message Error message
  * @param location Source location
  * @return std::unexpected containing the Error
  */
-[[nodiscard]] inline auto make_error(std::string message,
-                                    std::source_location location = std::source_location::current()) {
-    return std::unexpected(Error{std::move(message), location});
+[[nodiscard]] inline auto make_error(
+    std::string message, std::source_location location = std::source_location::current()) {
+    return std::unexpected<Error>(std::in_place, std::move(message), location);
 }
 
 }  // namespace expp::core

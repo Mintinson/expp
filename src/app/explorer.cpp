@@ -105,8 +105,7 @@ struct Explorer::Impl {
     }
 
     void syncVersionControlFlags() {
-        // state.versionControlEnabled = core::global_config().config().versionControl.enabled;
-        // state.showIgnoredFiles = showGitIgnored;
+        state.showIgnoredFiles = showGitIgnored;
     }
 
     void clearEntryVersionStatus() {
@@ -154,6 +153,7 @@ struct Explorer::Impl {
             .generation = generation,
         };
         state.versionControlAvailable = false;
+        state.versionControlSnapshot = core::VersionStatusSnapshot{};
         syncVersionControlFlags();
         notifyRefresh();
     }
@@ -262,6 +262,7 @@ struct Explorer::Impl {
         updateParentSelection();
         clearSearchState();
         state.versionControlAvailable = false;
+        state.versionControlSnapshot = core::VersionStatusSnapshot{};
         syncVersionControlFlags();
 
         notifyRefresh();
@@ -814,6 +815,7 @@ struct Explorer::Impl {
 
     void applyVersionStatus(const core::VersionStatusSnapshot& snapshot) {
         state.versionControlAvailable = snapshot.repositoryFound;
+        state.versionControlSnapshot = snapshot;
         syncVersionControlFlags();
         clearEntryVersionStatus();
 
@@ -833,6 +835,7 @@ struct Explorer::Impl {
 
     void clearVersionStatus(bool repository_available) {
         state.versionControlAvailable = repository_available;
+        state.versionControlSnapshot = core::VersionStatusSnapshot{};
         syncVersionControlFlags();
         clearEntryVersionStatus();
         notifyRefresh();
@@ -882,9 +885,13 @@ void Explorer::setShowHidden(bool show_hidden) noexcept {
     impl_->showHidden = show_hidden;
 }
 
-bool Explorer::toggleGitEnabled() {
-    impl_->state.versionControlEnabled = !impl_->state.versionControlEnabled;
-    return impl_->state.versionControlEnabled;
+// bool Explorer::toggleGitEnabled() {
+//     impl_->state.versionControlEnabled = !impl_->state.versionControlEnabled;
+//     return impl_->state.versionControlEnabled;
+// }
+
+void Explorer::setGitEnabled(bool enabled) noexcept {
+    impl_->state.versionControlEnabled = enabled;
 }
 
 bool Explorer::showIgnoredFiles() const noexcept {

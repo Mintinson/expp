@@ -39,7 +39,7 @@ namespace {
             return {name, true};
         }
     }
-    // if (const std::string_view marker = core::version_control::status_marker(entry.versionStatus); !marker.empty()) {
+    // if (const std::string_view marker = core::status_marker(entry.versionStatus); !marker.empty()) {
     //     name += " ";
     //     name += marker;
     // }
@@ -85,7 +85,7 @@ struct FileListComponent::Impl {
                 right_content |= color(config.theme->getVersionStatusColor(entry.versionStatus));
             }
 
-            // auto version_marker = core::version_control::status_marker(entry.versionStatus);
+            // auto version_marker = core::status_marker(entry.versionStatus);
             // auto element =
             //     text(std::format("{}{}{} {}", prefix, version_marker, config.showIcons ?
             //     config.theme->getFileTypeIcon(entry) : "",

@@ -14,6 +14,7 @@
 #include <format>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -135,6 +136,32 @@ constexpr auto kVersionControlBoolFields = std::array{
     ScalarFieldSpec<VersionControlConfig, bool>{"enabled",            &VersionControlConfig::enabled         },
     ScalarFieldSpec<VersionControlConfig, bool>{"show_ignored_files", &VersionControlConfig::showIgnoredFiles},
 };
+
+[[nodiscard]] std::optional<VersionControlStatusDetail> parse_status_detail(std::string_view value) noexcept {
+    if (value == "compact") {
+        return VersionControlStatusDetail::Compact;
+    }
+    if (value == "summary") {
+        return VersionControlStatusDetail::Summary;
+    }
+    if (value == "full") {
+        return VersionControlStatusDetail::Full;
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::string_view format_status_detail(VersionControlStatusDetail detail) noexcept {
+    switch (detail) {
+        case VersionControlStatusDetail::Compact:
+            return "compact";
+        case VersionControlStatusDetail::Summary:
+            return "summary";
+        case VersionControlStatusDetail::Full:
+            return "full";
+        default:
+            return "summary";
+    }
+}
 
 /**
  * @brief Parses a hex color string ("0xRRGGBB" or "#RRGGBB") to uint32_t
@@ -285,6 +312,11 @@ void load_analysis_config(const toml::table& tbl, AnalysisConfig& analysis) {
 
 void load_version_control_config(const toml::table& tbl, VersionControlConfig& version_control) {
     load_bool_fields(tbl, version_control, kVersionControlBoolFields);
+    if (auto value = tbl["status_detail"].value<std::string>()) {
+        if (auto detail = parse_status_detail(*value)) {
+            version_control.statusDetail = *detail;
+        }
+    }
 }
 
 toml::table serialize_color_theme(const ColorTheme& theme) {
@@ -384,6 +416,7 @@ toml::table serialize_analysis_config(const AnalysisConfig& analysis) {
 toml::table serialize_version_control_config(const VersionControlConfig& version_control) {
     toml::table tbl;
     insert_bool_fields(tbl, version_control, kVersionControlBoolFields);
+    tbl.insert("status_detail", std::string{format_status_detail(version_control.statusDetail)});
     return tbl;
 }
 

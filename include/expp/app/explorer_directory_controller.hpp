@@ -5,10 +5,12 @@
 #include "expp/app/notification_center.hpp"
 
 #include <filesystem>
+#include <list>
 #include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace expp::app {
 
@@ -30,13 +32,15 @@ public:
         bool previewable{false};
     };
 
-    ExplorerDirectoryController(std::shared_ptr<Explorer> explorer, NotificationCenter& notifications);
+    ExplorerDirectoryController(std::shared_ptr<Explorer> explorer,
+                                NotificationCenter& notifications);
 
     /// Reloads the currently active directory, optionally restoring the selection.
     void reloadCurrentDirectory(std::optional<std::filesystem::path> reselect = {});
 
     /// Starts loading a new directory asynchronously.
-    void navigateTo(std::filesystem::path directory, std::optional<std::filesystem::path> reselect = {});
+    void navigateTo(std::filesystem::path directory,
+                    std::optional<std::filesystem::path> reselect = {});
 
     /// Parses user string input, resolves it to a path, and navigates to it.
     void navigateToInput(std::string input);
@@ -59,7 +63,8 @@ public:
     /// Toggles the visibility of Git-ignored files and reloads the current directory.
     void toggleIgnored();
 
-    /// Toggles Git integration (showing Git status and untracked files) and reloads the current directory.
+    /// Toggles Git integration (showing Git status and untracked files) and reloads the current
+    /// directory.
     void toggleGitEnabled();
 
     /**
@@ -77,7 +82,8 @@ public:
 
 private:
     std::shared_ptr<Explorer> explorer_;
-    NotificationCenter& notifications_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+    NotificationCenter&
+        notifications_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
 
     // Cancellation tokens to abort ongoing operations when the user navigates away.
     core::CancellationSource listingCancellation_;
@@ -102,32 +108,54 @@ private:
 
     // Last Git status result for the current directory, used by toggle validation.
     bool versionStatusAvailable_{false};
+    static constexpr std::size_t kMaxVersionStatusCacheEntries = 32;
 
+    struct VersionStatusCacheEntry {
+        std::filesystem::path path;
+        core::VersionStatusSnapshot snapshot;
+    };
 
+    using VersionStatusCacheList = std::list<VersionStatusCacheEntry>;
+    VersionStatusCacheList cacheList_;
+    std::unordered_map<std::filesystem::path, VersionStatusCacheList::iterator> cacheMap_;
 
     /**
      * @brief The core engine for loading a directory. Spawns coroutines to fetch data in chunks.
      * @param directory The absolute or relative directory to load.
      * @param reselect An item to automatically select once loaded.
      */
-    void startDirectoryLoad(std::filesystem::path directory, std::optional<std::filesystem::path> reselect = {});
+    void startDirectoryLoad(std::filesystem::path directory,
+                            std::optional<std::filesystem::path> reselect = {});
 
     /**
-     * @brief Asynchronously fetches the entries of the parent directory (often used for breadcrumbs).
+     * @brief Asynchronously fetches the entries of the parent directory (often used for
+     * breadcrumbs).
      * @param directory The current directory whose parent needs to be listed.
      * @param generation The listing generation this request belongs to.
      */
     void scheduleParentEntries(const std::filesystem::path& directory, std::uint64_t generation);
 
     /**
-     * @brief Calculates the visible viewport and schedules background MIME detection for files inside it.
+     * @brief Calculates the visible viewport and schedules background MIME detection for files
+     * inside it.
      */
     void scheduleMimePreload();
 
     /**
      * @brief Schedules Git status loading for the active directory.
      */
-    void scheduleVersionStatus(const std::filesystem::path& directory, std::uint64_t listing_generation);
+    void scheduleVersionStatus(const std::filesystem::path& directory,
+                               std::uint64_t listing_generation);
+
+    /**
+     * @brief Applies cached Git status immediately when the current directory was seen before.
+     */
+    void applyCachedVersionStatus(const std::filesystem::path& directory);
+
+    /**
+     * @brief Stores a Git status snapshot in a small navigation-local cache.
+     */
+    void cacheVersionStatus(core::VersionStatusSnapshot snapshot);
 };
 
 }  // namespace expp::app

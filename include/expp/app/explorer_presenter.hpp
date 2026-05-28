@@ -10,11 +10,9 @@
  */
 
 #include "expp/app/explorer.hpp"
-#include "expp/app/preview_model.hpp"
 #include "expp/ui/help_menu_model.hpp"
 #include "expp/ui/key_handler.hpp"
 
-#include <filesystem>
 #include <string>
 #include <string_view>
 #include <variant>

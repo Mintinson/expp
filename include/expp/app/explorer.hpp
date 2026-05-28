@@ -161,6 +161,8 @@ struct ExplorerState {
     bool versionControlAvailable{false};
     /// Whether Git-ignored entries are included in the visible list.
     bool showIgnoredFiles{true};
+    /// Most recent Git status snapshot for the active directory.
+    core::VersionStatusSnapshot versionControlSnapshot{};
 };
 
 /**
@@ -223,7 +225,12 @@ public:
      */
     void setShowHidden(bool show_hidden) noexcept;
 
-    [[nodiscard]] bool toggleGitEnabled();
+    // [[nodiscard]] bool toggleGitEnabled();
+
+    /**
+     * @brief Updates runtime Git tracing without triggering I/O.
+     */
+    void setGitEnabled(bool enabled) noexcept;
 
     /**
      * @brief Returns whether ignored entries are included in listings.

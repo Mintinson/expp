@@ -56,9 +56,9 @@ struct FileEntry {
     fs::path path;
     FileType type{FileType::Unknown};
     std::uintmax_t size{0};
-    std::chrono::file_clock::time_point birthTime;
-    std::chrono::file_clock::time_point lastModified;
-    fs::path symlinkTarget;
+    std::chrono::file_clock::time_point birthTime{};
+    std::chrono::file_clock::time_point lastModified{};
+    fs::path symlinkTarget{};
     bool isHidden{false};
     bool isReadable{false};
     bool isWritable{false};

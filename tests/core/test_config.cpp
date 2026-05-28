@@ -112,6 +112,7 @@ TEST_CASE("Notification config defaults are stable", "[core][config]") {
     CHECK(defaults.notifications.showInfo);
     CHECK_FALSE(defaults.versionControl.enabled);
     CHECK(defaults.versionControl.showIgnoredFiles);
+    CHECK(defaults.versionControl.statusDetail == expp::core::VersionControlStatusDetail::Summary);
 }
 
 TEST_CASE("Config scalar sections save and load round-trip", "[core][config]") {
@@ -139,6 +140,7 @@ TEST_CASE("Config scalar sections save and load round-trip", "[core][config]") {
     config.notifications.showInfo = true;
     config.versionControl.enabled = true;
     config.versionControl.showIgnoredFiles = false;
+    config.versionControl.statusDetail = expp::core::VersionControlStatusDetail::Full;
     manager.setConfig(config);
 
     auto save_result = manager.save();
@@ -162,6 +164,7 @@ TEST_CASE("Config scalar sections save and load round-trip", "[core][config]") {
     CHECK(reloaded.config().notifications.showInfo);
     CHECK(reloaded.config().versionControl.enabled);
     CHECK_FALSE(reloaded.config().versionControl.showIgnoredFiles);
+    CHECK(reloaded.config().versionControl.statusDetail == expp::core::VersionControlStatusDetail::Full);
 }
 
 TEST_CASE("Version control config loads from TOML", "[core][config]") {
@@ -173,6 +176,7 @@ TEST_CASE("Version control config loads from TOML", "[core][config]") {
 [version_control]
 enabled = true
 show_ignored_files = false
+status_detail = "compact"
 )";
     out.close();
 
@@ -182,4 +186,5 @@ show_ignored_files = false
     REQUIRE(result.has_value());
     CHECK(manager.config().versionControl.enabled);
     CHECK_FALSE(manager.config().versionControl.showIgnoredFiles);
+    CHECK(manager.config().versionControl.statusDetail == expp::core::VersionControlStatusDetail::Compact);
 }

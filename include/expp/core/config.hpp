@@ -21,36 +21,36 @@ constexpr std::string_view kDefaultFileIcon = "\uf15b"sv;
 inline std::unordered_map<std::string, std::string> default_icon_map() {
     return {
         {"default", "\uf15b"},
-        {    "exe", "\ue795"},
-        {   "link", "\uf481"},
-        {   ".lib", "\ueb9c"},
-        {  ".bash", "\ue795"},
-        {     ".c", "\ue61e"},
-        { ".cmake", "\ue794"},
-        {   ".cpp", "\ue61d"},
-        {    ".cs", "\ue737"},
-        {    ".go", "\ue627"},
-        {     ".h", "\ue615"},
-        {   ".hpp", "\uf0fd"},
-        {  ".html", "\ue736"},
-        {    ".js", "\ue74e"},
-        {  ".json", "\ue60b"},
-        {   ".lua", "\ue620"},
-        {    ".md", "\uf48a"},
-        {    ".py", "\ue73c"},
-        {    ".rs", "\ue7a8"},
-        {   ".zig", "\ue8ef"},
-        {    ".ts", "\ue628"},
-        {  ".toml", "\ue6b2"},
-        {   ".log", "\uf4ed"},
-        {  ".yaml", "\ue8eb"},
-        {   ".yml", "\ue6a8"},
-        {   ".xml",   "󰗀"},
-        {   ".zip", "\ue6aa"},
-        {   ".rar", "\ue6aa"},
-        {    ".7z", "\ue6aa"},
-        {   ".tar", "\ue6aa"},
-        { "folder", "\uf07b"},
+        {"exe",     "\ue795"},
+        {"link",    "\uf481"},
+        {".lib",    "\ueb9c"},
+        {".bash",   "\ue795"},
+        {".c",      "\ue61e"},
+        {".cmake",  "\ue794"},
+        {".cpp",    "\ue61d"},
+        {".cs",     "\ue737"},
+        {".go",     "\ue627"},
+        {".h",      "\ue615"},
+        {".hpp",    "\uf0fd"},
+        {".html",   "\ue736"},
+        {".js",     "\ue74e"},
+        {".json",   "\ue60b"},
+        {".lua",    "\ue620"},
+        {".md",     "\uf48a"},
+        {".py",     "\ue73c"},
+        {".rs",     "\ue7a8"},
+        {".zig",    "\ue8ef"},
+        {".ts",     "\ue628"},
+        {".toml",   "\ue6b2"},
+        {".log",    "\uf4ed"},
+        {".yaml",   "\ue8eb"},
+        {".yml",    "\ue6a8"},
+        {".xml",    "󰗀"  },
+        {".zip",    "\ue6aa"},
+        {".rar",    "\ue6aa"},
+        {".7z",     "\ue6aa"},
+        {".tar",    "\ue6aa"},
+        {"folder",  "\uf07b"},
     };
 }
 
@@ -90,14 +90,14 @@ struct ColorTheme {
     uint32_t searchHighlight{0xFFFF00};
 
     // Git status colors
-    uint32_t modified{0xFFA500};     // Orange
-    uint32_t added{0x00FF00};        // Green
-    uint32_t deleted{0xFF0000};      // Red
-    uint32_t renamed{0x00FFFF};      // Cyan
-    uint32_t copied{0xFF00FF};       // Magenta
+    uint32_t modified{0xFFA500};    // Orange
+    uint32_t added{0x00FF00};       // Green
+    uint32_t deleted{0xFF0000};     // Red
+    uint32_t renamed{0x00FFFF};     // Cyan
+    uint32_t copied{0xFF00FF};      // Magenta
     uint32_t untracked{0x5555FF};   // Blue
     uint32_t ignored{0x555555};     // Dark gray
-    uint32_t conflicted{0xE32636};   // Amaranth red
+    uint32_t conflicted{0xE32636};  // Amaranth red
 };
 
 /**
@@ -169,10 +169,16 @@ struct AnalysisConfig {
 /**
  * @brief Git-aware version tracking configuration.
  */
+enum class VersionControlStatusDetail : std::uint8_t {
+    Compact,  // only show whether git is on or not
+    Summary,  // show modified/added/deleted status
+    Full,     // add ahead /behind
+};
+
 struct VersionControlConfig {
-    bool enabled{true};
+    bool enabled{false};
     bool showIgnoredFiles{true};
-    
+    VersionControlStatusDetail statusDetail{VersionControlStatusDetail::Summary};
 };
 
 /**

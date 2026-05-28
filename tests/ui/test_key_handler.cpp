@@ -117,6 +117,11 @@ TEST_CASE("Default binding catalog installs directory jump and help bindings", "
     REQUIRE(ignored != nullptr);
     CHECK(ignored->commandId == expp::app::to_command_id(expp::app::ExplorerCommand::ToggleGitIgnored));
 
+    const auto* git_enabled =
+        keymap.findExact({expp::ui::Key::fromChar('.'), expp::ui::Key::fromChar('G')}, expp::ui::Mode::Normal);
+    REQUIRE(git_enabled != nullptr);
+    CHECK(git_enabled->commandId == expp::app::to_command_id(expp::app::ExplorerCommand::ToggleGitEnabled));
+
     CHECK(keymap.findExact({expp::ui::Key::fromChar('~')}, expp::ui::Mode::Normal) != nullptr);
 }
 
@@ -125,6 +130,13 @@ TEST_CASE("Command catalog resolves Git ignored toggle by config name", "[ui][ke
 
     REQUIRE(command.has_value());
     CHECK(*command == expp::app::ExplorerCommand::ToggleGitIgnored);
+}
+
+TEST_CASE("Command catalog resolves Git tracing toggle by config name", "[ui][keymap][catalog]") {
+    const auto command = expp::app::command_from_name("toggle_git_enabled");
+
+    REQUIRE(command.has_value());
+    CHECK(*command == expp::app::ExplorerCommand::ToggleGitEnabled);
 }
 
 TEST_CASE("Command catalog resolves every default binding", "[ui][keymap][catalog]") {

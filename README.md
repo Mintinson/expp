@@ -20,7 +20,7 @@ The project targets performance and maintainability for very large directories, 
 - Copy/cut/paste workflows with overwrite support
 - Trash and permanent delete operations
 - Search, hidden-file toggle, and multiple sort modes
-- Optional Git-aware version markers and ignored-file visibility toggle
+- Optional Git-aware version markers, repository summary, and ignored-file visibility toggle
 - Built-in help overlay with filtering
 - TOML-driven configuration (theme, icons, behavior, layout)
 - Cross-platform build system with CMake presets
@@ -53,6 +53,7 @@ Search and view:
 - `n` / `N`: next / previous match
 - `\\`: clear search highlights
 - `..`: toggle hidden files
+- `.G`: toggle Git tracing on/off at runtime
 - `.g`: toggle Git-ignored files when version tracking is enabled
 - `,m ,b ,e ,a ,n ,s`: sort by modified/birth/ext/alpha/natural/size
 - Uppercase sort key toggles descending order (for example `,M`)
@@ -92,6 +93,7 @@ If a release for your platform is not available yet, build from source (next sec
 Optional:
 
 - `libmagic` for MIME sniffing (when available)
+- `libgit2` for faster Git status loading (fetched by default; Git CLI remains the fallback)
 
 Dependencies such as FTXUI, toml++, Catch2, and Asio are fetched automatically by CMake.
 
@@ -183,6 +185,7 @@ showHiddenFiles = false
 [version_control]
 enabled = false
 show_ignored_files = true
+status_detail = "summary" # compact, summary, or full
 
 [preview]
 enabled = true

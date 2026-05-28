@@ -1,6 +1,7 @@
 #include "expp/app/explorer_presenter.hpp"
 
 #include "expp/app/explorer_commands.hpp"
+#include "expp/core/config.hpp"
 
 #include <algorithm>
 #include <format>
@@ -119,7 +120,21 @@ void setup_titles(ExplorerScreenModel& model, const std::filesystem::path& dir) 
     }
 
     if (state.versionControlEnabled) {
-        status += state.versionControlAvailable ? " [git:on]" : " [git:unavailable]";
+        const auto detail = core::global_config().config().versionControl.statusDetail;
+        if (!state.versionControlAvailable) {
+            status += " [git:unavailable]";
+        } else if (detail == core::VersionControlStatusDetail::Compact) {
+            status += " [git:on]";
+        } else {
+            const auto& git = state.versionControlSnapshot;
+            const std::string branch = git.branchName.empty() ? "unknown" : git.branchName;
+            status += std::format(" [git:{}{} s:{} u:{} ?:{}]", branch, git.dirty ? "*" : "", git.stagedCount,
+                                  git.unstagedCount, git.untrackedCount);
+            if (detail == core::VersionControlStatusDetail::Full && git.aheadCount.has_value() &&
+                git.behindCount.has_value()) {
+                status += std::format(" [ahead:{} behind:{}]", *git.aheadCount, *git.behindCount);
+            }
+        }
         if (!state.showIgnoredFiles) {
             status += " [ignored:hidden]";
         }
