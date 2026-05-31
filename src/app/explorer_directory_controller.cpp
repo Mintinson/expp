@@ -461,6 +461,8 @@ void ExplorerDirectoryController::applyCachedVersionStatus(const fs::path& direc
 
     const auto key = directory.lexically_normal();
     if (const auto it = cacheMap_.find(key); it != cacheMap_.end()) {
+        // Move the existing entry to the back of the list (most recently used)
+        cacheList_.splice(cacheList_.end(), cacheList_, it->second);
         versionStatusAvailable_ = it->second->snapshot.repositoryFound;
         explorer_->applyVersionStatus(it->second->snapshot);
     } else {
