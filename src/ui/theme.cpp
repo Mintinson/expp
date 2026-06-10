@@ -66,31 +66,7 @@ ftxui::Color Theme::getVersionStatusColor(core::VersionStatus status) const noex
 }
 
 std::string_view Theme::getFileTypeIcon(const core::filesystem::FileEntry& entry) const noexcept {
-    if (entry.type == core::filesystem::FileType::Directory) {
-        if (auto it = iconMap_.find("folder"); it != iconMap_.end()) {
-            return it->second;
-        }
-        return defaultFolderIcon_;
-    }
-    if (entry.type == core::filesystem::FileType::Executable) {
-        if (auto it = iconMap_.find("exe"); it != iconMap_.end()) {
-            return it->second;
-        }
-        return defaultFileIcon_;
-    }
-    if (entry.type == core::filesystem::FileType::Symlink) {
-        if (auto it = iconMap_.find("link"); it != iconMap_.end()) {
-            return it->second;
-        }
-        return defaultFileIcon_;
-    }
-    if (auto it = iconMap_.find(entry.extension()); it != iconMap_.end()) {
-        return it->second;
-    }
-    if (auto it = iconMap_.find("default"); it != iconMap_.end()) {
-        return it->second;
-    }
-    return defaultFileIcon_;
+    return core::resolve_icon(iconConfig_, entry);
 }
 
 void Theme::reload(const core::ColorTheme& config) {
@@ -122,10 +98,8 @@ void Theme::reload(const core::ColorTheme& config) {
     conflictedColor_ = hex_to_color(config.conflicted);
 }
 
-void Theme::reloadIcons(const core::IconConfig& iconConfig) {
-    iconMap_ = iconConfig.icons;
-    defaultFileIcon_ = iconConfig.defaultFileIcon;
-    defaultFolderIcon_ = iconConfig.defaultFolderIcon;
+void Theme::reloadIcons(const core::IconConfig& icon_config) {
+    iconConfig_ = icon_config;
 }
 
 // Global theme instance

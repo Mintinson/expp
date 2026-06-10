@@ -8,8 +8,6 @@
 #include <ftxui/screen/color.hpp>
 
 #include <cstdint>
-#include <string>
-#include <unordered_map>
 
 namespace expp::ui {
 /**
@@ -71,7 +69,7 @@ public:
      * @brief Reloads icons from configuration
      * @param iconConfig New icon configuration
      */
-    void reloadIcons(const core::IconConfig& iconConfig);
+    void reloadIcons(const core::IconConfig& icon_config);
 
 private:
     // File type colors
@@ -105,9 +103,7 @@ private:
     ftxui::Color conflictedColor_;
 
     // Icons
-    std::unordered_map<std::string, std::string> iconMap_;
-    std::string defaultFileIcon_;
-    std::string defaultFolderIcon_;
+    core::IconConfig iconConfig_;
 };
 
 /**

@@ -80,6 +80,12 @@ private:
     std::optional<std::string> oldValue_;
 };
 
+[[nodiscard]] expp::core::filesystem::FileEntry make_entry(std::string name,
+                                                           expp::core::filesystem::FileType type,
+                                                           bool hidden = false) {
+    return expp::core::filesystem::FileEntry{.path = fs::path{std::move(name)}, .type = type, .isHidden = hidden};
+}
+
 }  // namespace
 
 TEST_CASE("Notification config loads from TOML", "[core][config]") {
@@ -187,4 +193,156 @@ status_detail = "compact"
     CHECK(manager.config().versionControl.enabled);
     CHECK_FALSE(manager.config().versionControl.showIgnoredFiles);
     CHECK(manager.config().versionControl.statusDetail == expp::core::VersionControlStatusDetail::Compact);
+}
+
+TEST_CASE("Icon resolver applies priority rules", "[core][config][icons]") {
+    auto config = expp::core::ConfigManager::defaults().icons;
+    config.iconTheme["test_exact"] = "EXACT";
+    config.iconTheme["test_txt"] = "TXT";
+    config.iconTheme["test_cpp"] = "CPP";
+    config.iconTheme["test_exec"] = "EXEC";
+    config.iconTheme["test_link"] = "LINK";
+    config.iconTheme["test_hidden"] = "HIDDEN";
+    config.iconTheme["test_folder"] = "FOLDER";
+    config.iconTheme["test_build"] = "BUILD";
+
+    config.rules.exactFiles["CMakeLists.txt"] = "test_exact";
+    config.rules.extensions["txt"] = "test_txt";
+    config.rules.extensions["cpp"] = "test_cpp";
+    config.rules.extensions["cxx"] = "test_cpp";
+    config.rules.extensions["cc"] = "test_cpp";
+    config.rules.exactFolders["build"] = "test_build";
+    config.executableIconId = "test_exec";
+    config.symlinkIconId = "test_link";
+    config.hiddenIconId = "test_hidden";
+    config.folderFallbackIconId = "test_folder";
+
+    CHECK(expp::core::resolve_icon(config, make_entry("CMakeLists.txt", expp::core::filesystem::FileType::RegularFile))
+          == "EXACT");
+    CHECK(expp::core::resolve_icon(config, make_entry("main.CPP", expp::core::filesystem::FileType::RegularFile))
+          == "CPP");
+    CHECK(expp::core::resolve_icon(config, make_entry("unit.cxx", expp::core::filesystem::FileType::RegularFile))
+          == "CPP");
+    CHECK(expp::core::resolve_icon(config, make_entry("legacy.cc", expp::core::filesystem::FileType::RegularFile))
+          == "CPP");
+    CHECK(expp::core::resolve_icon(config, make_entry("tool", expp::core::filesystem::FileType::Executable)) == "EXEC");
+    CHECK(expp::core::resolve_icon(config, make_entry("link", expp::core::filesystem::FileType::Symlink)) == "LINK");
+    CHECK(expp::core::resolve_icon(config,
+                                   make_entry(".env", expp::core::filesystem::FileType::RegularFile, true))
+          == "HIDDEN");
+    CHECK(expp::core::resolve_icon(config, make_entry("build", expp::core::filesystem::FileType::Directory))
+          == "BUILD");
+    CHECK(expp::core::resolve_icon(config, make_entry("src", expp::core::filesystem::FileType::Directory)) == "FOLDER");
+}
+
+TEST_CASE("Icon resolver falls back when configured icon IDs are missing", "[core][config][icons]") {
+    auto config = expp::core::ConfigManager::defaults().icons;
+    config.rules.exactFiles["unknown.icon"] = "missing_icon";
+    config.fileFallbackIconId = "file_default";
+    config.folderFallbackIconId = "folder_default";
+
+    CHECK(expp::core::resolve_icon(config, make_entry("unknown.icon", expp::core::filesystem::FileType::RegularFile))
+          == config.iconTheme.at("file_default"));
+
+    config.rules.exactFolders["missing-folder"] = "missing_folder_icon";
+    CHECK(expp::core::resolve_icon(config, make_entry("missing-folder", expp::core::filesystem::FileType::Directory))
+          == config.iconTheme.at("folder_default"));
+}
+
+TEST_CASE("Icon config accepts legacy icons section", "[core][config][icons]") {
+    TempDirectory tmp;
+    const auto config_path = tmp.path() / "config.toml";
+
+    std::ofstream out(config_path);
+    out << R"(
+[icons]
+".cpp" = "LEGACY_CPP"
+folder = "LEGACY_FOLDER"
+exe = "LEGACY_EXEC"
+link = "LEGACY_LINK"
+default = "LEGACY_DEFAULT"
+)";
+    out.close();
+
+    expp::core::ConfigManager manager;
+    auto result = manager.loadFrom(config_path);
+
+    REQUIRE(result.has_value());
+    const auto& icons = manager.config().icons;
+    CHECK(expp::core::resolve_icon(icons, make_entry("main.cpp", expp::core::filesystem::FileType::RegularFile))
+          == "LEGACY_CPP");
+    CHECK(expp::core::resolve_icon(icons, make_entry("folder", expp::core::filesystem::FileType::Directory))
+          == "LEGACY_FOLDER");
+    CHECK(expp::core::resolve_icon(icons, make_entry("tool", expp::core::filesystem::FileType::Executable))
+          == "LEGACY_EXEC");
+    CHECK(expp::core::resolve_icon(icons, make_entry("target", expp::core::filesystem::FileType::Symlink))
+          == "LEGACY_LINK");
+    CHECK(expp::core::resolve_icon(icons, make_entry("unknown", expp::core::filesystem::FileType::RegularFile))
+          == "LEGACY_DEFAULT");
+}
+
+TEST_CASE("User icons.toml deep merges with built-in icon defaults", "[core][config][icons]") {
+    TempDirectory tmp;
+
+#ifdef _WIN32
+    ScopedEnvVar appdata{"APPDATA", tmp.path().string()};
+#else
+    ScopedEnvVar xdg_config{"XDG_CONFIG_HOME", tmp.path().string()};
+#endif
+
+    const auto config_dir = tmp.path() / "expp";
+    fs::create_directories(config_dir);
+    std::ofstream out(config_dir / "icons.toml");
+    out << R"(
+[icon_theme]
+file_cpp = "USER_CPP"
+file_document = "DOC"
+folder_build = "USER_BUILD"
+
+[rules.extensions]
+txt = "file_document"
+".cxx" = "file_cpp"
+
+[rules.exact_folders]
+build = "folder_build"
+)";
+    out.close();
+
+    expp::core::ConfigManager manager;
+    auto result = manager.load();
+
+    REQUIRE(result.has_value());
+    const auto& icons = manager.config().icons;
+    CHECK(expp::core::resolve_icon(icons, make_entry("main.cpp", expp::core::filesystem::FileType::RegularFile))
+          == "USER_CPP");
+    CHECK(expp::core::resolve_icon(icons, make_entry("readme.txt", expp::core::filesystem::FileType::RegularFile))
+          == "DOC");
+    CHECK(expp::core::resolve_icon(icons, make_entry("module.cxx", expp::core::filesystem::FileType::RegularFile))
+          == "USER_CPP");
+    CHECK(expp::core::resolve_icon(icons, make_entry("build", expp::core::filesystem::FileType::Directory))
+          == "USER_BUILD");
+    CHECK(expp::core::resolve_icon(icons, make_entry("script.py", expp::core::filesystem::FileType::RegularFile))
+          == icons.iconTheme.at("file_python"));
+}
+
+TEST_CASE("Invalid user icons.toml reports a config error", "[core][config][icons]") {
+    TempDirectory tmp;
+
+#ifdef _WIN32
+    ScopedEnvVar appdata{"APPDATA", tmp.path().string()};
+#else
+    ScopedEnvVar xdg_config{"XDG_CONFIG_HOME", tmp.path().string()};
+#endif
+
+    const auto config_dir = tmp.path() / "expp";
+    fs::create_directories(config_dir);
+    std::ofstream out(config_dir / "icons.toml");
+    out << "[icon_theme\n";
+    out.close();
+
+    expp::core::ConfigManager manager;
+    auto result = manager.load();
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().message().find("icons.toml") != std::string::npos);
 }

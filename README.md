@@ -175,6 +175,7 @@ Expp loads configuration from standard locations. Typical user config paths:
 
 - Linux/macOS: `~/.config/expp/config.toml`
 - Windows: `%APPDATA%\expp\config.toml`
+- Custom icons: `icons.toml` in the same Expp config directory
 
 Minimal example:
 
@@ -195,6 +196,47 @@ maxLines = 50
 showPreviewPanel = true
 showParentPanel = true
 ```
+
+Icon selection is data-driven. The built-in rules are always available, and
+`icons.toml` can override only the pieces you want to customize:
+
+```toml
+[icon_theme]
+file_cpp = "C++"
+file_cmake = "CM"
+folder_build = "build"
+file_default = "file"
+folder_default = "dir"
+
+[rules.exact_files]
+"CMakeLists.txt" = "file_cmake"
+Makefile = "file_cmake"
+".gitignore" = "file_git"
+
+[rules.extensions]
+cpp = "file_cpp"
+cxx = "file_cpp"
+".cc" = "file_cpp"
+txt = "file_default"
+
+[rules.exact_folders]
+build = "folder_build"
+tests = "folder_default"
+
+[rules.attributes]
+executable = "file_executable"
+symlink = "file_symlink"
+hidden = "file_hidden"
+
+[rules.fallbacks]
+file = "file_default"
+folder = "folder_default"
+```
+
+File rules are applied in this order: exact file name, extension, attributes,
+then fallback. Folder rules use exact folder name first, then the folder
+fallback. Existing `[icons]` entries in `config.toml` are still accepted as
+legacy icon glyph overrides.
 
 ## Project Structure
 
