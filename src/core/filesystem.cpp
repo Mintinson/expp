@@ -38,24 +38,31 @@ namespace rng = std::ranges;
 // Static data for file classification
 namespace {
 
-constexpr std::array kTextExtensions = {".txt",  ".cpp", ".c",    ".h",    ".hpp", ".py",  ".js",    ".ts",
-                                        ".json", ".xml", ".html", ".css",  ".md",  ".yml", ".yaml",  ".toml",
-                                        ".ini",  ".cfg", ".conf", ".sh",   ".bat", ".cmd", ".cmake", ".make",
-                                        ".log",  ".rs",  ".go",   ".java", ".lua", ".zig", ".swift", ".kt"};
+// constexpr std::array kTextExtensions = {
+//     ".txt",  ".cpp", ".c",    ".h",    ".hpp", ".py",  ".js",    ".ts",
+//     ".json", ".xml", ".html", ".css",  ".md",  ".yml", ".yaml",  ".toml",
+//     ".ini",  ".cfg", ".conf", ".sh",   ".bat", ".cmd", ".cmake", ".make",
+//     ".log",  ".rs",  ".go",   ".java", ".lua", ".zig", ".swift", ".kt"};
 
-constexpr std::array kArchiveExtensions = {".zip", ".tar", ".gz", ".7z", ".rar", ".bz2", ".xz", ".tgz"};
+constexpr std::array kArchiveExtensions = {".zip", ".tar", ".gz", ".7z",
+                                           ".rar", ".bz2", ".xz", ".tgz"};
 
-constexpr std::array kSourceExtensions = {".cpp", ".c", ".h", ".hpp", ".py", ".js", ".ts", ".rs", ".go", ".java"};
+constexpr std::array kSourceExtensions = {".cpp", ".c",  ".h",  ".hpp", ".py",
+                                          ".js",  ".ts", ".rs", ".go",  ".java"};
 
-constexpr std::array kImageExtensions = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".ico"};
+constexpr std::array kImageExtensions = {".jpg", ".jpeg", ".png",  ".gif",
+                                         ".bmp", ".svg",  ".webp", ".ico"};
 
-constexpr std::array kDocumentExtensions = {".pdf", ".doc", ".docx", ".odt", ".rtf", ".xls", ".xlsx"};
+constexpr std::array kDocumentExtensions = {".pdf", ".doc", ".docx", ".odt",
+                                            ".rtf", ".xls", ".xlsx"};
 
-constexpr std::array kConfigExtensions = {".toml", ".yaml", ".yml", ".json", ".ini", ".cfg", ".conf"};
+constexpr std::array kConfigExtensions = {".toml", ".yaml", ".yml", ".json",
+                                          ".ini",  ".cfg",  ".conf"};
 
 [[nodiscard]] std::string to_lower(std::string_view sv) {
     std::string result{sv};
-    rng::transform(result, result.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    rng::transform(result, result.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return result;
 }
 
@@ -73,7 +80,8 @@ template <typename Container>
 //     const std::chrono::system_clock::time_point& system_time) {
 //     const auto now_sys = std::chrono::system_clock::now();
 //     const auto now_file = std::chrono::file_clock::now();
-//     return now_file + std::chrono::duration_cast<std::chrono::file_clock::duration>(system_time - now_sys);
+//     return now_file + std::chrono::duration_cast<std::chrono::file_clock::duration>(system_time -
+//     now_sys);
 // }
 
 //[[nodiscard]] std::chrono::file_clock::time_point query_birth_time(
@@ -95,7 +103,8 @@ template <typename Container>
 //
 //    const auto unix_100ns = value.QuadPart - kWindowsEpochToUnixEpoch100ns;
 //    const auto unix_duration = std::chrono::duration_cast<std::chrono::system_clock::duration>(
-//        std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>(static_cast<std::int64_t>(unix_100ns)));
+//        std::chrono::duration<std::int64_t, std::ratio<1,
+//        10000000>>(static_cast<std::int64_t>(unix_100ns)));
 //
 //    return to_file_clock(std::chrono::system_clock::time_point(unix_duration));
 // #else
@@ -108,17 +117,19 @@ template <typename Container>
 /**
  * @brief Queries the birth (creation) time of a file or directory.
  * @param path The filesystem path to the file or directory whose birth time is to be queried.
- * @return A Result containing the file's creation time as a file_clock time_point on success, or an error if the
- * operation fails or birth time is not supported on the platform.
+ * @return A Result containing the file's creation time as a file_clock time_point on success, or an
+ * error if the operation fails or birth time is not supported on the platform.
  */
-[[nodiscard]] core::Result<std::chrono::file_clock::time_point> query_birth_time(const fs::path& path) {
+[[nodiscard]] core::Result<std::chrono::file_clock::time_point> query_birth_time(
+    const fs::path& path) {
     using namespace std::chrono;
 
 #ifdef _WIN32
     WIN32_FILE_ATTRIBUTE_DATA attributes{};
     if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attributes)) {
-        return core::make_error(ErrorCategory::FileSystem,
-                                std::format("Failed to get file attributes for '{}'", path.string()));
+        return core::make_error(
+            ErrorCategory::FileSystem,
+            std::format("Failed to get file attributes for '{}'", path.string()));
     }
     ULARGE_INTEGER value{};
 
@@ -141,27 +152,29 @@ template <typename Container>
         // currently
 
     #if defined(_LIBCPP_VERSION)
-        // TODO: solve the problem in libc++ that missing clock_cast which cause the code below fail to compile,
+        // TODO: solve the problem in libc++ that missing clock_cast which cause the code below fail
+        // to compile,
         if (stx.stx_mask & STATX_BTIME) {  // make sure it support BTIME
-            auto duration =
-                std::chrono::seconds(stx.stx_btime.tv_sec) + std::chrono::nanoseconds(stx.stx_btime.tv_nsec);
+            auto duration = std::chrono::seconds(stx.stx_btime.tv_sec) +
+                            std::chrono::nanoseconds(stx.stx_btime.tv_nsec);
 
             // Directly construct a file_clock time_point from the duration since epoch.
             // This avoids the missing clock_cast in libc++ entirely.
-            return std::chrono::time_point<std::chrono::file_clock, std::chrono::nanoseconds>(duration);
+            return std::chrono::time_point<std::chrono::file_clock, std::chrono::nanoseconds>(
+                duration);
         }
     #else
-        // we just construct a file_clock time_point directly from the duration since epoch, which is not elegant but
-        // works
+        // we just construct a file_clock time_point directly from the duration since epoch, which
+        // is not elegant but works
         if (stx.stx_mask & STATX_BTIME) {  // make sure it support BTIME
-            auto sys_time =
-                system_clock::time_point(seconds(stx.stx_btime.tv_sec) + nanoseconds(stx.stx_btime.tv_nsec));
+            auto sys_time = system_clock::time_point(seconds(stx.stx_btime.tv_sec) +
+                                                     nanoseconds(stx.stx_btime.tv_nsec));
             return clock_cast<file_clock>(sys_time);
         }
     #endif
     }
-    // for old linux kernel or other unix-like system, we can only get the birth time by fallback to last modified time,
-    // which is not accurate but better than nothing
+    // for old linux kernel or other unix-like system, we can only get the birth time by fallback to
+    // last modified time, which is not accurate but better than nothing
     return core::make_error(ErrorCategory::NoSupport, "Birth time not supported yet");
 #endif  // _WIN32
 }
@@ -176,11 +189,10 @@ template <typename Container>
 
 // #ifdef _WIN32
 //         // Windows: Check extension against PATHEXT environment variable
-//         // This is a common convention on Windows, but not foolproof. For a more robust solution, you might need to
-//         use
-//         // Windows API calls. But slower and more complex, so we stick to extension check for simplicity.
-//         std::string ext = filepath.extension().string();
-//         if (ext.empty()) {
+//         // This is a common convention on Windows, but not foolproof. For a more robust solution,
+//         you might need to use
+//         // Windows API calls. But slower and more complex, so we stick to extension check for
+//         simplicity. std::string ext = filepath.extension().string(); if (ext.empty()) {
 //             return false;
 //         }
 
@@ -190,16 +202,16 @@ template <typename Container>
 //         char* pathext_buffer = nullptr;
 //         _dupenv_s(&pathext_buffer, &required_size, "PATHEXT");
 
-//         std::string pathext = pathext_buffer ? pathext_buffer : ".COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF";
-//         if (pathext_buffer) {
+//         std::string pathext = pathext_buffer ? pathext_buffer :
+//         ".COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF"; if (pathext_buffer) {
 //             free(pathext_buffer);  // NOLINT
 //         }
 
 //         size_t pos = pathext.find(ext);
 //         while (pos != std::string::npos) {
 //             bool start_valid = (pos == 0) || (pathext[pos - 1] == ';');
-//             bool end_valid = (pos + ext.length() == pathext.length()) || (pathext[pos + ext.length()] == ';');
-//             if (start_valid && end_valid) {
+//             bool end_valid = (pos + ext.length() == pathext.length()) || (pathext[pos +
+//             ext.length()] == ';'); if (start_valid && end_valid) {
 //                 return true;
 //             }
 //             pos = pathext.find(ext, pos + 1);
@@ -208,7 +220,8 @@ template <typename Container>
 // #else
 //         // Linux/macOS: Rely on standard POSIX execute bits
 //         auto perm = fs::status(filepath).permissions();
-//         return (perm & fs::perms::owner_exec) != fs::perms::none || (perm & fs::perms::group_exec) != fs::perms::none
+//         return (perm & fs::perms::owner_exec) != fs::perms::none || (perm &
+//         fs::perms::group_exec) != fs::perms::none
 //         ||
 //                (perm & fs::perms::others_exec) != fs::perms::none;
 // #endif
@@ -225,8 +238,9 @@ bool is_executable(const fs::path& filepath) noexcept {
     }
 #ifdef _WIN32
     // Windows: Check extension against PATHEXT environment variable
-    // This is a common convention on Windows, but not foolproof. For a more robust solution, you might need to use
-    // Windows API calls. But slower and more complex, so we stick to extension check for simplicity.
+    // This is a common convention on Windows, but not foolproof. For a more robust solution, you
+    // might need to use Windows API calls. But slower and more complex, so we stick to extension
+    // check for simplicity.
     std::string ext = filepath.extension().string();
     if (ext.empty()) {
         return false;
@@ -246,7 +260,8 @@ bool is_executable(const fs::path& filepath) noexcept {
     size_t pos = pathext.find(ext);
     while (pos != std::string::npos) {
         bool start_valid = (pos == 0) || (pathext[pos - 1] == ';');
-        bool end_valid = (pos + ext.length() == pathext.length()) || (pathext[pos + ext.length()] == ';');
+        bool end_valid =
+            (pos + ext.length() == pathext.length()) || (pathext[pos + ext.length()] == ';');
         if (start_valid && end_valid) {
             return true;
         }
@@ -260,7 +275,8 @@ bool is_executable(const fs::path& filepath) noexcept {
         return false;
     }
     auto perm = file_status.permissions();
-    return (perm & fs::perms::owner_exec) != fs::perms::none || (perm & fs::perms::group_exec) != fs::perms::none ||
+    return (perm & fs::perms::owner_exec) != fs::perms::none ||
+           (perm & fs::perms::group_exec) != fs::perms::none ||
            (perm & fs::perms::others_exec) != fs::perms::none;
 #endif
 }
@@ -285,7 +301,8 @@ bool is_executable(const fs::path& filepath) noexcept {
     //             return FileType::Executable;
     //         }
     // #else
-    //         if (ext == ".exe" || ext == ".bat" || ext == ".cmd" || ext == ".com" || ext == ".vbs" || ext == ".js" ||
+    //         if (ext == ".exe" || ext == ".bat" || ext == ".cmd" || ext == ".com" || ext == ".vbs"
+    //         || ext == ".js" ||
     //             ext == ".wsf") {
     //             return FileType::Executable;
     //         }
@@ -338,8 +355,8 @@ bool is_executable(const fs::path& filepath) noexcept {
         return FileType::Executable;
     }
 #else
-    if (ext == ".exe" || ext == ".bat" || ext == ".cmd" || ext == ".com" || ext == ".vbs" || ext == ".js" ||
-        ext == ".wsf") {
+    if (ext == ".exe" || ext == ".bat" || ext == ".cmd" || ext == ".com" || ext == ".vbs" ||
+        ext == ".js" || ext == ".wsf") {
         return FileType::Executable;
     }
 #endif
@@ -364,8 +381,51 @@ bool is_executable(const fs::path& filepath) noexcept {
 }
 
 bool is_previewable(const fs::path& path) noexcept {
-    auto ext = to_lower(path.extension().string());
-    return contains_extension(kTextExtensions, ext);
+    return open_if_previewable(path).is_open();
+}
+std::ifstream open_if_previewable(const fs::path& path) noexcept {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return {};
+    }
+
+    constexpr std::size_t kSampleSize = 512;
+    std::array<char, kSampleSize> buffer{};
+    file.read(buffer.data(), buffer.size());
+    const std::streamsize bytes_read = file.gcount();
+
+    if (bytes_read == 0) {
+        file.clear();
+        file.seekg(0);
+        return file;
+    }
+
+    std::size_t text_chars = 0;
+    std::size_t binary_chars = 0;
+
+    for (std::streamsize i = 0; i < bytes_read; ++i) {
+        const auto byte = static_cast<unsigned char>(buffer[i]);
+
+        // 空字节 → 二进制文件
+        if (byte == 0x00) {
+            return {};
+        }
+
+        if ((std::isprint(byte) != 0) || byte == '\n' || byte == '\r' || byte == '\t' ||
+            byte == '\v' || byte == '\f') {
+            ++text_chars;
+        } else {
+            ++binary_chars;
+        }
+    }
+
+    // 可打印字符（含空白）占主导 → 文本文件
+    if (binary_chars < text_chars) {
+        file.clear();   // 清除可能因读取而设置的 eofbit
+        file.seekg(0);  // 重置到开头，便于调用者完整读取
+        return file;
+    }
+    return {};
 }
 
 [[nodiscard]] Result<FileEntry> inspect_directory_entry(const fs::directory_entry& entry) noexcept {
@@ -413,23 +473,28 @@ bool is_previewable(const fs::path& path) noexcept {
     return file_entry;
     // } catch (...) {
     //     return make_error(ErrorCategory::FileSystem,
-    //                       std::format("Failed to inspect directory entry '{}'", entry.path().string()));
+    //                       std::format("Failed to inspect directory entry '{}'",
+    //                       entry.path().string()));
     // }
 }
 
-[[nodiscard]] Result<std::vector<FileEntry>> list_directory(const fs::path& dir, bool include_hidden) noexcept {
+[[nodiscard]] Result<std::vector<FileEntry>> list_directory(const fs::path& dir,
+                                                            bool include_hidden) noexcept {
     std::vector<FileEntry> entries;
 
     std::error_code ec;
     auto iter = fs::directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
     if (ec) {
         if (ec == std::errc::permission_denied) {
-            return make_error(ErrorCategory::Permission, std::format("Cannot access directory: {}", dir.string()));
+            return make_error(ErrorCategory::Permission,
+                              std::format("Cannot access directory: {}", dir.string()));
         }
         if (ec == std::errc::no_such_file_or_directory) {
-            return make_error(ErrorCategory::NotFound, std::format("Directory not found: {}", dir.string()));
+            return make_error(ErrorCategory::NotFound,
+                              std::format("Directory not found: {}", dir.string()));
         }
-        return make_error(ErrorCategory::FileSystem, std::format("Cannot list directory: {}", ec.message()));
+        return make_error(ErrorCategory::FileSystem,
+                          std::format("Cannot list directory: {}", ec.message()));
     }
     for (const auto& entry : iter) {
         auto filename = entry.path().filename().string();
@@ -460,7 +525,8 @@ bool is_previewable(const fs::path& path) noexcept {
     std::error_code ec;
     auto result = fs::canonical(path, ec);
     if (ec) {
-        return make_error(ErrorCategory::FileSystem, std::format("Cannot canonicalize path: {}", ec.message()));
+        return make_error(ErrorCategory::FileSystem,
+                          std::format("Cannot canonicalize path: {}", ec.message()));
     }
     return result;
 }
@@ -484,7 +550,8 @@ bool is_previewable(const fs::path& path) noexcept {
     std::error_code ec;
     fs::create_directories(path, ec);
     if (ec) {
-        return make_error(ErrorCategory::FileSystem, std::format("Cannot create directory: {}", ec.message()));
+        return make_error(ErrorCategory::FileSystem,
+                          std::format("Cannot create directory: {}", ec.message()));
     }
     return {};
 }
@@ -493,8 +560,9 @@ VoidResult create_file(const fs::path& path) {
     if (path.has_parent_path()) {
         auto create_parent_result = filesystem::create_directory(path.parent_path());
         if (!create_parent_result) {
-            return make_error(ErrorCategory::FileSystem, std::format("Cannot create parent directory: {}",
-                                                                     create_parent_result.error().message()));
+            return make_error(ErrorCategory::FileSystem,
+                              std::format("Cannot create parent directory: {}",
+                                          create_parent_result.error().message()));
         }
     }
     std::ofstream file(path);
@@ -508,7 +576,8 @@ VoidResult create_file(const fs::path& path) {
     std::error_code ec;
     fs::rename(old_path, new_path, ec);
     if (ec) {
-        return make_error(ErrorCategory::FileSystem, std::format("Cannot rename: {}", ec.message()));
+        return make_error(ErrorCategory::FileSystem,
+                          std::format("Cannot rename: {}", ec.message()));
     }
     return {};
 }
@@ -517,9 +586,11 @@ VoidResult remove_file(const fs::path& path) {
     std::error_code ec;
     if (!fs::remove(path, ec)) {
         if (ec) {
-            return make_error(ErrorCategory::FileSystem, std::format("Cannot remove file: {}", ec.message()));
+            return make_error(ErrorCategory::FileSystem,
+                              std::format("Cannot remove file: {}", ec.message()));
         }
-        return make_error(ErrorCategory::NotFound, std::format("File not found: {}", path.string()));
+        return make_error(ErrorCategory::NotFound,
+                          std::format("File not found: {}", path.string()));
     }
     return {};
 }
@@ -528,17 +599,20 @@ VoidResult remove_directory(const fs::path& path) {
     std::error_code ec;
     auto removed = fs::remove_all(path, ec);
     if (ec) {
-        return make_error(ErrorCategory::FileSystem, std::format("Cannot remove directory: {}", ec.message()));
+        return make_error(ErrorCategory::FileSystem,
+                          std::format("Cannot remove directory: {}", ec.message()));
     }
     if (removed == 0) {
-        return make_error(ErrorCategory::NotFound, std::format("Directory not found: {}", path.string()));
+        return make_error(ErrorCategory::NotFound,
+                          std::format("Directory not found: {}", path.string()));
     }
     return {};
 }
 
 VoidResult move_to_trash(const fs::path& path) {
     if (!fs::exists(path)) {
-        return make_error(ErrorCategory::NotFound, std::format("Path not found: {}", path.string()));
+        return make_error(ErrorCategory::NotFound,
+                          std::format("Path not found: {}", path.string()));
     }
 
 #ifdef _WIN32
@@ -549,14 +623,16 @@ VoidResult move_to_trash(const fs::path& path) {
     file_op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
 
     if (SHFileOperationW(&file_op) != 0 || file_op.fAnyOperationsAborted) {
-        return make_error(ErrorCategory::System, std::format("Failed to move to Recycle Bin: {}", path.string()));
+        return make_error(ErrorCategory::System,
+                          std::format("Failed to move to Recycle Bin: {}", path.string()));
     }
 #else
     // Linux/macOS: Use gio trash
     std::string command = "gio trash \"" + path.string() + "\"";
     int result = std::system(command.c_str());  // NOLINT
     if (result != 0) {
-        return make_error(ErrorCategory::System, std::format("Failed to move to trash: {}", path.string()));
+        return make_error(ErrorCategory::System,
+                          std::format("Failed to move to trash: {}", path.string()));
     }
 #endif
     return {};
@@ -564,7 +640,8 @@ VoidResult move_to_trash(const fs::path& path) {
 
 VoidResult open_with_default(const fs::path& path) {
     if (!fs::exists(path)) {
-        return make_error(ErrorCategory::NotFound, std::format("Path not found: {}", path.string()));
+        return make_error(ErrorCategory::NotFound,
+                          std::format("Path not found: {}", path.string()));
     }
 
     std::string cmd;
@@ -578,13 +655,15 @@ VoidResult open_with_default(const fs::path& path) {
 
     int result = std::system(cmd.c_str());  // NOLINT
     if (result != 0) {
-        return make_error(ErrorCategory::System,
-                          std::format("Failed to open with default application: {}", path.string()));
+        return make_error(
+            ErrorCategory::System,
+            std::format("Failed to open with default application: {}", path.string()));
     }
     return {};
 }
 
-// [[nodiscard]] Result<std::vector<std::string>> read_preview(const FileEntry& entry, int max_lines)
+// [[nodiscard]] Result<std::vector<std::string>> read_preview(const FileEntry& entry, int
+// max_lines)
 // {
 //     if (entry.isDirectory())
 //     {
@@ -610,97 +689,189 @@ VoidResult open_with_default(const fs::path& path) {
 
 // }
 
-[[nodiscard]] Result<std::vector<std::string>> read_preview(const fs::path& path, int max_lines) {
-    std::vector<std::string> lines;
+// [[nodiscard]] Result<std::vector<std::string>> read_preview(const fs::path& path, int max_lines) {
+//     std::vector<std::string> lines;
 
-    std::error_code symlink_ec;
-    if (fs::is_symlink(path, symlink_ec)) {
-        lines.emplace_back("[Symbolic Link]");
+//     std::error_code symlink_ec;
+//     if (fs::is_symlink(path, symlink_ec)) {
+//         lines.emplace_back("[Symbolic Link]");
 
-        std::error_code target_ec;
-        const auto target = fs::read_symlink(path, target_ec);
-        if (!target_ec) {
-            lines.push_back("Target: " + target.string());
+//         std::error_code target_ec;
+//         const auto target = fs::read_symlink(path, target_ec);
+//         if (!target_ec) {
+//             lines.push_back("Target: " + target.string());
+//         }
+
+//         std::error_code status_ec;
+//         const auto link_status = fs::status(path, status_ec);
+//         if (status_ec == std::errc::too_many_symbolic_link_levels) {
+//             lines.emplace_back("[Recursive symlink detected]");
+//             return lines;
+//         }
+//         if (status_ec || link_status.type() == fs::file_type::not_found) {
+//             lines.emplace_back("[Broken symlink]");
+//             return lines;
+//         }
+
+//         lines.emplace_back("");
+//     }
+
+//     std::error_code directory_ec;
+//     if (fs::is_directory(path, directory_ec)) {
+//         lines.emplace_back("[Directory Contents]");
+//         lines.emplace_back("");
+
+//         auto entries_result = list_directory(path);
+//         if (!entries_result) {
+//             lines.push_back("[" + entries_result.error().message() + "]");
+//             return lines;
+//         }
+
+//         for (const auto& entry : *entries_result) {
+//             if (static_cast<int>(lines.size()) >= max_lines) {
+//                 break;
+//             }
+//             std::string prefix = entry.isDirectory() ? "[D] " : "[F] ";
+//             lines.push_back(prefix + entry.filename());
+//         }
+//         return lines;
+//     }
+//     if (directory_ec == std::errc::too_many_symbolic_link_levels) {
+//         lines.emplace_back("[Recursive symlink detected]");
+//         return lines;
+//     }
+
+//     std::error_code regular_file_ec;
+//     if (!fs::is_regular_file(path, regular_file_ec)) {
+//         if (regular_file_ec == std::errc::too_many_symbolic_link_levels) {
+//             lines.emplace_back("[Recursive symlink detected]");
+//             return lines;
+//         }
+//         lines.emplace_back("[Not a regular file]");
+//         return lines;
+//     }
+//     auto preview_file = is_previewable_fs(path);
+//     if (!preview_file) {
+//         lines.emplace_back("[Binary or unsupported file]");
+//         lines.emplace_back("");
+//         std::error_code ec;
+//         auto size = fs::file_size(path, ec);
+//         lines.push_back("Size: " + format_file_size(size));
+//         return lines;
+//     }
+
+//     std::string line;
+//     while (std::getline(preview_file, line) && static_cast<int>(lines.size()) < max_lines) {
+//         // Truncate long lines
+//         constexpr size_t kMaxLineLength = 80;
+//         if (line.length() > kMaxLineLength) {
+//             line = line.substr(0, kMaxLineLength - 3) + "...";
+//         }
+//         lines.push_back(std::move(line));
+//     }
+
+//     if (lines.empty()) {
+//         lines.emplace_back("[Empty file]");
+//     }
+
+//     return lines;
+// }
+
+Result<bool> read_preview(const fs::path& path,
+                          std::vector<std::string>& out_lines,
+                          int max_lines) {
+    out_lines.clear();
+    std::error_code ec;
+
+    // one system call
+    fs::file_status sym_status = fs::symlink_status(path, ec);
+    if (ec && ec != std::errc::no_such_file_or_directory) {
+        return make_error(ErrorCategory::FileSystem,
+                          std::format("Cannot access path: {}", ec.message()));
+    }
+    if (fs::is_symlink(sym_status)) {
+        out_lines.emplace_back("[Symbolic Link]");
+        const auto target = fs::read_symlink(path, ec);
+        if (!ec) {
+            out_lines.push_back("Target: " + target.string());
         }
 
-        std::error_code status_ec;
-        const auto link_status = fs::status(path, status_ec);
-        if (status_ec == std::errc::too_many_symbolic_link_levels) {
-            lines.emplace_back("[Recursive symlink detected]");
-            return lines;
+        fs::file_status link_status = fs::status(path, ec);
+        if (ec == std::errc::too_many_symbolic_link_levels) {
+            out_lines.emplace_back("[Recursive symlink detected]");
+            return false;
         }
-        if (status_ec || link_status.type() == fs::file_type::not_found) {
-            lines.emplace_back("[Broken symlink]");
-            return lines;
+        if (ec || link_status.type() == fs::file_type::not_found) {
+            out_lines.emplace_back("[Broken symlink]");
+            return false;
         }
-
-        lines.emplace_back("");
     }
 
-    std::error_code directory_ec;
-    if (fs::is_directory(path, directory_ec)) {
-        lines.emplace_back("[Directory Contents]");
-        lines.emplace_back("");
+    // one system call
+    fs::file_status status = fs::status(path, ec);
+    if (ec == std::errc::too_many_symbolic_link_levels) {
+        out_lines.emplace_back("[Recursive symlink detected]");
+        return false;
+    }
+    // directory
+    if (fs::is_directory(status)) {
+        out_lines.emplace_back("[Directory Contents]");
+        out_lines.emplace_back("");
 
         auto entries_result = list_directory(path);
         if (!entries_result) {
-            lines.push_back("[" + entries_result.error().message() + "]");
-            return lines;
+            out_lines.push_back("[" + entries_result.error().message() + "]");
+            return false;
         }
-
+        int count = static_cast<int>(out_lines.size());
         for (const auto& entry : *entries_result) {
-            if (static_cast<int>(lines.size()) >= max_lines) {
+            if (count >= max_lines) {
                 break;
             }
-            std::string prefix = entry.isDirectory() ? "[D] " : "[F] ";
-            lines.push_back(prefix + entry.filename());
+            std::string prefix = entry.isDirectory() ? "[D]" : "[F]";
+            out_lines.push_back(std::format("{} {}", prefix, entry.filename()));
+            count++;
         }
-        return lines;
+        return false;
     }
-    if (directory_ec == std::errc::too_many_symbolic_link_levels) {
-        lines.emplace_back("[Recursive symlink detected]");
-        return lines;
+    if (!fs::is_regular_file(status)) {
+        out_lines.emplace_back("[Not a regular file]");
+        return true;
     }
 
-    std::error_code regular_file_ec;
-    if (!fs::is_regular_file(path, regular_file_ec)) {
-        if (regular_file_ec == std::errc::too_many_symbolic_link_levels) {
-            lines.emplace_back("[Recursive symlink detected]");
-            return lines;
-        }
-        lines.emplace_back("[Not a regular file]");
-        return lines;
-    }
+    auto preview_file = open_if_previewable(path);
+    if (!preview_file.is_open()) {
+        out_lines.emplace_back("[Binary or unsupported file]");
+        out_lines.emplace_back("");
 
-    if (!is_previewable(path)) {
-        lines.emplace_back("[Binary or unsupported file]");
-        lines.emplace_back("");
-        std::error_code ec;
         auto size = fs::file_size(path, ec);
-        lines.push_back("Size: " + format_file_size(size));
-        return lines;
-    }
-
-    std::ifstream file(path);
-    if (!file) {
-        return make_error(ErrorCategory::IO, std::format("Cannot read file: {}", path.string()));
+        if (!ec) {
+            out_lines.push_back("Size: " + format_file_size(size));
+        }
+        return false;
     }
 
     std::string line;
-    while (std::getline(file, line) && static_cast<int>(lines.size()) < max_lines) {
-        // Truncate long lines
+    int current_lines = static_cast<int>(out_lines.size());
+
+    // 循环条件剥离出耗时的 size() 调用
+    while (current_lines < max_lines && std::getline(preview_file, line)) {
         constexpr size_t kMaxLineLength = 80;
+
+        // 性能优化：直接 resize 并追加，避免 substr 分配新内存
         if (line.length() > kMaxLineLength) {
-            line = line.substr(0, kMaxLineLength - 3) + "...";
+            line.resize(kMaxLineLength - 3);
+            line += "...";
         }
-        lines.push_back(std::move(line));
+        out_lines.push_back(std::move(line));
+        current_lines++;
     }
 
-    if (lines.empty()) {
-        lines.emplace_back("[Empty file]");
+    if (out_lines.empty()) {
+        out_lines.emplace_back("[Empty file]");
     }
 
-    return lines;
+    return true;
 }
 
 [[nodiscard]] std::string format_file_size(std::uintmax_t bytes) {
