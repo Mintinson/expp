@@ -8,6 +8,7 @@
 #ifndef EXPP_UI_COMPONENTS_HPP
 #define EXPP_UI_COMPONENTS_HPP
 
+#include "expp/app/preview_model.hpp"
 #include "expp/core/filesystem.hpp"
 #include "expp/ui/help_menu_model.hpp"
 #include "expp/ui/key_handler.hpp"
@@ -325,47 +326,24 @@ private:
 /**
  * @brief Preview rendering configuration.
  */
-struct PreviewConfig {
+struct PreviewRenderConfig {
     const Theme* theme{&global_theme()};
     /// Maximum number of preview lines to display.
-    int maxLines{};
+    int maxRenderLines{};
     /// Message rendered when no preview is available.
     std::string emptyMessage{"[Empty]"};
     /// Prefix used for preview error output.
     std::string errorPrefix{"[Error: "};
 };
 
-/// Preview state when there is no active preview target.
-struct PreviewIdleState {};
 
-/// Preview state while content is being loaded.
-struct PreviewLoadingState {
-    std::filesystem::path target;
-};
-
-/// Preview state after successful content loading.
-struct PreviewReadyState {
-    std::filesystem::path target;
-    std::vector<std::string> lines;
-};
-
-/// Preview state after a loading error.
-struct PreviewErrorState {
-    std::filesystem::path target;
-    std::string message;
-};
-
-/**
- * @brief Preview state model consumed by the preview component.
- */
-using PreviewModel = std::variant<PreviewIdleState, PreviewLoadingState, PreviewReadyState, PreviewErrorState>;
 
 /**
  * @brief Renders preview content from a precomputed preview model.
  */
 class PreviewComponent {
 public:
-    explicit PreviewComponent(const PreviewConfig& config = {});
+    explicit PreviewComponent(const PreviewRenderConfig& config = {});
     ~PreviewComponent();
 
     PreviewComponent(PreviewComponent&&) noexcept;
@@ -376,7 +354,7 @@ public:
     /**
      * @brief Renders the current preview model.
      */
-    [[nodiscard]] ftxui::Element render(const PreviewModel& model) const;
+    [[nodiscard]] ftxui::Element render(const app::PreviewModel& model) const;
     /**
      * @brief Renders raw preview lines directly.
      */
@@ -384,7 +362,7 @@ public:
     /**
      * @brief Replaces the preview rendering configuration.
      */
-    void setConfig(const PreviewConfig& config);
+    void setConfig(const PreviewRenderConfig& config);
 
 private:
     struct Impl;

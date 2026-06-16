@@ -36,6 +36,8 @@ namespace {
         case ExplorerCommand::CopyFileName:
         case ExplorerCommand::CopyNameWithoutExtension:
         case ExplorerCommand::ToggleHidden:
+        case ExplorerCommand::ToggleGitIgnored:
+        case ExplorerCommand::ToggleGitEnabled:
             return true;
         default:
             return false;

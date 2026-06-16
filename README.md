@@ -20,6 +20,7 @@ The project targets performance and maintainability for very large directories, 
 - Copy/cut/paste workflows with overwrite support
 - Trash and permanent delete operations
 - Search, hidden-file toggle, and multiple sort modes
+- Optional Git-aware version markers, repository summary, and ignored-file visibility toggle
 - Built-in help overlay with filtering
 - TOML-driven configuration (theme, icons, behavior, layout)
 - Cross-platform build system with CMake presets
@@ -51,7 +52,9 @@ Search and view:
 - `/`: search
 - `n` / `N`: next / previous match
 - `\\`: clear search highlights
-- `.`: toggle hidden files
+- `..`: toggle hidden files
+- `.G`: toggle Git tracing on/off at runtime
+- `.g`: toggle Git-ignored files when version tracking is enabled
 - `,m ,b ,e ,a ,n ,s`: sort by modified/birth/ext/alpha/natural/size
 - Uppercase sort key toggles descending order (for example `,M`)
 
@@ -90,6 +93,7 @@ If a release for your platform is not available yet, build from source (next sec
 Optional:
 
 - `libmagic` for MIME sniffing (when available)
+- `libgit2` for faster Git status loading (fetched by default; Git CLI remains the fallback)
 
 Dependencies such as FTXUI, toml++, Catch2, and Asio are fetched automatically by CMake.
 
@@ -171,12 +175,18 @@ Expp loads configuration from standard locations. Typical user config paths:
 
 - Linux/macOS: `~/.config/expp/config.toml`
 - Windows: `%APPDATA%\expp\config.toml`
+- Custom icons: `icons.toml` in the same Expp config directory
 
 Minimal example:
 
 ```toml
 [behavior]
 showHiddenFiles = false
+
+[version_control]
+enabled = false
+show_ignored_files = true
+status_detail = "summary" # compact, summary, or full
 
 [preview]
 enabled = true
@@ -186,6 +196,47 @@ maxLines = 50
 showPreviewPanel = true
 showParentPanel = true
 ```
+
+Icon selection is data-driven. The built-in rules are always available, and
+`icons.toml` can override only the pieces you want to customize:
+
+```toml
+[icon_theme]
+file_cpp = "C++"
+file_cmake = "CM"
+folder_build = "build"
+file_default = "file"
+folder_default = "dir"
+
+[rules.exact_files]
+"CMakeLists.txt" = "file_cmake"
+Makefile = "file_cmake"
+".gitignore" = "file_git"
+
+[rules.extensions]
+cpp = "file_cpp"
+cxx = "file_cpp"
+".cc" = "file_cpp"
+txt = "file_default"
+
+[rules.exact_folders]
+build = "folder_build"
+tests = "folder_default"
+
+[rules.attributes]
+executable = "file_executable"
+symlink = "file_symlink"
+hidden = "file_hidden"
+
+[rules.fallbacks]
+file = "file_default"
+folder = "folder_default"
+```
+
+File rules are applied in this order: exact file name, extension, attributes,
+then fallback. Folder rules use exact folder name first, then the folder
+fallback. Existing `[icons]` entries in `config.toml` are still accepted as
+legacy icon glyph overrides.
 
 ## Project Structure
 

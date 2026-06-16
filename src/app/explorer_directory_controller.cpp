@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <format>
 #include <functional>
+#include <iostream>
 #include <utility>
 
 namespace expp::app {
@@ -39,9 +40,10 @@ void ExplorerDirectoryController::navigateToInput(std::string input) {
         runtime->ioExecutor(),
         [this, runtime, input = std::move(input), base_directory]() -> core::Task<void> {
             // Context switch to the Disk Executor for blocking I/O operation
-            auto resolved = co_await core::invoke_on(runtime->diskExecutor(), [input, base_directory] {
-                return resolve_directory_input(input, base_directory);
-            });
+            auto resolved =
+                co_await core::invoke_on(runtime->diskExecutor(), [input, base_directory] {
+                    return resolve_directory_input(input, base_directory);
+                });
             if (!resolved) {
                 // Switch back to UI to show error toast
                 runtime->postToUi([this, error = resolved.error()] {
@@ -51,7 +53,8 @@ void ExplorerDirectoryController::navigateToInput(std::string input) {
             }
 
             // Switch to UI to start actual loading process
-            runtime->postToUi([this, resolved_path = *resolved] { startDirectoryLoad(resolved_path); });
+            runtime->postToUi(
+                [this, resolved_path = *resolved] { startDirectoryLoad(resolved_path); });
         },
         asio::detached);
 }
@@ -59,7 +62,8 @@ void ExplorerDirectoryController::navigateToInput(std::string input) {
 void ExplorerDirectoryController::navigateToHomeDirectory() {
     auto home_result = resolve_home_directory();
     if (!home_result) {
-        notifications_.publish(severity_for_error(home_result.error()), home_result.error().message());
+        notifications_.publish(severity_for_error(home_result.error()),
+                               home_result.error().message());
         return;
     }
     startDirectoryLoad(*home_result);
@@ -91,8 +95,9 @@ void ExplorerDirectoryController::navigateToSelectedLinkTargetDirectory() {
         return;
     }
     if (entry.symlinkTarget.empty()) {
-        notifications_.publish(ui::ToastSeverity::Warning,
-                               std::format("Cannot resolve link target for '{}'", entry.filename()));
+        notifications_.publish(
+            ui::ToastSeverity::Warning,
+            std::format("Cannot resolve link target for '{}'", entry.filename()));
         return;
     }
 
@@ -121,6 +126,42 @@ void ExplorerDirectoryController::toggleHidden() {
     startDirectoryLoad(explorer_->state().currentDir, reselect);
 }
 
+void ExplorerDirectoryController::toggleIgnored() {
+    // if (!core::global_config().config().versionControl.enabled) {
+    if (!explorer_->state().versionControlEnabled) {
+        notifications_.publish(ui::ToastSeverity::Warning, "Version tracking is disabled");
+        return;
+    }
+    if (!versionStatusAvailable_) {
+        notifications_.publish(ui::ToastSeverity::Warning,
+                               "Git status is not available in this directory");
+        return;
+    }
+
+    const auto reselect = explorer_->selectedPath();
+    explorer_->setShowIgnoredFiles(!explorer_->showIgnoredFiles());
+    startDirectoryLoad(explorer_->state().currentDir, reselect);
+}
+
+void ExplorerDirectoryController::toggleGitEnabled() {
+    const bool enabled = !explorer_->state().versionControlEnabled;
+    explorer_->setGitEnabled(enabled);
+
+    versionStatusCancellation_.cancel();
+    versionStatusCancellation_.reset();
+
+    if (!enabled) {
+        versionStatusAvailable_ = false;
+        explorer_->clearVersionStatus(false);
+        notifications_.publish(ui::ToastSeverity::Info, "Git tracing off");
+        return;
+    }
+
+    notifications_.publish(ui::ToastSeverity::Info, "Git tracing on");
+    applyCachedVersionStatus(explorer_->state().currentDir);
+    scheduleVersionStatus(explorer_->state().currentDir, listingGeneration_);
+}
+
 void ExplorerDirectoryController::updateViewportInterest() {
     scheduleMimePreload();
 }
@@ -134,10 +175,13 @@ std::optional<ExplorerDirectoryController::CachedMime> ExplorerDirectoryControll
 }
 
 // --- [ Core Orchestration logic ] ---
-void ExplorerDirectoryController::startDirectoryLoad(fs::path directory, std::optional<fs::path> reselect) {
+void ExplorerDirectoryController::startDirectoryLoad(fs::path directory,
+                                                     std::optional<fs::path> reselect) {
     // 1. Reset state & Cancel previous in-flight operations
     listingCancellation_.cancel();
     listingCancellation_.reset();
+    versionStatusCancellation_.cancel();
+    versionStatusCancellation_.reset();
     reselectPath_ = std::move(reselect);
     mimeCache_.clear();
     preloadStart_ = -1;
@@ -159,8 +203,8 @@ void ExplorerDirectoryController::startDirectoryLoad(fs::path directory, std::op
     // 3. Launch async operation
     asio::co_spawn(
         runtime->ioExecutor(),
-        [this, runtime, file_system, directory = std::move(directory), generation, include_hidden, token,
-         chunk_entries]() -> core::Task<void> {
+        [this, runtime, file_system, directory = std::move(directory), generation, include_hidden,
+         token, chunk_entries]() -> core::Task<void> {
             // Step A: Canonicalize the directory path (resolve symlinks/absolute path)
             auto canonical_result = co_await file_system->canonicalize(directory);
             if (!canonical_result) {
@@ -181,6 +225,7 @@ void ExplorerDirectoryController::startDirectoryLoad(fs::path directory, std::op
                     return;
                 }
                 explorer_->beginDirectoryListing(canonical_directory, generation);
+                applyCachedVersionStatus(canonical_directory);
                 scheduleMimePreload();
             });
 
@@ -198,8 +243,9 @@ void ExplorerDirectoryController::startDirectoryLoad(fs::path directory, std::op
                         if (generation != listingGeneration_) {
                             return;
                         }
-                        explorer_->appendDirectoryChunk(std::move(chunk.entries), chunk.loadedEntries,
-                                                        chunk.totalEntries, chunk.hasMore, generation);
+                        explorer_->appendDirectoryChunk(std::move(chunk.entries),
+                                                        chunk.loadedEntries, chunk.totalEntries,
+                                                        chunk.hasMore, generation);
                         if (reselectPath_.has_value()) {
                             explorer_->selectPathIfPresent(*reselectPath_);
                         }
@@ -232,12 +278,14 @@ void ExplorerDirectoryController::startDirectoryLoad(fs::path directory, std::op
                     explorer_->selectPathIfPresent(*reselectPath_);
                 }
                 scheduleMimePreload();
+                scheduleVersionStatus(explorer_->state().currentDir, generation);
             });
         },
         asio::detached);
 }
 
-void ExplorerDirectoryController::scheduleParentEntries(const fs::path& directory, const std::uint64_t generation) {
+void ExplorerDirectoryController::scheduleParentEntries(const fs::path& directory,
+                                                        const std::uint64_t generation) {
     if (!directory.has_parent_path() || directory.parent_path() == directory) {
         return;
     }
@@ -258,12 +306,13 @@ void ExplorerDirectoryController::scheduleParentEntries(const fs::path& director
                 co_return;  // Silently fail, it's just for breadcrumbs
             }
 
-            runtime->postToUi([this, generation, entries = std::move(parent_result->entries)]() mutable {
-                if (generation != listingGeneration_) {
-                    return;
-                }
-                explorer_->setParentEntries(std::move(entries));
-            });
+            runtime->postToUi(
+                [this, generation, entries = std::move(parent_result->entries)]() mutable {
+                    if (generation != listingGeneration_) {
+                        return;
+                    }
+                    explorer_->setParentEntries(std::move(entries));
+                });
         },
         asio::detached);
 }
@@ -285,10 +334,12 @@ void ExplorerDirectoryController::scheduleMimePreload() {
     const int preload_before = viewport_rows * preload_pages;
     const int preload_after = viewport_rows * (preload_pages + 1);
     const int start = std::max(0, visible_offset - preload_before);
-    const int end = std::min(static_cast<int>(state.entries.size()), visible_offset + preload_after);
+    const int end =
+        std::min(static_cast<int>(state.entries.size()), visible_offset + preload_after);
 
     // 2. Optimization: Don't spawn new tasks if the viewport hasn't significantly changed
-    if (start == preloadStart_ && end == preloadEnd_ && preloadEntryCount_ == state.entries.size()) {
+    if (start == preloadStart_ && end == preloadEnd_ &&
+        preloadEntryCount_ == state.entries.size()) {
         return;
     }
 
@@ -323,7 +374,8 @@ void ExplorerDirectoryController::scheduleMimePreload() {
     // 5. Spawn background task to detect MIME types one by one
     asio::co_spawn(
         runtime->ioExecutor(),
-        [this, runtime, mime_service, targets = std::move(targets), token, generation]() -> core::Task<void> {
+        [this, runtime, mime_service, targets = std::move(targets), token,
+         generation]() -> core::Task<void> {
             for (const auto& path : targets) {
                 // Early exit if the user scrolled away and triggered cancellation
                 if (token.isCancellationRequested()) {
@@ -351,6 +403,110 @@ void ExplorerDirectoryController::scheduleMimePreload() {
             }
         },
         asio::detached);
+}
+
+void ExplorerDirectoryController::scheduleVersionStatus(const fs::path& directory,
+                                                        const std::uint64_t listing_generation) {
+    // if (!core::global_config().config().versionControl.enabled ||
+    // !explorer_->services().versionControl) {
+    if (!explorer_->state().versionControlEnabled || !explorer_->services().versionControl) {
+        explorer_->clearVersionStatus(false);
+        return;
+    }
+
+    versionStatusCancellation_.cancel();
+    versionStatusCancellation_.reset();
+
+    const auto runtime = explorer_->services().runtime;
+    const auto version_control = explorer_->services().versionControl;
+    const auto token = versionStatusCancellation_.token();
+    const auto generation = ++versionStatusGeneration_;
+
+    asio::co_spawn(
+        runtime->ioExecutor(),
+        [this, runtime, version_control, directory, token, generation,
+         listing_generation]() -> core::Task<void> {
+            auto result = co_await version_control->loadStatus(VersionStatusRequest{
+                .directory = directory,
+                .cancellation = token,
+            });
+
+            runtime->postToUi([this, generation, listing_generation,
+                               result = std::move(result)]() mutable {
+                if (generation != versionStatusGeneration_ ||
+                    listing_generation != listingGeneration_) {
+                    return;
+                }
+                if (!result) {
+                    versionStatusAvailable_ = false;
+                    std::cerr << "[version_control] loadStatus failed: " << result.error().message()
+                              << '\n';
+                    explorer_->clearVersionStatus(false);
+                    return;
+                }
+
+                versionStatusAvailable_ = result->repositoryFound;
+                cacheVersionStatus(std::move(*result));
+            });
+        },
+        asio::detached);
+}
+
+void ExplorerDirectoryController::applyCachedVersionStatus(const fs::path& directory) {
+    if (!explorer_->state().versionControlEnabled) {
+        explorer_->clearVersionStatus(false);
+        versionStatusAvailable_ = false;
+        return;
+    }
+
+    const auto key = directory.lexically_normal();
+    if (const auto it = cacheMap_.find(key); it != cacheMap_.end()) {
+        // Move the existing entry to the back of the list (most recently used)
+        cacheList_.splice(cacheList_.end(), cacheList_, it->second);
+        versionStatusAvailable_ = it->second->snapshot.repositoryFound;
+        explorer_->applyVersionStatus(it->second->snapshot);
+    } else {
+        explorer_->clearVersionStatus(false);
+        versionStatusAvailable_ = false;
+    }
+}
+
+void ExplorerDirectoryController::cacheVersionStatus(core::VersionStatusSnapshot snapshot) {
+    const auto key = snapshot.directory.lexically_normal();
+
+    if (auto it = cacheMap_.find(key); it != cacheMap_.end()) {
+        // Move the existing entry to the back of the list (most recently used)
+        cacheList_.splice(cacheList_.end(), cacheList_, it->second);
+        it->second->snapshot = std::move(snapshot);
+    } else {
+        if (cacheMap_.size() >= kMaxVersionStatusCacheEntries) {
+            // Evict the least recently used entry
+            const auto& lru_key = cacheList_.front().path;
+            cacheMap_.erase(lru_key);
+            cacheList_.pop_front();
+        }
+        cacheList_.emplace_back(key, std::move(snapshot));
+        cacheMap_.emplace(key, std::prev(cacheList_.end()));
+    }
+
+    // const bool inserted = !versionStatusCache_.contains(key);
+    // versionStatusCache_[key] = std::move(snapshot);
+    // if (inserted) {
+    //     versionStatusCacheOrder_.push_back(key);
+    // }
+
+    // static constexpr std::size_t kMaxVersionStatusCacheEntries = 32;
+    // while (versionStatusCacheOrder_.size() > kMaxVersionStatusCacheEntries) {
+    //     versionStatusCache_.erase(versionStatusCacheOrder_.front());
+    //     versionStatusCacheOrder_.erase(versionStatusCacheOrder_.begin());
+    // }
+
+    if (key == explorer_->state().currentDir.lexically_normal()) {
+        const auto it = cacheMap_.find(key);
+        if (it != cacheMap_.end()) {
+            explorer_->applyVersionStatus(it->second->snapshot);
+        }
+    }
 }
 
 }  // namespace expp::app

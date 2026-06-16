@@ -1,16 +1,17 @@
 cmake_minimum_required(VERSION 3.28)
 
+# Version selection is intentionally CI-aware so release packaging can inject
+# a tag without forcing local developers to edit the source tree.
 set(EXPP_DEFAULT_VERSION "0.0.1")
 
-# 2. if GitHub Action pass a variable CI_VERSION, use it as the version; otherwise, use the default version
 if(DEFINED CI_VERSION)
-    set(_expp_raw_version "${CI_VERSION}")
-    string(REGEX REPLACE "^v" "" _expp_raw_version "${_expp_raw_version}")
-    string(REGEX MATCH "([0-9][0-9]*\\.[0-9][0-9]*\\.[0-9][0-9]*)" _expp_semver "${_expp_raw_version}")
-    if(_expp_semver STREQUAL "")
+    set(expp_raw_version "${CI_VERSION}")
+    string(REGEX REPLACE "^v" "" expp_raw_version "${expp_raw_version}")
+    string(REGEX MATCH "([0-9][0-9]*\\.[0-9][0-9]*\\.[0-9][0-9]*)" expp_semver "${expp_raw_version}")
+    if(expp_semver STREQUAL "")
         set(APP_VERSION ${EXPP_DEFAULT_VERSION})
     else()
-        set(APP_VERSION "${_expp_semver}")
+        set(APP_VERSION "${expp_semver}")
     endif()
 else()
     set(APP_VERSION ${EXPP_DEFAULT_VERSION})
@@ -28,10 +29,29 @@ project(Expp
 )
 
 # ==============================================================================
+# Strip default MSVC Exception Handling flags injected by CMake
+# ==============================================================================
+if(MSVC)
+    # iterate over common CMake compiler flag variables
+    foreach(flag_var
+            CMAKE_CXX_FLAGS
+            CMAKE_CXX_FLAGS_DEBUG
+            CMAKE_CXX_FLAGS_RELEASE
+            CMAKE_CXX_FLAGS_MINSIZEREL
+            CMAKE_CXX_FLAGS_RELWITHDEBINFO)
+        if(${flag_var} MATCHES "/EHsc")
+            string(REPLACE "/EHsc" "" ${flag_var} "${${flag_var}}")
+        endif()
+    endforeach()
+endif()
+
+# ==============================================================================
 # Global settings
 # ==============================================================================
 set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
@@ -48,74 +68,68 @@ endif ()
 # ==============================================================================
 option(EXPP_BUILD_TESTS "Build test suite" ON)
 option(EXPP_BUILD_EXAMPLES "Build example programs" ON)
+option(EXPP_ENABLE_BENCHMARKS "Build benchmarks" ON)
 option(EXPP_ENABLE_SANITIZERS "Enable sanitizers in Debug builds" ON)
 option(EXPP_ENABLE_CLANG_TIDY "Enable clang-tidy checks" OFF)
 option(EXPP_ENABLE_CPPCHECK "Enable cppcheck static analysis" OFF)
-option(EXPP_ENABLE_LIBMAGIC "Use libmagic for MIME sniffing when available" ON)
+option(EXPP_ENABLE_LIBMAGIC "Use libmagic for MIME sniffing when available" OFF)
+option(EXPP_ENABLE_LIBGIT2 "Use libgit2 for Git status when available" ON)
+option(EXPP_FETCH_LIBGIT2 "Fetch and build libgit2 when no package target is found" ON)
 option(EXPP_PREPARE_IO_URING_BACKEND "Enable Linux io_uring extension hooks" ON)
+
+
+set(EXPP_IO_URING_COMPILED_IN 0)
+if(UNIX AND NOT APPLE AND EXPP_PREPARE_IO_URING_BACKEND)
+    # The macro is normalized to 0/1 once here so C++ code can make simple
+    # compile-time decisions without repeating platform conditionals.
+    set(EXPP_IO_URING_COMPILED_IN 1)
+endif()
+
+# ==============================================================================
+# Project-wide ABI and Language policy
+# ==============================================================================
+# expp_project_options carries project-wide ABI and language policy.
+# It intentionally owns the exception mode flags so every first-party target
+# shares one consistent contract.
+add_library(expp_project_options INTERFACE)
+target_compile_features(expp_project_options INTERFACE cxx_std_23)
+target_compile_definitions(expp_project_options INTERFACE
+    # $<$<BOOL:${EXPP_DISABLE_EXCEPTIONS}>:TOML_EXCEPTIONS=0>
+    TOML_EXCEPTIONS=0       # toml++ is configured to never throw, so this is a global definition rather than a conditional one.
+    EXPP_PREPARE_IO_URING_BACKEND=${EXPP_IO_URING_COMPILED_IN}
+    $<$<AND:$<BOOL:${EXPP_DISABLE_EXCEPTIONS}>,$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>>:_HAS_EXCEPTIONS=0>
+    # $<$<BOOL:${EXPP_DISABLE_EXCEPTIONS}>:_HAS_EXCEPTIONS=0>
+)
+target_compile_options(expp_project_options INTERFACE
+    # Frontend-variant checks keep clang-cl aligned with cl.exe while still
+    # allowing GCC/Clang-on-Unix to use their native flags.
+    $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>:
+        /permissive-
+        /Zc:__cplusplus
+        /utf-8
+        $<$<BOOL:${EXPP_DISABLE_EXCEPTIONS}>:/EHs-c->
+        $<$<NOT:$<BOOL:${EXPP_DISABLE_EXCEPTIONS}>>:/EHsc>
+    >
+    $<$<CXX_COMPILER_ID:MSVC>:/Zc:preprocessor>
+    $<$<AND:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},GNU>,$<BOOL:${EXPP_DISABLE_EXCEPTIONS}>>:-fno-exceptions>
+)
 
 # ==============================================================================
 # Compiler warnings (strict by default)
 # ==============================================================================
 add_library(expp_warnings INTERFACE)
-# target_compile_options(expp_warnings INTERFACE
-#         $<$<CXX_COMPILER_ID:MSVC>:
-#         /W4
-#         /WX
-#         /EHsc
-#         /permissive-
-#         /Zc:__cplusplus
-#         /Zc:preprocessor
-#         /utf-8
-#         >
-#         $<$<CXX_COMPILER_ID:GNU>:
-#         -Wall
-#         -Wextra
-#         -Wpedantic
-#         -Werror
-#         -Wconversion
-#         -Wsign-conversion
-#         -Wshadow
-#         -Wnon-virtual-dtor
-#         -Wold-style-cast
-#         -Wcast-align
-#         -Woverloaded-virtual
-#         -Wdouble-promotion
-#         -Wformat=2
-#         -Wimplicit-fallthrough
-#         >
-#         $<$<CXX_COMPILER_ID:Clang>:
-#         -Wall
-#         -Wextra
-#         -Wpedantic
-#         -Werror
-#         -Wconversion
-#         -Wsign-conversion
-#         -Wshadow
-#         -Wnon-virtual-dtor
-#         -Wold-style-cast
-#         -Wcast-align
-#         -Woverloaded-virtual
-#         -Wdouble-promotion
-#         -Wformat=2
-#         -Wimplicit-fallthrough
-#         >
-# )
+
 target_compile_options(expp_warnings INTERFACE
-        # 匹配 MSVC 前端 (cl.exe 和 clang-cl.exe)
+        # only for  MSVC fronter (cl.exe or clang-cl.exe)
         $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>:
         /W4
         /WX
-        /EHsc
-        /permissive-
-        /Zc:__cplusplus
-        /utf-8
         >
-        # 仅针对真正的 cl.exe 添加 /Zc:preprocessor，clang-cl 不需要
+        # only for the real cl.exe, clang-cl doesn't need this
         $<$<CXX_COMPILER_ID:MSVC>:
         /Zc:preprocessor
         >
-        # 匹配 GNU 前端 (gcc, Linux/Mac下的clang)
+        # match the GNU frontend (gcc, clang on Linux/Mac)
         $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},GNU>:
         -Wall
         -Wextra
@@ -134,6 +148,52 @@ target_compile_options(expp_warnings INTERFACE
         >
 )
 
+# ==============================================================================
+# Sanitizers (Debug builds only)
+# ==============================================================================
+add_library(expp_sanitizers INTERFACE)
+if(EXPP_ENABLE_SANITIZERS)
+    # Sanitizers are only meaningful for debug-style builds. Generator
+    # expressions keep multi-config and single-config generators aligned.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(expp_sanitizers INTERFACE
+            $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:-fsanitize=address,undefined>
+            $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:-fno-omit-frame-pointer>
+        )
+        target_link_options(expp_sanitizers INTERFACE
+            $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:-fsanitize=address,undefined>
+        )
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        target_compile_options(expp_sanitizers INTERFACE
+            $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:/fsanitize=address>
+        )
+        target_link_options(expp_sanitizers INTERFACE
+            $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:/fsanitize=address>
+        )
+    endif()
+endif()
+
+
+# ==============================================================================
+# A Helper Function to collect common target properties for first-party libraries
+# ==============================================================================
+function(expp_apply_target_defaults target)
+    # Every first-party library gets the same include/install layout and the
+    # same compile/link policy. This keeps the target declarations below small
+    # and makes future library additions less error-prone.
+    target_include_directories(${target}
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    )
+    target_link_libraries(${target}
+        PRIVATE
+            expp_project_options
+            expp_warnings
+            expp_sanitizers
+    )
+    set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endfunction()
 
 
 # ==============================================================================
@@ -155,7 +215,7 @@ FetchContent_Declare(tomlplusplus
 )
 
 # Catch2 - Testing framework
-if (EXPP_BUILD_TESTS)
+if (EXPP_BUILD_TESTS OR EXPP_ENABLE_BENCHMARKS)
     FetchContent_Declare(Catch2
             GIT_REPOSITORY https://github.com/catchorg/Catch2
             GIT_TAG v3.5.2
@@ -168,21 +228,41 @@ FetchContent_Declare(asio_src
         GIT_TAG asio-1-38-0
 )
 
+if (EXPP_ENABLE_LIBGIT2 AND EXPP_FETCH_LIBGIT2)
+    FetchContent_Declare(libgit2
+            GIT_REPOSITORY https://github.com/libgit2/libgit2
+            GIT_TAG v1.9.1
+            GIT_SUBMODULES ""
+    )
+endif ()
+
 
 FetchContent_MakeAvailable(ftxui tomlplusplus asio_src)
-if (EXPP_BUILD_TESTS)
+if (EXPP_BUILD_TESTS OR EXPP_ENABLE_BENCHMARKS)
     FetchContent_MakeAvailable(Catch2)
 endif ()
 
+
+# ==============================================================================
+# Asio (For Async Runtime)
+# ==============================================================================
 add_library(expp_asio INTERFACE)
 target_include_directories(expp_asio SYSTEM INTERFACE "${asio_src_SOURCE_DIR}/include")
-target_compile_definitions(expp_asio INTERFACE ASIO_STANDALONE ASIO_NO_DEPRECATED _WIN32_WINNT=0x0601)
+target_compile_definitions(expp_asio INTERFACE 
+    ASIO_STANDALONE 
+    ASIO_NO_DEPRECATED 
+    $<$<PLATFORM_ID:Windows>:_WIN32_WINNT=0x0601>
+    # Asio's coroutine and service code must see the same no-exception mode as
+    # our runtime; otherwise exception_ptr-based and no-throw code paths diverge.
+    $<$<BOOL:${EXPP_DISABLE_EXCEPTIONS}>:ASIO_NO_EXCEPTIONS>
+)
 target_link_libraries(expp_asio INTERFACE Threads::Threads)
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    # GCC may report false positives in standalone Asio internals with -Wnull-dereference.
-    # Suppress this warning for Asio headers only, while keeping strict warnings for project code.
-    target_compile_options(expp_asio INTERFACE -Wno-null-dereference)
-endif ()
+target_compile_options(expp_asio INTERFACE
+    # These suppressions are scoped to Asio headers only. Project code still
+    # builds under the stricter warning profile above.
+    $<$<CXX_COMPILER_ID:GNU>:-Wno-null-dereference>
+    $<$<CXX_COMPILER_ID:MSVC>:/wd4702>
+)
 
 add_library(expp_magic INTERFACE)
 if (EXPP_ENABLE_LIBMAGIC)
@@ -199,74 +279,71 @@ else ()
     target_compile_definitions(expp_magic INTERFACE EXPP_HAS_LIBMAGIC=0)
 endif ()
 
-if (UNIX AND NOT APPLE AND EXPP_PREPARE_IO_URING_BACKEND)
-    target_compile_definitions(expp_asio INTERFACE EXPP_PREPARE_IO_URING_BACKEND=1)
-else ()
-    target_compile_definitions(expp_asio INTERFACE EXPP_PREPARE_IO_URING_BACKEND=0)
-endif ()
+add_library(expp_git2 INTERFACE)
+set(EXPP_LIBGIT2_COMPILED_IN 0)
+if (EXPP_ENABLE_LIBGIT2)
+    find_package(libgit2 CONFIG QUIET)
+    if (TARGET libgit2::libgit2)
+        target_link_libraries(expp_git2 INTERFACE libgit2::libgit2)
+        set(EXPP_LIBGIT2_COMPILED_IN 1)
+    elseif (TARGET libgit2::git2)
+        target_link_libraries(expp_git2 INTERFACE libgit2::git2)
+        set(EXPP_LIBGIT2_COMPILED_IN 1)
+    elseif (EXPP_FETCH_LIBGIT2)
+        set(BUILD_CLAR OFF CACHE BOOL "Build libgit2 tests" FORCE)
+        set(BUILD_TESTS OFF CACHE BOOL "Build libgit2 tests" FORCE)
+        set(BUILD_CLI OFF CACHE BOOL "Build libgit2 command-line tools" FORCE)
+        set(BUILD_EXAMPLES OFF CACHE BOOL "Build libgit2 examples" FORCE)
+        set(BUILD_FUZZERS OFF CACHE BOOL "Build libgit2 fuzzers" FORCE)
+        set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
+        set(USE_HTTPS OFF CACHE STRING "libgit2 HTTPS backend" FORCE)
+        set(USE_SSH OFF CACHE STRING "libgit2 SSH backend" FORCE)
 
-# ==============================================================================
-# Sanitizers (Debug builds only)
-# ==============================================================================
-add_library(expp_sanitizers INTERFACE)
-if (EXPP_ENABLE_SANITIZERS)
-    if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-        if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-            target_compile_options(expp_sanitizers INTERFACE
-                    -fsanitize=address,undefined
-                    -fno-omit-frame-pointer
+        if (UNIX AND NOT APPLE)
+            # Linux force system to use st_mtim，write the result directly to the internal cache
+            set(GIT_USE_STAT_MTIM 1 CACHE INTERNAL "Force libgit2 stat mtim on Linux")
+        elseif (APPLE)
+            # macOS uses st_mtimespec
+            set(GIT_USE_STAT_MTIMESPEC 1 CACHE INTERNAL "Force libgit2 stat mtimespec on macOS")
+        elseif(MSVC)
+            set(STATIC_CRT OFF CACHE BOOL "Do not link against static CRT" FORCE)
+        endif()
+
+        set(BACKUP_CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+        set(BACKUP_CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}") # 以防万一它用到C++编译器
+
+        if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+            # -w close all warnings
+            set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
+        elseif(MSVC)
+            # MSVC's equivalent
+            set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /w")
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /w")
+        endif()
+
+        FetchContent_MakeAvailable(libgit2)
+        set(CMAKE_C_FLAGS "${BACKUP_CMAKE_C_FLAGS}")
+        set(CMAKE_CXX_FLAGS "${BACKUP_CMAKE_CXX_FLAGS}")
+        if (TARGET libgit2package)
+            target_link_libraries(expp_git2 INTERFACE libgit2package)
+            target_include_directories(expp_git2 SYSTEM INTERFACE
+                "${libgit2_SOURCE_DIR}/include"
+                "${libgit2_BINARY_DIR}/include"
             )
-            target_link_options(expp_sanitizers INTERFACE
-                    -fsanitize=address,undefined
-            )
-            message(STATUS "AddressSanitizer and UBSan enabled for Debug build")
-            if (TARGET Catch2)
-                target_compile_options(Catch2 PRIVATE                    
-                    -fsanitize=address,undefined
-                    -fno-omit-frame-pointer
-                )
-                target_link_options(Catch2 INTERFACE
-                    -fsanitize=address,undefined
-                )
-            endif ()
-            if (TARGET Catch2WithMain)
-                  target_compile_options(Catch2WithMain PRIVATE                    
-                    -fsanitize=address,undefined
-                    -fno-omit-frame-pointer
-                )
-                target_link_options(Catch2WithMain INTERFACE
-                    -fsanitize=address,undefined
-                )
-            endif ()
-        elseif (MSVC)
-            target_compile_options(expp_sanitizers INTERFACE /fsanitize=address)
-            message(STATUS "AddressSanitizer enabled for Debug build (MSVC)")
-            if (TARGET Catch2)
-                target_compile_options(Catch2 PRIVATE /fsanitize=address)
-            endif ()
-            if (TARGET Catch2WithMain)
-                target_compile_options(Catch2WithMain PRIVATE /fsanitize=address)
-            endif ()
+            set(EXPP_LIBGIT2_COMPILED_IN 1)
+        elseif (TARGET git2)
+            target_link_libraries(expp_git2 INTERFACE git2)
+            set(EXPP_LIBGIT2_COMPILED_IN 1)
+        elseif (TARGET libgit2)
+            target_link_libraries(expp_git2 INTERFACE libgit2)
+            set(EXPP_LIBGIT2_COMPILED_IN 1)
         endif ()
-        # endif ()
     endif ()
 endif ()
+target_compile_definitions(expp_git2 INTERFACE EXPP_HAS_LIBGIT2=${EXPP_LIBGIT2_COMPILED_IN})
 
 
-# --- FIX: Synchronize MSVC ABI flags for FTXUI ---
-# if (MSVC)
-#     # Apply strict standard conformance flags to match expp_warnings
-#     foreach (ftxui_target screen dom component)
-#         target_compile_options(${ftxui_target} PRIVATE /permissive- /Zc:__cplusplus /Zc:preprocessor)
-#         target_compile_options(${ftxui_target} PRIVATE /EHsc)
-
-#         # Apply AddressSanitizer if enabled to match expp_sanitizers
-#         if (EXPP_ENABLE_SANITIZERS AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
-#             target_compile_options(${ftxui_target} PRIVATE /fsanitize=address)
-#         endif ()
-#     endforeach ()
-# endif ()
-# --- FIX: Synchronize MSVC ABI flags for FTXUI ---
 if (MSVC)
     # Apply strict standard conformance flags to match expp_warnings
     foreach (ftxui_target screen dom component)
@@ -282,15 +359,17 @@ if (MSVC)
         endif ()
     endforeach ()
 
-    # # Keep Catch2 STL annotation settings aligned with sanitized test/object files.
-    # if (EXPP_BUILD_TESTS AND EXPP_ENABLE_SANITIZERS AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
-    #     if (TARGET Catch2)
-    #         target_compile_options(Catch2 PRIVATE /fsanitize=address)
-    #     endif ()
-    #     if (TARGET Catch2WithMain)
-    #         target_compile_options(Catch2WithMain PRIVATE /fsanitize=address)
-    #     endif ()
-    # endif ()
+    # Keep Catch2 STL annotation settings aligned with sanitized test/object files.
+    if ((EXPP_BUILD_TESTS AND EXPP_ENABLE_SANITIZERS AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
+    #  OR (EXPP_ENABLE_BENCHMARKS)
+     )
+        if (TARGET Catch2)
+            target_compile_options(Catch2 PRIVATE /fsanitize=address)
+        endif ()
+        if (TARGET Catch2WithMain)
+            target_compile_options(Catch2WithMain PRIVATE /fsanitize=address)
+        endif ()
+    endif ()
 endif ()
 
 
@@ -301,35 +380,43 @@ add_library(expp_core STATIC
         src/core/filesystem.cpp
         src/core/config.cpp
         src/core/async_runtime.cpp
+        src/core/version_control.cpp
 )
-
-
-target_include_directories(expp_core
-        PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-)
-
+expp_apply_target_defaults(expp_core)
+# target_compile_definitions(tomlplusplus INTERFACE TOML_EXCEPTIONS=0)
 target_link_libraries(expp_core
-        PUBLIC
-        tomlplusplus::tomlplusplus
+    PUBLIC
         expp_asio
         expp_magic
-        PRIVATE
-        expp_warnings
-        expp_sanitizers
+        expp_git2
+        tomlplusplus::tomlplusplus
 )
-    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        target_compile_options(expp_core PRIVATE -Wno-null-dereference)
-    endif ()
-set_target_properties(expp_core PROPERTIES
-        POSITION_INDEPENDENT_CODE ON
-)
-
 # Platform-specific libraries for trash functionality
 if (WIN32)
     target_link_libraries(expp_core PRIVATE shell32)
 endif ()
+
+# target_include_directories(expp_core
+#         PUBLIC
+#         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+#         $<INSTALL_INTERFACE:include>
+# )
+
+# target_link_libraries(expp_core
+#         PUBLIC
+#         tomlplusplus::tomlplusplus
+#         expp_asio
+#         expp_magic
+#         PRIVATE
+#         expp_warnings
+#         expp_sanitizers
+# )
+#     if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+#         target_compile_options(expp_core PRIVATE -Wno-null-dereference)
+#     endif ()
+# set_target_properties(expp_core PROPERTIES
+#         POSITION_INDEPENDENT_CODE ON
+# )
 
 
 # ==============================================================================
@@ -341,21 +428,29 @@ add_library(expp_ui STATIC
         src/ui/components.cpp
         src/ui/help_menu_model.cpp
 )
-target_include_directories(expp_ui
-        PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-)
+expp_apply_target_defaults(expp_ui)
 target_link_libraries(expp_ui
-        PUBLIC
+    PUBLIC
         expp_core
         ftxui::screen
         ftxui::dom
         ftxui::component
-        PRIVATE
-        expp_warnings
-        expp_sanitizers
 )
+# target_include_directories(expp_ui
+#         PUBLIC
+#         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+#         $<INSTALL_INTERFACE:include>
+# )
+# target_link_libraries(expp_ui
+#         PUBLIC
+#         expp_core
+#         ftxui::screen
+#         ftxui::dom
+#         ftxui::component
+#         PRIVATE
+#         expp_warnings
+#         expp_sanitizers
+# )
 
 # ==============================================================================
 # Application library
@@ -377,18 +472,21 @@ add_library(expp_app STATIC
         src/app/explorer_render_composer.cpp
         src/app/explorer_preview_controller.cpp
 )
-target_include_directories(expp_app
-        PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-)
-target_link_libraries(expp_app
-        PUBLIC
-        expp_ui
-        PRIVATE
-        expp_warnings
-        expp_sanitizers
-)
+expp_apply_target_defaults(expp_app)
+target_link_libraries(expp_app PUBLIC expp_ui)
+# target_include_directories(expp_app
+#         PUBLIC
+#         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+#         $<INSTALL_INTERFACE:include>
+# )
+# target_link_libraries(expp_app
+#         PUBLIC
+#         expp_ui
+#         PRIVATE
+#         expp_warnings
+#         expp_sanitizers
+# )
+# TODO: Is this necessay? (Same as other -Wno-null-dereference)
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(expp_app PRIVATE -Wno-null-dereference)
 endif ()
@@ -400,6 +498,7 @@ add_executable(expp_exe src/main.cpp)
 target_link_libraries(expp_exe
         PRIVATE
         expp_app
+        expp_project_options
         expp_warnings
         expp_sanitizers
 )
@@ -414,6 +513,8 @@ set_target_properties(expp_exe PROPERTIES
 # Tests
 # ==============================================================================
 if (EXPP_BUILD_TESTS)
+    # Tests are split into their own subdirectory so they can reuse the same
+    # first-party libraries without complicating the main application targets.
     enable_testing()
     add_subdirectory(tests)
 endif ()
@@ -424,6 +525,13 @@ endif ()
 if (EXPP_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif ()
+
+# ==============================================================================
+# Benchmarks
+# ==============================================================================
+if (EXPP_ENABLE_BENCHMARKS)
+    add_subdirectory(bench)
+endif()
 
 # ==============================================================================
 # clang-tidy integration
@@ -456,6 +564,9 @@ install(DIRECTORY include/expp
 # CPack configuration
 # ==============================================================================
 include(InstallRequiredSystemLibraries)
+# Packaging stays intentionally minimal here: the project currently produces one
+# executable plus installed headers, and the archive format follows the host
+# platform convention.
 set(CPACK_PACKAGE_VENDOR "Expp")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
 set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
@@ -474,11 +585,15 @@ include(CPack)
 message(STATUS "")
 message(STATUS "Expp Configuration Summary")
 message(STATUS "================================")
-message(STATUS "Version:           ${PROJECT_VERSION}")
-message(STATUS "Build type:        ${CMAKE_BUILD_TYPE}")
-message(STATUS "C++ Compiler:      ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
-message(STATUS "Build tests:       ${EXPP_BUILD_TESTS}")
-message(STATUS "Build examples:    ${EXPP_BUILD_EXAMPLES}")
-message(STATUS "Sanitizers:        ${EXPP_ENABLE_SANITIZERS}")
-message(STATUS "clang-tidy:        ${EXPP_ENABLE_CLANG_TIDY}")
+message(STATUS "Version:             ${PROJECT_VERSION}")
+message(STATUS "Build type:          ${CMAKE_BUILD_TYPE}")
+message(STATUS "C++ Compiler:        ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "Disable exceptions:  ${EXPP_DISABLE_EXCEPTIONS}")
+message(STATUS "Build tests:         ${EXPP_BUILD_TESTS}")
+message(STATUS "Build examples:      ${EXPP_BUILD_EXAMPLES}")
+message(STATUS "Build benchmarks:    ${EXPP_ENABLE_BENCHMARKS}")
+message(STATUS "Sanitizers:          ${EXPP_ENABLE_SANITIZERS}")
+message(STATUS "clang-tidy:          ${EXPP_ENABLE_CLANG_TIDY}")
+message(STATUS "libmagic:            ${EXPP_ENABLE_LIBMAGIC}")
+message(STATUS "libgit2:             ${EXPP_LIBGIT2_COMPILED_IN}")
 message(STATUS "")

@@ -26,8 +26,8 @@ ftxui::Color Theme::getFileTypeColor(core::filesystem::FileType type) const noex
             return symlinkColor_;
         case core::filesystem::FileType::Archive:
             return archiveColor_;
-        case core::filesystem::FileType::SourceCode:
-            return sourceCodeColor_;
+        // case core::filesystem::FileType::SourceCode:
+        //     return sourceCodeColor_;
         case core::filesystem::FileType::Image:
             return imageColor_;
         case core::filesystem::FileType::Document:
@@ -41,32 +41,32 @@ ftxui::Color Theme::getFileTypeColor(core::filesystem::FileType type) const noex
     }
 }
 
+ftxui::Color Theme::getVersionStatusColor(core::VersionStatus status) const noexcept {
+    switch (status) {
+        case core::VersionStatus::Modified:
+            return modifiedColor_;
+        case core::VersionStatus::Added:
+            return addedColor_;
+        case core::VersionStatus::Deleted:
+            return deletedColor_;
+        case core::VersionStatus::Renamed:
+            return renamedColor_;
+        case core::VersionStatus::Copied:
+            return copiedColor_;
+        case core::VersionStatus::Untracked:
+            return untrackedColor_;
+        case core::VersionStatus::Ignored:
+            return ignoredColor_;
+        case core::VersionStatus::Conflicted:
+            return conflictedColor_;
+        case core::VersionStatus::Clean:
+        default:
+            return getForegroundColor();
+    }
+}
+
 std::string_view Theme::getFileTypeIcon(const core::filesystem::FileEntry& entry) const noexcept {
-    if (entry.type == core::filesystem::FileType::Directory) {
-        if (auto it = iconMap_.find("folder"); it != iconMap_.end()) {
-            return it->second;
-        }
-        return defaultFolderIcon_;
-    }
-    if (entry.type == core::filesystem::FileType::Executable) {
-        if (auto it = iconMap_.find("exe"); it != iconMap_.end()) {
-            return it->second;
-        }
-        return defaultFileIcon_;
-    }
-    if (entry.type == core::filesystem::FileType::Symlink) {
-        if (auto it = iconMap_.find("link"); it != iconMap_.end()) {
-            return it->second;
-        }
-        return defaultFileIcon_;
-    }
-    if (auto it = iconMap_.find(entry.extension()); it != iconMap_.end()) {
-        return it->second;
-    }
-    if (auto it = iconMap_.find("default"); it != iconMap_.end()) {
-        return it->second;
-    }
-    return defaultFileIcon_;
+    return core::resolve_icon(iconConfig_, entry);
 }
 
 void Theme::reload(const core::ColorTheme& config) {
@@ -87,12 +87,19 @@ void Theme::reload(const core::ColorTheme& config) {
     borderColor_ = hex_to_color(config.border);
     statusBarColor_ = hex_to_color(config.statusBar);
     searchHighlightColor_ = hex_to_color(config.searchHighlight);
+
+    modifiedColor_ = hex_to_color(config.modified);
+    addedColor_ = hex_to_color(config.added);
+    deletedColor_ = hex_to_color(config.deleted);
+    renamedColor_ = hex_to_color(config.renamed);
+    copiedColor_ = hex_to_color(config.copied);
+    untrackedColor_ = hex_to_color(config.untracked);
+    ignoredColor_ = hex_to_color(config.ignored);
+    conflictedColor_ = hex_to_color(config.conflicted);
 }
 
-void Theme::reloadIcons(const core::IconConfig& iconConfig) {
-    iconMap_ = iconConfig.icons;
-    defaultFileIcon_ = iconConfig.defaultFileIcon;
-    defaultFolderIcon_ = iconConfig.defaultFolderIcon;
+void Theme::reloadIcons(const core::IconConfig& icon_config) {
+    iconConfig_ = icon_config;
 }
 
 // Global theme instance

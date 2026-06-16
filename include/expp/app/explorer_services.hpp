@@ -10,10 +10,11 @@
  * be replaced by background workers later without re-shaping the higher layers.
  */
 
-#include "expp/core/error.hpp"
 #include "expp/core/async_runtime.hpp"
+#include "expp/core/error.hpp"
 #include "expp/core/filesystem.hpp"
 #include "expp/core/task.hpp"
+#include "expp/core/version_control.hpp"
 
 #include <filesystem>
 #include <memory>
@@ -133,6 +134,14 @@ struct ImageInfo {
 };
 
 /**
+ * @brief Request for Git-aware version status loading.
+ */
+struct VersionStatusRequest {
+    fs::path directory;
+    core::CancellationToken cancellation;
+};
+
+/**
  * @brief Filesystem-side operations needed by the explorer domain.
  */
 class ExplorerFileSystemService {
@@ -151,7 +160,8 @@ public:
     [[nodiscard]] virtual fs::path normalize(const fs::path& path) const = 0;
     [[nodiscard]] virtual core::Task<core::VoidResult> createDirectory(const fs::path& path) const = 0;
     [[nodiscard]] virtual core::Task<core::VoidResult> createFile(const fs::path& path) const = 0;
-    [[nodiscard]] virtual core::Task<core::VoidResult> rename(const fs::path& old_path, const fs::path& new_path) const = 0;
+    [[nodiscard]] virtual core::Task<core::VoidResult> rename(const fs::path& old_path,
+                                                              const fs::path& new_path) const = 0;
     [[nodiscard]] virtual core::Task<core::VoidResult> removeFile(const fs::path& path) const = 0;
     [[nodiscard]] virtual core::Task<core::VoidResult> removeDirectory(const fs::path& path) const = 0;
     [[nodiscard]] virtual core::Task<core::VoidResult> moveToTrash(const fs::path& path) const = 0;
@@ -188,7 +198,8 @@ class ExplorerHighlightService {
 public:
     virtual ~ExplorerHighlightService() = default;
 
-    [[nodiscard]] virtual core::Task<core::Result<HighlightPayload>> highlight(const HighlightRequest& request) const = 0;
+    [[nodiscard]] virtual core::Task<core::Result<HighlightPayload>> highlight(
+        const HighlightRequest& request) const = 0;
 };
 
 /**
@@ -199,6 +210,17 @@ public:
     virtual ~ExplorerImageService() = default;
 
     [[nodiscard]] virtual core::Task<core::Result<ImageInfo>> inspect(const ImageRequest& request) const = 0;
+};
+
+/**
+ * @brief Service for loading version-control metadata without blocking the UI.
+ */
+class ExplorerVersionControlService {
+public:
+    virtual ~ExplorerVersionControlService() = default;
+
+    [[nodiscard]] virtual core::Task<core::Result<core::VersionStatusSnapshot>> loadStatus(
+        const VersionStatusRequest& request) const = 0;
 };
 
 /**
@@ -221,6 +243,7 @@ struct ExplorerServices {
     std::shared_ptr<ExplorerMimeService> mime;
     std::shared_ptr<ExplorerHighlightService> highlight;
     std::shared_ptr<ExplorerImageService> image;
+    std::shared_ptr<ExplorerVersionControlService> versionControl;
     std::shared_ptr<ExplorerClipboardService> clipboard;
 };
 

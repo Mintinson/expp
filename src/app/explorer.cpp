@@ -38,8 +38,11 @@ struct NavigationSnapshot {
 struct Explorer::Impl {
     explicit Impl(fs::path start_path, ExplorerServices service_bundle)
         : services(std::move(service_bundle))
-        , showHidden(core::global_config().config().behavior.showHiddenFiles) {
+        , showHidden(core::global_config().config().behavior.showHiddenFiles)
+        , showGitIgnored(core::global_config().config().versionControl.showIgnoredFiles) {
         state.currentDir = std::move(start_path);
+        state.versionControlEnabled = core::global_config().config().versionControl.enabled;
+        state.showIgnoredFiles = core::global_config().config().versionControl.showIgnoredFiles;
         baseDirectory = services.fileSystem->normalize(state.currentDir);
     }
 
@@ -47,6 +50,8 @@ struct Explorer::Impl {
     ExplorerState state;
     RefreshCallback refreshCallback;
     bool showHidden{true};
+
+    bool showGitIgnored{true};
     fs::path baseDirectory;
 
     template <typename T>
@@ -99,6 +104,40 @@ struct Explorer::Impl {
         }
     }
 
+    void syncVersionControlFlags() {
+        state.showIgnoredFiles = showGitIgnored;
+    }
+
+    void clearEntryVersionStatus() {
+        for (auto& entry : state.entries) {
+            entry.versionStatus = core::VersionStatus::Clean;
+        }
+        for (auto& entry : state.parentEntries) {
+            entry.versionStatus = core::VersionStatus::Clean;
+        }
+    }
+
+    void removeIgnoredEntriesIfNeeded() {
+        if (showGitIgnored) {
+            return;
+        }
+
+        const fs::path selected_path =
+            state.entries.empty() ? fs::path{}
+                                  : state.entries[static_cast<std::size_t>(state.selection.currentSelected)].path;
+        std::erase_if(state.entries, [](const core::filesystem::FileEntry& entry) {
+            return core::is_ignored(entry.versionStatus);
+        });
+
+        if (!selected_path.empty()) {
+            const auto it = rng::find_if(state.entries, [&](const auto& entry) { return entry.path == selected_path; });
+            if (it != state.entries.end()) {
+                state.selection.currentSelected = static_cast<int>(rng::distance(state.entries.begin(), it));
+            }
+        }
+        auto update_helper = selectionUpdateHelper();
+    }
+
     void beginDirectoryListing(fs::path directory, const std::uint64_t generation) {
         state.currentDir = std::move(directory);
         state.entries.clear();
@@ -113,6 +152,9 @@ struct Explorer::Impl {
             .hasMore = true,
             .generation = generation,
         };
+        state.versionControlAvailable = false;
+        state.versionControlSnapshot = core::VersionStatusSnapshot{};
+        syncVersionControlFlags();
         notifyRefresh();
     }
 
@@ -202,6 +244,7 @@ struct Explorer::Impl {
 
         state.entries = std::move(entries);
         state.parentEntries = std::move(parent_entries);
+        clearEntryVersionStatus();
         state.listing = DirectoryListingState{
             .loading = false,
             .scanInProgress = false,
@@ -218,6 +261,9 @@ struct Explorer::Impl {
         // update_visual_selection(state.selection, state.entries);
         updateParentSelection();
         clearSearchState();
+        state.versionControlAvailable = false;
+        state.versionControlSnapshot = core::VersionStatusSnapshot{};
+        syncVersionControlFlags();
 
         notifyRefresh();
         return {};
@@ -249,8 +295,8 @@ struct Explorer::Impl {
             views::filter([&pattern = state.search.pattern](const auto& indexed_entry) {
                 return std::get<1>(indexed_entry).filename().contains(pattern);
             }) |
-            views::transform([](const auto& indexed_entry) { return static_cast<int>(std::get<0>(indexed_entry)); })
-            | rng::to<std::vector>();
+            views::transform([](const auto& indexed_entry) { return static_cast<int>(std::get<0>(indexed_entry)); }) |
+            rng::to<std::vector>();
 #else
         for (std::size_t index = 0; index < state.entries.size(); ++index) {
             if (state.entries[index].filename().contains(state.search.pattern)) {
@@ -766,6 +812,34 @@ struct Explorer::Impl {
 
         return to_utf8_string(stem);
     }
+
+    void applyVersionStatus(const core::VersionStatusSnapshot& snapshot) {
+        state.versionControlAvailable = snapshot.repositoryFound;
+        state.versionControlSnapshot = snapshot;
+        syncVersionControlFlags();
+        clearEntryVersionStatus();
+
+        for (auto& entry : state.entries) {
+            const auto key = entry.path.lexically_normal().string();
+            if (const auto it = snapshot.statusesByPath.find(key); it != snapshot.statusesByPath.end()) {
+                entry.versionStatus = it->second;
+            }
+        }
+
+        removeIgnoredEntriesIfNeeded();
+        if (state.search.highlightActive && !state.search.pattern.empty()) {
+            updateSearchMatches();
+        }
+        notifyRefresh();
+    }
+
+    void clearVersionStatus(bool repository_available) {
+        state.versionControlAvailable = repository_available;
+        state.versionControlSnapshot = core::VersionStatusSnapshot{};
+        syncVersionControlFlags();
+        clearEntryVersionStatus();
+        notifyRefresh();
+    }
 };
 
 Explorer::Explorer(std::filesystem::path start_path, ExplorerServices services)
@@ -809,6 +883,24 @@ bool Explorer::showHidden() const noexcept {
 
 void Explorer::setShowHidden(bool show_hidden) noexcept {
     impl_->showHidden = show_hidden;
+}
+
+// bool Explorer::toggleGitEnabled() {
+//     impl_->state.versionControlEnabled = !impl_->state.versionControlEnabled;
+//     return impl_->state.versionControlEnabled;
+// }
+
+void Explorer::setGitEnabled(bool enabled) noexcept {
+    impl_->state.versionControlEnabled = enabled;
+}
+
+bool Explorer::showIgnoredFiles() const noexcept {
+    return impl_->showGitIgnored;
+}
+
+void Explorer::setShowIgnoredFiles(bool show_ignored) noexcept {
+    impl_->showGitIgnored = show_ignored;
+    impl_->syncVersionControlFlags();
 }
 
 core::VoidResult Explorer::navigateTo(const fs::path& path) {
@@ -1008,6 +1100,14 @@ void Explorer::completeDirectoryListing(const std::uint64_t generation) {
 
 void Explorer::setParentEntries(std::vector<core::filesystem::FileEntry> entries) {
     impl_->setParentEntries(std::move(entries));
+}
+
+void Explorer::applyVersionStatus(const core::VersionStatusSnapshot& snapshot) {
+    impl_->applyVersionStatus(snapshot);
+}
+
+void Explorer::clearVersionStatus(bool repository_available) {
+    impl_->clearVersionStatus(repository_available);
 }
 
 void Explorer::selectPathIfPresent(const fs::path& path) {

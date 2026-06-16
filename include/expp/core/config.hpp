@@ -2,66 +2,171 @@
 #define EXPP_CORE_CONFIG_HPP
 
 #include "expp/core/error.hpp"
+#include "expp/core/filesystem.hpp"
+#include "expp/core/helper.hpp"
 
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <string>
-#include <unordered_map>
 
 namespace expp::core {
 using namespace std::literals;
 
-constexpr std::string_view kDefaultFolderIcon = "\uf07b"sv;
-constexpr std::string_view kDefaultFileIcon = "\uf15b"sv;
+/**
+ * @brief Returns the built-in default icon theme map
+ *
+ * Uses function-local static to avoid repeated allocations when multiple
+ * Config objects are default-constructed.
+ */
+inline const StringHashMap<std::string>& default_icon_theme() {
+    static const StringHashMap<std::string> map = {
+        {"file_default",    "\uf15b"    },
+        {"file_executable", "\ue795"    },
+        {"file_symlink",    "\uf481"    },
+        {"file_hidden",     "\uf15b"    },
+        {"file_binary",     "\ueae8"    },
+        {"file_library",    "\ueb9c"    },
+        {"file_shell",      "\ue795"    },
+        {"file_c",          "\ue61e"    },
+        {"file_cmake",      "\ue794"    },
+        {"file_cpp",        "\ue61d"    },
+        {"file_csharp",     "\ue737"    },
+        {"file_go",         "\ue627"    },
+        {"file_header",     "\ued83"    },
+        {"file_hpp",        "\uf0fd"    },
+        {"file_html",       "\ue736"    },
+        {"file_javascript", "\ue74e"    },
+        {"file_json",       "\ue60b"    },
+        {"file_lua",        "\ue620"    },
+        {"file_markdown",   "\uf48a"    },
+        {"file_python",     "\ue73c"    },
+        {"file_rust",       "\ue7a8"    },
+        {"file_zig",        "\ue8ef"    },
+        {"file_typescript", "\ue628"    },
+        {"file_toml",       "\ue6b2"    },
+        {"file_log",        "\uf4ed"    },
+        {"file_yaml",       "\ue8eb"    },
+        {"file_xml",        "\U000f05c0"},
+        {"file_archive",    "\ue6aa"    },
+        {"file_git",        "\ue702"    },
+        {"file_ninja",      "\U000f0774"},
+        {"folder_default",  "\uf07b"    },
+        {"folder_build",    "\U000f107f"},
+        {"folder_docs",     "\U000f19f6"},
+        {"folder_git",      "\ue5fb"    },
+        {"folder_test",     "\uf07b"    },
+        {"folder_github",   "\ue5fd"    },
+        {"folder_config",   "\ue5fc"    }
+    };
+    return map;
+}
 
 /**
- * @brief Returns the built-in default icon map
+ * @brief Returns the built-in default file extension to icon ID rules.
+ *
+ * Uses function-local static to avoid repeated allocations.
  */
-inline std::unordered_map<std::string, std::string> default_icon_map() {
-    return {
-        {"default", "\uf15b"},
-        {    "exe", "\ue795"},
-        {   "link", "\uf481"},
-        {   ".lib", "\ueb9c"},
-        {  ".bash", "\ue795"},
-        {     ".c", "\ue61e"},
-        { ".cmake", "\ue794"},
-        {   ".cpp", "\ue61d"},
-        {    ".cs", "\ue737"},
-        {    ".go", "\ue627"},
-        {     ".h", "\ue615"},
-        {   ".hpp", "\uf0fd"},
-        {  ".html", "\ue736"},
-        {    ".js", "\ue74e"},
-        {  ".json", "\ue60b"},
-        {   ".lua", "\ue620"},
-        {    ".md", "\uf48a"},
-        {    ".py", "\ue73c"},
-        {    ".rs", "\ue7a8"},
-        {   ".zig", "\ue8ef"},
-        {    ".ts", "\ue628"},
-        {  ".toml", "\ue6b2"},
-        {   ".log", "\uf4ed"},
-        {  ".yaml", "\ue8eb"},
-        {   ".yml", "\ue6a8"},
-        {   ".xml",   "󰗀"},
-        {   ".zip", "\ue6aa"},
-        {   ".rar", "\ue6aa"},
-        {    ".7z", "\ue6aa"},
-        {   ".tar", "\ue6aa"},
-        { "folder", "\uf07b"},
+inline const StringHashMap<std::string>& default_icon_extension_rules() {
+    static const StringHashMap<std::string> map = {
+        {"lib",   "file_library"   },
+        {"bash",  "file_shell"     },
+        {"c",     "file_c"         },
+        {"cmake", "file_cmake"     },
+        {"cpp",   "file_cpp"       },
+        {"cxx",   "file_cpp"       },
+        {"cc",    "file_cpp"       },
+        {"cs",    "file_csharp"    },
+        {"go",    "file_go"        },
+        {"h",     "file_header"    },
+        {"hpp",   "file_hpp"       },
+        {"html",  "file_html"      },
+        {"js",    "file_javascript"},
+        {"json",  "file_json"      },
+        {"lua",   "file_lua"       },
+        {"md",    "file_markdown"  },
+        {"py",    "file_python"    },
+        {"rs",    "file_rust"      },
+        {"zig",   "file_zig"       },
+        {"ts",    "file_typescript"},
+        {"toml",  "file_toml"      },
+        {"log",   "file_log"       },
+        {"yaml",  "file_yaml"      },
+        {"yml",   "file_yaml"      },
+        {"xml",   "file_xml"       },
+        {"ninja", "file_ninja"     },
+        {"zip",   "file_archive"   },
+        {"rar",   "file_archive"   },
+        {"7z",    "file_archive"   },
+        {"tar",   "file_archive"   },
     };
+    return map;
 }
+
+/**
+ * @brief Returns the built-in exact file name to icon ID rules.
+ *
+ * Uses function-local static to avoid repeated allocations.
+ */
+inline const StringHashMap<std::string>& default_icon_exact_file_rules() {
+    static const StringHashMap<std::string> map = {
+        {"CMakeLists.txt", "file_cmake"},
+        {"Makefile",       "file_cmake"},
+        {".gitignore",     "file_git"  },
+    };
+    return map;
+}
+
+/**
+ * @brief Returns the built-in exact folder name to icon ID rules.
+ *
+ * Uses function-local static to avoid repeated allocations.
+ */
+inline const StringHashMap<std::string>& default_icon_exact_folder_rules() {
+    static const StringHashMap<std::string> map = {
+        {".git",         "folder_git"   },
+        {"build",        "folder_build" },
+        {"node_modules", "folder_build" },
+        {"test",         "folder_test"  },
+        {"tests",        "folder_test"  },
+        {"docs",         "folder_docs"  },
+        {"doc",          "folder_docs"  },
+        {".github",      "folder_github"},
+        {"config",       "folder_config"},
+        {".config",      "folder_config"},
+        {"configs",      "folder_config"},
+        {"settings",     "folder_config"},
+    };
+    return map;
+}
+
+/**
+ * @brief Icon selection rules ordered by resolver priority.
+ */
+struct IconRules {
+    StringHashMap<std::string> exactFiles{default_icon_exact_file_rules()};
+    StringHashMap<std::string> extensions{default_icon_extension_rules()};
+    StringHashMap<std::string> exactFolders{default_icon_exact_folder_rules()};
+};
 
 /**
  * @brief Icon configuration
  */
 struct IconConfig {
-    std::string defaultFileIcon{kDefaultFileIcon};
-    std::string defaultFolderIcon{kDefaultFolderIcon};
-    std::unordered_map<std::string, std::string> icons{default_icon_map()};
+    StringHashMap<std::string> iconTheme{default_icon_theme()};
+    IconRules rules;
+    std::string fileFallbackIconId{"file_default"};
+    std::string folderFallbackIconId{"folder_default"};
+    std::string executableIconId{"file_executable"};
+    std::string symlinkIconId{"file_symlink"};
+    std::string hiddenIconId{"file_hidden"};
 };
+
+/**
+ * @brief Resolves the rendered icon for a file entry using configured priority rules.
+ */
+[[nodiscard]] std::string_view resolve_icon(const IconConfig& config,
+                                            const filesystem::FileEntry& entry) noexcept;
 
 /**
  * @brief Color theme configuration
@@ -88,6 +193,16 @@ struct ColorTheme {
     uint32_t border{0x666666};
     uint32_t statusBar{0x333333};
     uint32_t searchHighlight{0xFFFF00};
+
+    // Git status colors
+    uint32_t modified{0xFFA500};    // Orange
+    uint32_t added{0x00FF00};       // Green
+    uint32_t deleted{0xFF0000};     // Red
+    uint32_t renamed{0x00FFFF};     // Cyan
+    uint32_t copied{0xFF00FF};      // Magenta
+    uint32_t untracked{0x5555FF};   // Blue
+    uint32_t ignored{0x555555};     // Dark gray
+    uint32_t conflicted{0xE32636};  // Amaranth red
 };
 
 /**
@@ -157,6 +272,21 @@ struct AnalysisConfig {
 };
 
 /**
+ * @brief Git-aware version tracking configuration.
+ */
+enum class VersionControlStatusDetail : std::uint8_t {
+    Compact,  // only show whether git is on or not
+    Summary,  // show modified/added/deleted status
+    Full,     // add ahead /behind
+};
+
+struct VersionControlConfig {
+    bool enabled{false};
+    bool showIgnoredFiles{true};
+    VersionControlStatusDetail statusDetail{VersionControlStatusDetail::Summary};
+};
+
+/**
  * @brief Main configuration container
  */
 struct Config {
@@ -169,6 +299,7 @@ struct Config {
     RuntimeConfig runtime;
     ListingConfig listing;
     AnalysisConfig analysis;
+    VersionControlConfig versionControl;
 };
 
 /**
@@ -264,6 +395,12 @@ public:
      * @return Path to user config file
      */
     [[nodiscard]] static std::filesystem::path userConfigPath();
+
+    /**
+     * @brief Gets the user icon configuration file path
+     * @return Path to user icons.toml file
+     */
+    [[nodiscard]] static std::filesystem::path userIconsPath();
 
     /**
      * @brief Gets built-in default configuration

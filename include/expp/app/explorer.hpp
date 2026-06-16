@@ -155,6 +155,14 @@ struct ExplorerState {
     SortOrder sortOrder{};
     /// Progressive loading state for the current directory.
     DirectoryListingState listing;
+    /// Whether Git-aware version status is enabled by configuration.
+    bool versionControlEnabled{false};
+    /// Whether a Git repository is available for the current directory.
+    bool versionControlAvailable{false};
+    /// Whether Git-ignored entries are included in the visible list.
+    bool showIgnoredFiles{true};
+    /// Most recent Git status snapshot for the active directory.
+    core::VersionStatusSnapshot versionControlSnapshot{};
 };
 
 /**
@@ -216,6 +224,21 @@ public:
      * @brief Updates hidden-entry visibility without triggering I/O.
      */
     void setShowHidden(bool show_hidden) noexcept;
+
+    /**
+     * @brief Updates runtime Git tracing without triggering I/O.
+     */
+    void setGitEnabled(bool enabled) noexcept;
+
+    /**
+     * @brief Returns whether ignored entries are included in listings.
+     */
+    [[nodiscard]] bool showIgnoredFiles() const noexcept;
+
+    /**
+     * @brief Updates ignored-entry visibility without triggering I/O.
+     */
+    void setShowIgnoredFiles(bool show_ignored) noexcept;
 
     /**
      * @brief Navigates to an explicit directory path.
@@ -419,6 +442,16 @@ public:
      * @brief Replaces the parent-directory panel entries.
      */
     void setParentEntries(std::vector<core::filesystem::FileEntry> entries);
+
+    /**
+     * @brief Applies asynchronously loaded version-control status to visible entries.
+     */
+    void applyVersionStatus(const core::VersionStatusSnapshot& snapshot);
+
+    /**
+     * @brief Clears version-control availability/status for the active directory.
+     */
+    void clearVersionStatus(bool repository_available);
 
     /**
      * @brief Selects `path` if it exists in the current listing.

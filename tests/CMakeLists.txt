@@ -12,12 +12,14 @@ add_executable(expp_tests
     core/test_config.cpp
     core/test_async_runtime.cpp
     core/test_error.cpp
+    core/test_version_control.cpp
     ui/test_key_handler.cpp
     ui/test_help_menu.cpp
     app/test_explorer_scrolling.cpp
     app/test_async_behavior.cpp
     app/test_navigation_utils.cpp
     app/test_notification_center.cpp
+    app/test_cli.cpp
 )
 
 target_link_libraries(expp_tests
@@ -25,6 +27,8 @@ target_link_libraries(expp_tests
         expp_core
         expp_ui
         expp_app
+        expp_project_options
+        expp_warnings
         expp_sanitizers
         Catch2::Catch2WithMain
 )

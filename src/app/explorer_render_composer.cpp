@@ -18,9 +18,9 @@ ExplorerRenderComposer::ExplorerRenderComposer(const ui::Theme* theme) : theme_(
     // Initialize all reusable render components once; compose() only arranges
     // state into these primitives each frame.
     fileList_ = std::make_unique<ui::FileListComponent>(ui::FileListConfig{.theme = theme_});
-    preview_ = std::make_unique<ui::PreviewComponent>(ui::PreviewConfig{
+    preview_ = std::make_unique<ui::PreviewComponent>(ui::PreviewRenderConfig{
         .theme = theme_,
-        .maxLines = cfg.preview.maxLines,
+        .maxRenderLines = cfg.preview.maxLines,
     });
     statusBar_ = std::make_unique<ui::StatusBarComponent>(theme_);
     toast_ = std::make_unique<ui::ToastComponent>(theme_);
@@ -40,7 +40,7 @@ ExplorerRenderComposer::ExplorerRenderComposer(const ui::Theme* theme) : theme_(
 
 ftxui::Element ExplorerRenderComposer::compose(const ExplorerState& state,
                                                const ExplorerScreenModel& screen_model,
-                                               const ui::PreviewModel& preview_model,
+                                               const app::PreviewModel& preview_model,
                                                const ExplorerOverlayState& overlay_state,
                                                ftxui::Component active_input,
                                                const std::optional<ui::ToastInfo>& current_toast) {
@@ -72,7 +72,7 @@ ftxui::Element ExplorerRenderComposer::compose(const ExplorerState& state,
 
 ftxui::Element ExplorerRenderComposer::composeMainLayout(const ExplorerState& state,
                                                          const ExplorerScreenModel& screen_model,
-                                                         const ui::PreviewModel& preview_model) {
+                                                         const app::PreviewModel& preview_model) {
     using namespace ftxui;
 
     // Render parent directory list

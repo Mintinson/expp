@@ -39,6 +39,10 @@ namespace {
             return {name, true};
         }
     }
+    // if (const std::string_view marker = core::status_marker(entry.versionStatus); !marker.empty()) {
+    //     name += " ";
+    //     name += marker;
+    // }
     return {name, false};
 }
 }  // namespace
@@ -71,14 +75,23 @@ struct FileListComponent::Impl {
 
             std::string prefix = is_selected ? config.selectionPrefix : config.normalPrefix;
             const auto [display_name, should_highlight] = proper_display_name(entry);
-            // std::string display_name = entry.filename();
-
             auto base_color = should_highlight ? Color::Red : config.theme->getFileEntryColor(entry);
-
-            auto element =
+            // std::string display_name = entry.filename();
+            auto left_content =
                 text(std::format("{}{} {}", prefix, config.showIcons ? config.theme->getFileTypeIcon(entry) : "",
-                                 display_name)) |
-                color(base_color);
+                                 display_name));
+            auto right_content = text(std::format("{}", core::status_marker(entry.versionStatus)));
+            if (entry.versionStatus != core::VersionStatus::Clean) {
+                right_content |= color(config.theme->getVersionStatusColor(entry.versionStatus));
+            }
+
+            // auto version_marker = core::status_marker(entry.versionStatus);
+            // auto element =
+            //     text(std::format("{}{}{} {}", prefix, version_marker, config.showIcons ?
+            //     config.theme->getFileTypeIcon(entry) : "",
+            //                      display_name)) |
+            //     color(base_color);
+            auto element = hbox({left_content, filler(), right_content}) | color(base_color);
 
             if (config.boldDirectories && entry.isDirectory()) {
                 element |= bold;
@@ -104,6 +117,7 @@ struct FileListComponent::Impl {
 };
 
 FileListComponent::FileListComponent(const FileListConfig& config) : impl_(std::make_unique<Impl>(config)) {}
+
 FileListComponent::~FileListComponent() = default;
 FileListComponent::FileListComponent(FileListComponent&&) noexcept = default;
 FileListComponent& FileListComponent::operator=(FileListComponent&&) noexcept = default;
@@ -156,6 +170,7 @@ struct StatusBarComponent::Impl {
 };
 
 StatusBarComponent::StatusBarComponent(const Theme* theme) : impl_(std::make_unique<Impl>(theme)) {}
+
 StatusBarComponent::~StatusBarComponent() = default;
 StatusBarComponent::StatusBarComponent(StatusBarComponent&&) noexcept = default;
 StatusBarComponent& StatusBarComponent::operator=(StatusBarComponent&&) noexcept = default;
@@ -222,6 +237,7 @@ struct ToastComponent::Impl {
 };
 
 ToastComponent::ToastComponent(const Theme* theme) : impl_(std::make_unique<Impl>(theme)) {}
+
 ToastComponent::~ToastComponent() = default;
 ToastComponent::ToastComponent(ToastComponent&&) noexcept = default;
 ToastComponent& ToastComponent::operator=(ToastComponent&&) noexcept = default;
@@ -467,6 +483,7 @@ struct HelpMenuComponent::Impl {
 };
 
 HelpMenuComponent::HelpMenuComponent(const Theme* theme) : impl_(std::make_unique<Impl>(theme)) {}
+
 HelpMenuComponent::~HelpMenuComponent() = default;
 HelpMenuComponent::HelpMenuComponent(HelpMenuComponent&&) noexcept = default;
 HelpMenuComponent& HelpMenuComponent::operator=(HelpMenuComponent&&) noexcept = default;
@@ -530,6 +547,7 @@ struct DialogComponent::Impl {
 };
 
 DialogComponent::DialogComponent() : impl_(std::make_unique<Impl>()) {}
+
 DialogComponent::~DialogComponent() = default;
 DialogComponent::DialogComponent(DialogComponent&&) noexcept = default;
 DialogComponent& DialogComponent::operator=(DialogComponent&&) noexcept = default;
@@ -593,6 +611,7 @@ struct PanelComponent::Impl {
 };
 
 PanelComponent::PanelComponent(const PanelConfig& config) : impl_(std::make_unique<Impl>(config)) {}
+
 PanelComponent::~PanelComponent() = default;
 PanelComponent::PanelComponent(PanelComponent&&) noexcept = default;
 PanelComponent& PanelComponent::operator=(PanelComponent&&) noexcept = default;
@@ -615,12 +634,12 @@ void PanelComponent::setConfig(const PanelConfig& config) {
 // PreviewComponent Implementation
 // ============================================================================
 struct PreviewComponent::Impl {
-    explicit Impl(PreviewConfig in_config) : config(std::move(in_config)) {}
+    explicit Impl(PreviewRenderConfig in_config) : config(std::move(in_config)) {}
 
-    PreviewConfig config;
+    PreviewRenderConfig config;
 
     [[nodiscard]] int resolveMaxLines() const {
-        int max_lines = config.maxLines;
+        int max_lines = config.maxRenderLines;
         if (max_lines < 0) {
             const auto terminal_size = ftxui::Terminal::Size();
             if (terminal_size.dimy > 0) {
@@ -630,10 +649,13 @@ struct PreviewComponent::Impl {
         return std::max(1, max_lines);
     }
 
-    [[nodiscard]] ftxui::Element renderLines(const std::vector<std::string>& lines, int max_lines) const {
+    [[nodiscard]] ftxui::Element renderLines(const std::vector<std::string>& lines, int max_lines = -1) const {
         using namespace ftxui;
         if (lines.empty()) {
             return text(config.emptyMessage) | dim | center;
+        }
+        if (max_lines < 0) {
+            max_lines = static_cast<int>(lines.size());
         }
 
         Elements elements;
@@ -649,18 +671,18 @@ struct PreviewComponent::Impl {
         return vbox(std::move(elements));
     }
 
-    [[nodiscard]] ftxui::Element render(const PreviewModel& model) const {
+    [[nodiscard]] ftxui::Element render(const app::PreviewModel& model) const {
         using namespace ftxui;
         const int max_lines = resolveMaxLines();
 
         return std::visit(
             [&](const auto& state) -> Element {
                 using State = std::decay_t<decltype(state)>;
-                if constexpr (std::is_same_v<State, PreviewIdleState>) {
+                if constexpr (std::is_same_v<State, app::PreviewIdleState>) {
                     return text(config.emptyMessage) | dim | center;
-                } else if constexpr (std::is_same_v<State, PreviewLoadingState>) {
+                } else if constexpr (std::is_same_v<State, app::PreviewLoadingState>) {
                     return text(std::format("[Loading: {}]", state.target.filename().string())) | dim | center;
-                } else if constexpr (std::is_same_v<State, PreviewReadyState>) {
+                } else if constexpr (std::is_same_v<State, app::PreviewReadyState>) {
                     return renderLines(state.lines, max_lines);
                 } else {
                     return text(config.errorPrefix + state.message + "]") | color(Color::Red) | dim;
@@ -670,12 +692,13 @@ struct PreviewComponent::Impl {
     }
 };
 
-PreviewComponent::PreviewComponent(const PreviewConfig& config) : impl_(std::make_unique<Impl>(config)) {}
+PreviewComponent::PreviewComponent(const PreviewRenderConfig& config) : impl_(std::make_unique<Impl>(config)) {}
+
 PreviewComponent::~PreviewComponent() = default;
 PreviewComponent::PreviewComponent(PreviewComponent&&) noexcept = default;
 PreviewComponent& PreviewComponent::operator=(PreviewComponent&&) noexcept = default;
 
-ftxui::Element PreviewComponent::render(const PreviewModel& model) const {
+ftxui::Element PreviewComponent::render(const app::PreviewModel& model) const {
     return impl_->render(model);
 }
 
@@ -683,7 +706,7 @@ ftxui::Element PreviewComponent::renderLines(const std::vector<std::string>& lin
     return impl_->renderLines(lines, impl_->resolveMaxLines());
 }
 
-void PreviewComponent::setConfig(const PreviewConfig& config) {
+void PreviewComponent::setConfig(const PreviewRenderConfig& config) {
     impl_->config = config;
 }
 

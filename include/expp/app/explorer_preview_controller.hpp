@@ -5,7 +5,7 @@
  * `ExplorerPreviewController` keeps preview rendering responsive by:
  * - reloading only when the preview target changes (or when forced),
  * - canceling stale in-flight work before starting a newer request,
- * - exposing a single `ui::PreviewModel` state machine consumed by the renderer.
+ * - exposing a single `app::PreviewModel` state machine consumed by the renderer.
  */
 
 #ifndef EXPP_EXPLORER_PREVIEW_CONTROLLER_HPP
@@ -13,6 +13,7 @@
 
 #include "expp/app/explorer.hpp"
 #include "expp/ui/components.hpp"
+#include "expp/app/explorer_presenter.hpp"
 
 #include <filesystem>
 #include <optional>
@@ -36,7 +37,7 @@ public:
     /**
      * @brief Returns the latest preview model snapshot for rendering.
      */
-    [[nodiscard]] const ui::PreviewModel& model() const { return previewModel_; }
+    [[nodiscard]] const app::PreviewModel& model() const { return previewModel_; }
 
     /**
      * @brief Synchronizes preview state with the current selection target.
@@ -54,14 +55,9 @@ private:
     std::uint64_t previewGeneration_{0};
 
     /// Last published preview model.
-    ui::PreviewModel previewModel_{ui::PreviewIdleState{}};
+    app::PreviewModel previewModel_{app::PreviewIdleState{}};
     /// Last preview target used to suppress redundant reloads.
     std::optional<std::filesystem::path> previewTarget_;
-
-    /**
-     * @brief Loads preview data for a specific target and updates `previewModel_`.
-     */
-    void loadPreview(const std::filesystem::path& target);
 };
 
 }  // namespace expp::app

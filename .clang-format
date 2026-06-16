@@ -15,7 +15,7 @@ IndentExternBlock: Indent
 NamespaceIndentation: None
 
 # Line width
-ColumnLimit: 120
+ColumnLimit: 100
 
 # Braces
 BreakBeforeBraces: Attach

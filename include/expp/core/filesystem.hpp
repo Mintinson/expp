@@ -17,6 +17,7 @@
 #define EXPP_CORE_FILESYSTEM_HPP
 
 #include "expp/core/error.hpp"
+#include "expp/core/version_control.hpp"
 
 #include <bitset>
 #include <chrono>
@@ -55,14 +56,15 @@ struct FileEntry {
     fs::path path;
     FileType type{FileType::Unknown};
     std::uintmax_t size{0};
-    std::chrono::file_clock::time_point birthTime;
-    std::chrono::file_clock::time_point lastModified;
-    fs::path symlinkTarget;
+    std::chrono::file_clock::time_point birthTime{};
+    std::chrono::file_clock::time_point lastModified{};
+    fs::path symlinkTarget{};
     bool isHidden{false};
     bool isReadable{false};
     bool isWritable{false};
     bool isBrokenSymlink{false};
     bool isRecursiveSymlink{false};
+    VersionStatus versionStatus{VersionStatus::Clean};
 
     [[nodiscard]] std::string filename() const { return path.filename().string(); }
 
@@ -102,6 +104,13 @@ struct FileEntry {
 [[nodiscard]] bool is_previewable(const fs::path& path) noexcept;
 
 /**
+ * @brief Opens a file for previewing
+ * @param path Path to open
+ * @return ifstream or empty ifstream if not previewable
+ */
+[[nodiscard]] std::ifstream open_if_previewable(const fs::path& path) noexcept;
+
+/**
  * @brief Lists directory contents with metadata
  * @param dir Directory path
  * @param include_hidden Include hidden files (default: false)
@@ -109,7 +118,8 @@ struct FileEntry {
  *
  * Entries are sorted: directories first, then alphabetically.
  */
-[[nodiscard]] Result<std::vector<FileEntry>> list_directory(const fs::path& dir, bool include_hidden = false) noexcept;
+[[nodiscard]] Result<std::vector<FileEntry>> list_directory(const fs::path& dir,
+                                                            bool include_hidden = false) noexcept;
 
 /**
  * @brief Gets the canonical (absolute, resolved) path
@@ -119,10 +129,11 @@ struct FileEntry {
 [[nodiscard]] Result<fs::path> canonicalize(const fs::path& path);
 
 /**
- * @brief Normalizes a filesystem path by resolving symlinks, removing redundant components, and converting to preferred
- * format
+ * @brief Normalizes a filesystem path by resolving symlinks, removing redundant components, and
+ * converting to preferred format
  * @param path The filesystem path to normalize
- * @return The normalized filesystem path (if canonicalization fails, returns best effort normalized path)
+ * @return The normalized filesystem path (if canonicalization fails, returns best effort normalized
+ * path)
  */
 [[nodiscard]] fs::path normalize(const fs::path& path);
 
@@ -184,10 +195,13 @@ struct FileEntry {
 /**
  * @brief Reads file preview (first N lines)
  * @param path Path to read
+ * @param out_lines Output vector to fill with lines
  * @param max_lines Maximum lines to read
- * @return Vector of lines or Error
+ * @return True if preview is available, false otherwise. Error if error occurs.
  */
-[[nodiscard]] Result<std::vector<std::string>> read_preview(const fs::path& path, int max_lines);
+[[nodiscard]] Result<bool> read_preview(const fs::path& path,
+                                        std::vector<std::string>& out_lines,
+                                        int max_lines);
 
 /**
  * @brief Gets human-readable file size string

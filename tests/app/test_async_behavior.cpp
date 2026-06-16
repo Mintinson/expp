@@ -1,11 +1,10 @@
 #include "expp/app/explorer.hpp"
 #include "expp/app/explorer_directory_controller.hpp"
 #include "expp/app/explorer_preview_controller.hpp"
-#include "expp/app/notification_center.hpp"
 #include "expp/app/explorer_services.hpp"
+#include "expp/app/notification_center.hpp"
 #include "expp/core/async_runtime.hpp"
-
-#include <catch2/catch_test_macros.hpp>
+#include "expp/core/config.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -15,6 +14,8 @@
 #include <thread>
 #include <vector>
 
+#include <catch2/catch_test_macros.hpp>
+
 using namespace std::chrono_literals;
 
 namespace fs = std::filesystem;
@@ -23,11 +24,12 @@ namespace {
 
 class StubFileSystemService final : public expp::app::ExplorerFileSystemService {
 public:
-    explicit StubFileSystemService(std::vector<expp::core::filesystem::FileEntry> initial_entries = {})
+    explicit StubFileSystemService(
+        std::vector<expp::core::filesystem::FileEntry> initial_entries = {})
         : initialEntries_(std::move(initial_entries)) {}
 
     expp::core::Task<expp::core::Result<void>> streamDirectory(
-        const expp::app::DirectoryListRequest& request,
+        [[maybe_unused]] const expp::app::DirectoryListRequest& request,
         expp::app::DirectoryChunkHandler on_chunk) const override {
         on_chunk(expp::app::DirectoryListChunk{
             .entries = initialEntries_,
@@ -48,13 +50,12 @@ public:
         };
     }
 
-    expp::core::Task<expp::core::Result<fs::path>> canonicalize(const fs::path& path) const override {
+    expp::core::Task<expp::core::Result<fs::path>> canonicalize(
+        const fs::path& path) const override {
         co_return path;
     }
 
-    fs::path normalize(const fs::path& path) const override {
-        return path.lexically_normal();
-    }
+    fs::path normalize(const fs::path& path) const override { return path.lexically_normal(); }
 
     expp::core::Task<expp::core::VoidResult> createDirectory(const fs::path& path) const override {
         (void)path;
@@ -66,7 +67,8 @@ public:
         co_return expp::core::VoidResult{};
     }
 
-    expp::core::Task<expp::core::VoidResult> rename(const fs::path& old_path, const fs::path& new_path) const override {
+    expp::core::Task<expp::core::VoidResult> rename(const fs::path& old_path,
+                                                    const fs::path& new_path) const override {
         (void)old_path;
         (void)new_path;
         co_return expp::core::VoidResult{};
@@ -146,6 +148,43 @@ public:
     }
 };
 
+class StubVersionControlService final : public expp::app::ExplorerVersionControlService {
+public:
+    expp::core::Task<expp::core::Result<expp::core::VersionStatusSnapshot>> loadStatus(
+        const expp::app::VersionStatusRequest& request) const override {
+        co_return expp::core::VersionStatusSnapshot{
+            .repositoryRoot = request.directory,
+            .directory = request.directory,
+            .repositoryFound = false,
+        };
+    }
+};
+
+class RecordingVersionControlService final : public expp::app::ExplorerVersionControlService {
+public:
+    explicit RecordingVersionControlService(expp::core::VersionStatusSnapshot snapshot)
+        : snapshot_(std::move(snapshot)) {}
+
+    expp::core::Task<expp::core::Result<expp::core::VersionStatusSnapshot>> loadStatus(
+        const expp::app::VersionStatusRequest& request) const override {
+        {
+            std::scoped_lock lock(mutex_);
+            requested_.push_back(request.directory);
+        }
+        co_return snapshot_;
+    }
+
+    [[nodiscard]] std::vector<fs::path> requested() const {
+        std::scoped_lock lock(mutex_);
+        return requested_;
+    }
+
+private:
+    mutable std::mutex mutex_;
+    mutable std::vector<fs::path> requested_;
+    expp::core::VersionStatusSnapshot snapshot_;
+};
+
 class StubClipboardService final : public expp::app::ExplorerClipboardService {
 public:
     expp::core::Task<expp::core::VoidResult> copyText(std::string_view text) const override {
@@ -156,7 +195,8 @@ public:
 
 class DelayedPreviewService final : public expp::app::ExplorerPreviewService {
 public:
-    explicit DelayedPreviewService(std::shared_ptr<expp::core::AsioRuntime> runtime) : runtime_(std::move(runtime)) {}
+    explicit DelayedPreviewService(std::shared_ptr<expp::core::AsioRuntime> runtime)
+        : runtime_(std::move(runtime)) {}
 
     expp::core::Task<expp::core::Result<expp::app::PreviewPayload>> loadPreview(
         const expp::app::PreviewRequest& request) const override {
@@ -185,9 +225,44 @@ private:
         .mime = std::move(mime),
         .highlight = std::make_shared<PassThroughHighlightService>(),
         .image = std::make_shared<StubImageService>(),
+        .versionControl = std::make_shared<StubVersionControlService>(),
         .clipboard = std::make_shared<StubClipboardService>(),
     };
 }
+
+[[nodiscard]] expp::app::ExplorerServices make_test_services(
+    std::shared_ptr<expp::core::AsioRuntime> runtime,
+    std::shared_ptr<expp::app::ExplorerFileSystemService> file_system,
+    std::shared_ptr<expp::app::ExplorerPreviewService> preview,
+    std::shared_ptr<expp::app::ExplorerMimeService> mime,
+    std::shared_ptr<expp::app::ExplorerVersionControlService> version_control) {
+    return expp::app::ExplorerServices{
+        .runtime = std::move(runtime),
+        .fileSystem = std::move(file_system),
+        .preview = std::move(preview),
+        .mime = std::move(mime),
+        .highlight = std::make_shared<PassThroughHighlightService>(),
+        .image = std::make_shared<StubImageService>(),
+        .versionControl = std::move(version_control),
+        .clipboard = std::make_shared<StubClipboardService>(),
+    };
+}
+
+class ScopedVersionControlConfig {
+public:
+    explicit ScopedVersionControlConfig(bool enabled, bool show_ignored) {
+        oldConfig_ = expp::core::global_config().config();
+        auto config = oldConfig_;
+        config.versionControl.enabled = enabled;
+        config.versionControl.showIgnoredFiles = show_ignored;
+        expp::core::global_config().setConfig(config);
+    }
+
+    ~ScopedVersionControlConfig() { expp::core::global_config().setConfig(oldConfig_); }
+
+private:
+    expp::core::Config oldConfig_;
+};
 
 }  // namespace
 
@@ -197,7 +272,8 @@ TEST_CASE("ExplorerPreviewController ignores stale preview completions", "[app][
                                        std::make_shared<DelayedPreviewService>(runtime),
                                        std::make_shared<RecordingMimeService>());
 
-    auto explorer_result = expp::app::Explorer::create(fs::path{"preview-root"}, std::move(services));
+    auto explorer_result =
+        expp::app::Explorer::create(fs::path{"preview-root"}, std::move(services));
     REQUIRE(explorer_result.has_value());
 
     expp::app::ExplorerPreviewController preview_controller(*explorer_result);
@@ -209,11 +285,108 @@ TEST_CASE("ExplorerPreviewController ignores stale preview completions", "[app][
         (void)runtime->mailbox().drain();
     }
 
-    const auto* ready = std::get_if<expp::ui::PreviewReadyState>(&preview_controller.model());
+    const auto* ready = std::get_if<expp::app::PreviewReadyState>(&preview_controller.model());
     REQUIRE(ready != nullptr);
     CHECK(ready->target == fs::path{"fast.txt"});
     REQUIRE(ready->lines.size() == 1);
     CHECK(ready->lines.front() == "fast.txt");
+}
+
+TEST_CASE("ExplorerDirectoryController applies cached ignored status asynchronously",
+          "[app][async][version_control]") {
+    ScopedVersionControlConfig config_guard{true, false};
+    auto runtime = std::make_shared<expp::core::AsioRuntime>(1, 1);
+
+    std::vector<expp::core::filesystem::FileEntry> entries{
+        expp::core::filesystem::FileEntry{
+                                          .path = fs::path{"repo"} / "visible.txt",
+                                          .type = expp::core::filesystem::FileType::RegularFile,
+                                          },
+        expp::core::filesystem::FileEntry{
+                                          .path = fs::path{"repo"} / "ignored.log",
+                                          .type = expp::core::filesystem::FileType::RegularFile,
+                                          },
+    };
+
+    expp::core::VersionStatusSnapshot snapshot{
+        .repositoryRoot = fs::path{"repo"},
+        .directory = fs::path{"repo"},
+        .statusesByPath =
+            {
+                                   {(fs::path{"repo"} / "ignored.log").lexically_normal().string(),
+                 expp::core::VersionStatus::Ignored},
+                                   },
+        .repositoryFound = true,
+    };
+    auto version_control = std::make_shared<RecordingVersionControlService>(std::move(snapshot));
+    auto services = make_test_services(runtime, std::make_shared<StubFileSystemService>(entries),
+                                       std::make_shared<DelayedPreviewService>(runtime),
+                                       std::make_shared<RecordingMimeService>(), version_control);
+
+    auto explorer_result = expp::app::Explorer::create(fs::path{"repo"}, std::move(services));
+    REQUIRE(explorer_result.has_value());
+    auto explorer = *explorer_result;
+
+    expp::app::NotificationCenter notifications;
+    expp::app::ExplorerDirectoryController controller(explorer, notifications);
+    controller.reloadCurrentDirectory();
+
+    for (int attempt = 0; attempt < 30; ++attempt) {
+        std::this_thread::sleep_for(5ms);
+        (void)runtime->mailbox().drain();
+    }
+
+    CHECK(explorer->state().versionControlAvailable);
+    REQUIRE(explorer->state().entries.size() == 1);
+    CHECK(explorer->state().entries.front().filename() == "visible.txt");
+    CHECK_FALSE(version_control->requested().empty());
+}
+
+TEST_CASE("ExplorerDirectoryController toggles Git tracing at runtime",
+          "[app][async][version_control]") {
+    ScopedVersionControlConfig config_guard{false, true};
+    auto runtime = std::make_shared<expp::core::AsioRuntime>(1, 1);
+
+    expp::core::VersionStatusSnapshot snapshot{
+        .repositoryRoot = fs::path{"repo"},
+        .directory = fs::path{"repo"},
+        .branchName = "main",
+        .dirty = true,
+        .unstagedCount = 1,
+        .repositoryFound = true,
+    };
+    auto version_control = std::make_shared<RecordingVersionControlService>(std::move(snapshot));
+    auto services = make_test_services(runtime, std::make_shared<StubFileSystemService>(),
+                                       std::make_shared<DelayedPreviewService>(runtime),
+                                       std::make_shared<RecordingMimeService>(), version_control);
+
+    auto explorer_result = expp::app::Explorer::create(fs::path{"repo"}, std::move(services));
+    REQUIRE(explorer_result.has_value());
+    auto explorer = *explorer_result;
+
+    expp::app::NotificationCenter notifications;
+    expp::app::ExplorerDirectoryController controller(explorer, notifications);
+    controller.toggleGitEnabled();
+
+    REQUIRE(notifications.current().has_value());
+    CHECK(notifications.current()->message == "Git tracing on");
+    CHECK(explorer->state().versionControlEnabled);
+
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        std::this_thread::sleep_for(5ms);
+        (void)runtime->mailbox().drain();
+    }
+
+    CHECK(explorer->state().versionControlAvailable);
+    CHECK(explorer->state().versionControlSnapshot.branchName == "main");
+    CHECK_FALSE(version_control->requested().empty());
+
+    controller.toggleGitEnabled();
+
+    REQUIRE(notifications.current().has_value());
+    CHECK(notifications.current()->message == "Git tracing off");
+    CHECK_FALSE(explorer->state().versionControlEnabled);
+    CHECK_FALSE(explorer->state().versionControlAvailable);
 }
 
 TEST_CASE("ExplorerDirectoryController preloads MIME only for visible page plus one page radius",
@@ -223,7 +396,8 @@ TEST_CASE("ExplorerDirectoryController preloads MIME only for visible page plus 
     auto services = make_test_services(runtime, std::make_shared<StubFileSystemService>(),
                                        std::make_shared<DelayedPreviewService>(runtime), mime);
 
-    auto explorer_result = expp::app::Explorer::create(fs::path{"preload-root"}, std::move(services));
+    auto explorer_result =
+        expp::app::Explorer::create(fs::path{"preload-root"}, std::move(services));
     REQUIRE(explorer_result.has_value());
     auto explorer = *explorer_result;
 
@@ -258,7 +432,8 @@ TEST_CASE("ExplorerDirectoryController preloads MIME only for visible page plus 
     const int offset = state.selection.currentScrollOffset;
     const int viewport = state.selection.currentViewportRows;
     const int expected_start = std::max(0, offset - viewport);
-    const int expected_end = std::min(static_cast<int>(state.entries.size()), offset + viewport * 2);
+    const int expected_end =
+        std::min(static_cast<int>(state.entries.size()), offset + viewport * 2);
 
     REQUIRE(static_cast<int>(requested.size()) == expected_end - expected_start);
     for (int index = expected_start; index < expected_end; ++index) {
