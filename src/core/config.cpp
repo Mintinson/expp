@@ -230,7 +230,9 @@ std::string format_hex_color(uint32_t color) {
     if (auto it = config.iconTheme.find(fallback_id); it != config.iconTheme.end()) {
         return it->second;
     }
-    return fallback_id == config.folderFallbackIconId ? kDefaultFolderIcon : kDefaultFileIcon;
+    return fallback_id == config.folderFallbackIconId
+               ? default_icon_theme().at("folder_default")
+               : default_icon_theme().at("file_default");
 }
 
 void load_string_map(const toml::table& tbl,

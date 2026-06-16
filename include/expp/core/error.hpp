@@ -163,6 +163,8 @@ using VoidResult = Result<void>;
  * @param message Error message
  * @param location Source location
  * @return std::unexpected containing the Error
+ *
+ * @note Prefer `err()` for naming consistency with the CLI module.
  */
 [[nodiscard]] inline auto make_error(
     ErrorCategory category,
@@ -176,10 +178,55 @@ using VoidResult = Result<void>;
  * @param message Error message
  * @param location Source location
  * @return std::unexpected containing the Error
+ *
+ * @note Prefer `err()` for naming consistency with the CLI module.
  */
 [[nodiscard]] inline auto make_error(
     std::string message, std::source_location location = std::source_location::current()) {
     return std::unexpected<Error>(std::in_place, std::move(message), location);
+}
+
+/**
+ * @brief Creates a successful Result containing the given value.
+ * @tparam T The value type (deduced from the argument).
+ * @param value The success value to wrap.
+ * @return A Result in the success state.
+ */
+template <typename T>
+[[nodiscard]] Result<std::remove_cvref_t<T>> ok(T&& value) {
+    return std::expected<std::remove_cvref_t<T>, Error>(std::in_place, std::forward<T>(value));
+}
+
+/**
+ * @brief Creates a successful VoidResult (no value).
+ */
+[[nodiscard]] inline VoidResult ok() {
+    return {};
+}
+
+/**
+ * @brief Alias for make_error() — naming consistent with the CLI module's err().
+ * @param category Error category
+ * @param message Error message
+ * @param location Source location
+ * @return std::unexpected containing the Error
+ */
+[[nodiscard]] inline auto err(
+    ErrorCategory category,
+    std::string message,
+    std::source_location location = std::source_location::current()) {
+    return make_error(category, std::move(message), location);
+}
+
+/**
+ * @brief Alias for make_error() — naming consistent with the CLI module's err().
+ * @param message Error message
+ * @param location Source location
+ * @return std::unexpected containing the Error
+ */
+[[nodiscard]] inline auto err(
+    std::string message, std::source_location location = std::source_location::current()) {
+    return make_error(std::move(message), location);
 }
 
 }  // namespace expp::core

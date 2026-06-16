@@ -195,14 +195,6 @@ struct FileEntry {
 /**
  * @brief Reads file preview (first N lines)
  * @param path Path to read
- * @param max_lines Maximum lines to read
- * @return Vector of lines or Error
- */
-// [[nodiscard]] Result<std::vector<std::string>> read_preview(const fs::path& path, int max_lines);
-
-/**
- * @brief Reads file preview (first N lines)
- * @param path Path to read
  * @param out_lines Output vector to fill with lines
  * @param max_lines Maximum lines to read
  * @return True if preview is available, false otherwise. Error if error occurs.

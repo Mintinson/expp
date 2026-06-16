@@ -13,58 +13,62 @@
 namespace expp::core {
 using namespace std::literals;
 
-constexpr std::string_view kDefaultFolderIcon = "\uf07b"sv;
-constexpr std::string_view kDefaultFileIcon = "\uf15b"sv;
-
 /**
  * @brief Returns the built-in default icon theme map
+ *
+ * Uses function-local static to avoid repeated allocations when multiple
+ * Config objects are default-constructed.
  */
-inline StringHashMap<std::string> default_icon_theme() {
-    return {
-        {"file_default",    "\uf15b"},
-        {"file_executable", "\ue795"},
-        {"file_symlink",    "\uf481"},
-        {"file_hidden",     "\uf15b"},
-        {"file_binary",     "\ueae8"},
-        {"file_library",    "\ueb9c"},
-        {"file_shell",      "\ue795"},
-        {"file_c",          "\ue61e"},
-        {"file_cmake",      "\ue794"},
-        {"file_cpp",        "\ue61d"},
-        {"file_csharp",     "\ue737"},
-        {"file_go",         "\ue627"},
-        {"file_header",     "\ued83"},
-        {"file_hpp",        "\uf0fd"},
-        {"file_html",       "\ue736"},
-        {"file_javascript", "\ue74e"},
-        {"file_json",       "\ue60b"},
-        {"file_lua",        "\ue620"},
-        {"file_markdown",   "\uf48a"},
-        {"file_python",     "\ue73c"},
-        {"file_rust",       "\ue7a8"},
-        {"file_zig",        "\ue8ef"},
-        {"file_typescript", "\ue628"},
-        {"file_toml",       "\ue6b2"},
-        {"file_log",        "\uf4ed"},
-        {"file_yaml",       "\ue8eb"},
+inline const StringHashMap<std::string>& default_icon_theme() {
+    static const StringHashMap<std::string> map = {
+        {"file_default",    "\uf15b"    },
+        {"file_executable", "\ue795"    },
+        {"file_symlink",    "\uf481"    },
+        {"file_hidden",     "\uf15b"    },
+        {"file_binary",     "\ueae8"    },
+        {"file_library",    "\ueb9c"    },
+        {"file_shell",      "\ue795"    },
+        {"file_c",          "\ue61e"    },
+        {"file_cmake",      "\ue794"    },
+        {"file_cpp",        "\ue61d"    },
+        {"file_csharp",     "\ue737"    },
+        {"file_go",         "\ue627"    },
+        {"file_header",     "\ued83"    },
+        {"file_hpp",        "\uf0fd"    },
+        {"file_html",       "\ue736"    },
+        {"file_javascript", "\ue74e"    },
+        {"file_json",       "\ue60b"    },
+        {"file_lua",        "\ue620"    },
+        {"file_markdown",   "\uf48a"    },
+        {"file_python",     "\ue73c"    },
+        {"file_rust",       "\ue7a8"    },
+        {"file_zig",        "\ue8ef"    },
+        {"file_typescript", "\ue628"    },
+        {"file_toml",       "\ue6b2"    },
+        {"file_log",        "\uf4ed"    },
+        {"file_yaml",       "\ue8eb"    },
         {"file_xml",        "\U000f05c0"},
-        {"file_archive",    "\ue6aa"},
-        {"file_git",        "\ue702"},
-        {"folder_default",  "\uf07b"},
-        {"folder_build",    "\U000f19fd"},
-        // {"folder_build",    "\uebdf"},
-        {"folder_git",      "\ue5fb"},
-        {"folder_test",     "\uf07b"},
-        {"folder_github",   "\ue5fd"},
-        {"folder_config",   "\ue5fc"}
+        {"file_archive",    "\ue6aa"    },
+        {"file_git",        "\ue702"    },
+        {"file_ninja",      "\U000f0774"},
+        {"folder_default",  "\uf07b"    },
+        {"folder_build",    "\U000f107f"},
+        {"folder_docs",     "\U000f19f6"},
+        {"folder_git",      "\ue5fb"    },
+        {"folder_test",     "\uf07b"    },
+        {"folder_github",   "\ue5fd"    },
+        {"folder_config",   "\ue5fc"    }
     };
+    return map;
 }
 
 /**
  * @brief Returns the built-in default file extension to icon ID rules.
+ *
+ * Uses function-local static to avoid repeated allocations.
  */
-inline StringHashMap<std::string> default_icon_extension_rules() {
-    return {
+inline const StringHashMap<std::string>& default_icon_extension_rules() {
+    static const StringHashMap<std::string> map = {
         {"lib",   "file_library"   },
         {"bash",  "file_shell"     },
         {"c",     "file_c"         },
@@ -90,40 +94,50 @@ inline StringHashMap<std::string> default_icon_extension_rules() {
         {"yaml",  "file_yaml"      },
         {"yml",   "file_yaml"      },
         {"xml",   "file_xml"       },
+        {"ninja", "file_ninja"     },
         {"zip",   "file_archive"   },
         {"rar",   "file_archive"   },
         {"7z",    "file_archive"   },
         {"tar",   "file_archive"   },
     };
+    return map;
 }
 
 /**
  * @brief Returns the built-in exact file name to icon ID rules.
+ *
+ * Uses function-local static to avoid repeated allocations.
  */
-inline StringHashMap<std::string> default_icon_exact_file_rules() {
-    return {
+inline const StringHashMap<std::string>& default_icon_exact_file_rules() {
+    static const StringHashMap<std::string> map = {
         {"CMakeLists.txt", "file_cmake"},
         {"Makefile",       "file_cmake"},
         {".gitignore",     "file_git"  },
     };
+    return map;
 }
 
 /**
  * @brief Returns the built-in exact folder name to icon ID rules.
+ *
+ * Uses function-local static to avoid repeated allocations.
  */
-inline StringHashMap<std::string> default_icon_exact_folder_rules() {
-    return {
-        {".git",         "folder_git"  },
-        {"build",        "folder_build"},
-        {"node_modules", "folder_build"},
-        {"test",         "folder_test" },
-        {"tests",        "folder_test" },
+inline const StringHashMap<std::string>& default_icon_exact_folder_rules() {
+    static const StringHashMap<std::string> map = {
+        {".git",         "folder_git"   },
+        {"build",        "folder_build" },
+        {"node_modules", "folder_build" },
+        {"test",         "folder_test"  },
+        {"tests",        "folder_test"  },
+        {"docs",         "folder_docs"  },
+        {"doc",          "folder_docs"  },
         {".github",      "folder_github"},
         {"config",       "folder_config"},
         {".config",      "folder_config"},
         {"configs",      "folder_config"},
         {"settings",     "folder_config"},
     };
+    return map;
 }
 
 /**

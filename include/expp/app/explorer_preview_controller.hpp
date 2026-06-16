@@ -58,11 +58,6 @@ private:
     app::PreviewModel previewModel_{app::PreviewIdleState{}};
     /// Last preview target used to suppress redundant reloads.
     std::optional<std::filesystem::path> previewTarget_;
-
-    // /**
-    //  * @brief Loads preview data for a specific target and updates `previewModel_`.
-    //  */
-    // void loadPreview(const std::filesystem::path& target);
 };
 
 }  // namespace expp::app

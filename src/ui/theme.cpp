@@ -26,8 +26,8 @@ ftxui::Color Theme::getFileTypeColor(core::filesystem::FileType type) const noex
             return symlinkColor_;
         case core::filesystem::FileType::Archive:
             return archiveColor_;
-        case core::filesystem::FileType::SourceCode:
-            return sourceCodeColor_;
+        // case core::filesystem::FileType::SourceCode:
+        //     return sourceCodeColor_;
         case core::filesystem::FileType::Image:
             return imageColor_;
         case core::filesystem::FileType::Document:

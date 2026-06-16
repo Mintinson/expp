@@ -225,8 +225,6 @@ public:
      */
     void setShowHidden(bool show_hidden) noexcept;
 
-    // [[nodiscard]] bool toggleGitEnabled();
-
     /**
      * @brief Updates runtime Git tracing without triggering I/O.
      */

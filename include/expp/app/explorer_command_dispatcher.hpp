@@ -83,10 +83,6 @@ private:
     [[nodiscard]] int selectedCount() const noexcept;
     /// Builds a simple count-aware noun phrase ("1 item", "2 items").
     static std::string nounWithCount(int count, std::string_view singular);
-
-    // [[nodiscard]] bool handleResult(core::VoidResult result,
-    //                                 std::string success_message = {},
-    //                                 ui::ToastSeverity success_severity = ui::ToastSeverity::Success);
 };
 
 }  // namespace expp::app
