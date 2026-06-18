@@ -1,0 +1,37 @@
+# ==========================================
+# 项目标准元数据 (PEP 621)
+# ==========================================
+[project]
+name = "atest"
+version = "0.1.0"
+authors = [{ name = "Mintinson", email = "1315423629@qq.com" }]
+requires-python = "==3.12.*"
+dependencies = ["pyrealsense2-beta>=2.57.6.10172,<3"]
+
+# ==========================================
+#  Pixi 环境与包管理配置
+# ==========================================
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["win-64", "linux-64"]
+
+# pixi 管理的包，来源于 conda-forge
+[tool.pixi.dependencies]
+python = "3.12.*"
+pybind11 = ">=3.0.3,<4"
+c-compiler = ">=1.11.0,<2"
+cxx-compiler = ">=1.11.0,<2"
+cmake = ">=3.20"
+ninja = ">=1.13.2,<2"
+ffmpeg = ">=8.1.1,<9"
+# [新增] 引入 ruff
+ruff = ">=0.15.16,<0.16"
+py-opencv = ">=4.13.0,<5"
+
+# pixi 管理的包，来源于 pypi 或者本地路径
+[tool.pixi.pypi-dependencies]
+lerobot = { version = "==0.4.4", extras = ["smolvla", "async"] }
+cps_client = { path = "src_py/cps_client", editable = true }
+lerobot_robot_huayan = { path = "lerobot_packages/lerobot_robot_huayan", editable = true }
+lerobot_teleoperator_huayan_key = { path = "lerobot_packages/lerobot_teleoperator_huayan_key", editable = true }
+lerobot_teleoperator_huayan_space_mouse = { path = "lerobot_packages/lerobot_teleoperator_huayan_space_mouse", editable = true }

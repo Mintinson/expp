@@ -38,6 +38,10 @@ target_include_directories(expp_tests
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+target_compile_definitions(expp_tests PRIVATE
+    SOURCE_PATH="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
 # Discover tests for CTest
 catch_discover_tests(expp_tests)
 

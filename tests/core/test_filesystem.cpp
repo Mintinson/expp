@@ -1,16 +1,17 @@
-#include <catch2/catch_test_macros.hpp>
-#include <catch2/matchers/catch_matchers_string.hpp>
-
 #include "expp/core/filesystem.hpp"
 
 #include <filesystem>
 #include <fstream>
+#include <vector>
+
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 using namespace expp::core;
 namespace fs = std::filesystem;
 
 // Helper to create a temporary test directory
-class TempDirectory{
+class TempDirectory {
 public:
     TempDirectory() {
         path_ = fs::temp_directory_path() / "expp_test_";
@@ -23,6 +24,7 @@ public:
     }
 
     [[nodiscard]] const fs::path& path() const { return path_; }
+
     // Create a test file
     fs::path createFile(const std::string& name, const std::string& content = "") {
         auto file_path = path_ / name;
@@ -38,7 +40,8 @@ public:
         fs::create_directories(dir_path);
         return dir_path;
     }
-private: 
+
+private:
     fs::path path_;
 };
 
@@ -75,11 +78,11 @@ TEST_CASE("classifyFile", "[core][filesystem]") {
     }
 
     SECTION("executable file is classified correctly") {
-        #ifndef _WIN32  
+#ifndef _WIN32
         auto file = tmpDir.createFile("script.sh", "#!/bin/bash");
-        #else
+#else
         auto file = tmpDir.createFile("program.exe", "binary content");
-        #endif 
+#endif
         fs::permissions(file, fs::perms::owner_exec, fs::perm_options::add);
         auto entry = fs::directory_entry(file);
         CHECK(filesystem::classify_file(entry) == filesystem::FileType::Executable);
@@ -121,16 +124,17 @@ TEST_CASE("classifyFile", "[core][filesystem]") {
 #endif
 }
 
-
 TEST_CASE("isPreviewable", "[core][filesystem]") {
-    CHECK(filesystem::is_previewable("file.txt"));
-    CHECK(filesystem::is_previewable("main.cpp"));
-    CHECK(filesystem::is_previewable("config.toml"));
-    CHECK(filesystem::is_previewable("script.sh"));
+    auto path = std::filesystem::path(SOURCE_PATH) / "resource";
 
-    CHECK_FALSE(filesystem::is_previewable("image.png"));
-    CHECK_FALSE(filesystem::is_previewable("archive.zip"));
-    CHECK_FALSE(filesystem::is_previewable("binary.exe"));
+    CHECK(filesystem::is_previewable(path / "text.txt"));
+    CHECK(filesystem::is_previewable(path / "main.cpp"));
+    CHECK(filesystem::is_previewable(path / "config.toml"));
+    CHECK(filesystem::is_previewable(path / "script.sh"));
+
+    CHECK_FALSE(filesystem::is_previewable(path / "image.png"));
+    CHECK_FALSE(filesystem::is_previewable(path / "archive.zip"));
+    CHECK_FALSE(filesystem::is_previewable(path / "binary.exe"));
 }
 
 TEST_CASE("listDirectory", "[core][filesystem]") {
@@ -190,9 +194,10 @@ TEST_CASE("listDirectory", "[core][filesystem]") {
         auto result = filesystem::list_directory(tmpDir.path(), true);
         REQUIRE(result.has_value());
 
-        const auto it = std::find_if(result->begin(), result->end(), [](const filesystem::FileEntry& entry) {
-            return entry.filename() == "real_link";
-        });
+        const auto it =
+            std::find_if(result->begin(), result->end(), [](const filesystem::FileEntry& entry) {
+                return entry.filename() == "real_link";
+            });
         REQUIRE(it != result->end());
         CHECK(it->isSymlink());
         CHECK_FALSE(it->isBrokenSymlink);
@@ -288,11 +293,12 @@ TEST_CASE("readPreview", "[core][filesystem]") {
         std::string content = "line1\nline2\nline3";
         auto file = tmpDir.createFile("test.txt", content);
 
-        auto result = filesystem::read_preview(file, 10);
+        std::vector<std::string> result;
+        auto res = filesystem::read_preview(file, result, 10);
 
-        REQUIRE(result.has_value());
-        CHECK(result->size() == 3);
-        CHECK((*result)[0] == "line1");
+        REQUIRE(res.has_value());
+        CHECK(result.size() == 3);
+        CHECK(result[0] == "line1");
     }
 
     SECTION("directory preview shows contents") {
@@ -300,19 +306,23 @@ TEST_CASE("readPreview", "[core][filesystem]") {
         tmpDir.createFile("preview_test/file1.txt");
         tmpDir.createFile("preview_test/file2.cpp");
 
-        auto result = filesystem::read_preview(dir, 10);
+        std::vector<std::string> result;
+        auto res = filesystem::read_preview(dir, result, 10);
 
-        REQUIRE(result.has_value());
-        CHECK(result->size() >= 2);  // Header + files
+        REQUIRE(res.has_value());
+        CHECK(result.size() >= 2);  // Header + files
     }
 
     SECTION("binary file shows info") {
-        auto file = tmpDir.createFile("binary.bin", "data");
 
-        auto result = filesystem::read_preview(file, 10);
+        //auto file = tmpDir.createFile("binary.bin", "data");
+        auto file = std::filesystem::path(SOURCE_PATH) / "resource" / "binary.exe";
 
-        REQUIRE(result.has_value());
-        CHECK((*result)[0] == "[Binary or unsupported file]");
+        std::vector<std::string> result{};
+        auto res = filesystem::read_preview(file, result, 10);
+
+        REQUIRE(res.has_value());
+        CHECK(result[0] == "[Binary or unsupported file]");
     }
 
 #ifndef _WIN32
@@ -338,9 +348,8 @@ TEST_CASE("readPreview", "[core][filesystem]") {
         REQUIRE(result.has_value());
 
         const bool found_broken_msg =
-            std::any_of(result->begin(), result->end(), [](const std::string& line) {
-                return line == "[Broken symlink]";
-            });
+            std::any_of(result->begin(), result->end(),
+                        [](const std::string& line) { return line == "[Broken symlink]"; });
         CHECK(found_broken_msg);
     }
 #endif

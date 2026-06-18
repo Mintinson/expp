@@ -76,7 +76,8 @@ AsioRuntime::AsioRuntime(std::size_t io_threads, std::size_t cpu_threads)
     , diskPool_(std::max(static_cast<std::size_t>(1), io_threads))
     , cpuPool_(std::max(static_cast<std::size_t>(1), cpu_threads)) {
     ioThreads_.reserve(static_cast<std::size_t>(std::max(static_cast<std::size_t>(1), io_threads)));
-    for (std::size_t index = 0; index < std::max(static_cast<std::size_t>(1), io_threads); ++index) {
+    for (std::size_t index = 0; index < std::max(static_cast<std::size_t>(1), io_threads);
+         ++index) {
         ioThreads_.emplace_back([this] { ioContext_.run(); });
     }
 }
@@ -121,25 +122,26 @@ void AsioRuntime::spawnDetached(IoExecutor executor,
                                 std::string_view name,
                                 std::function<void(Error)> on_error) {
     const std::string task_name{name};
-    asio::co_spawn(executor, std::move(task),
-                   [this, task_name, on_error = std::move(on_error)](std::exception_ptr exception) mutable {
-                       if (!exception || !on_error) {
-                           return;
-                       }
+    asio::co_spawn(
+        executor, std::move(task),
+        [this, task_name, on_error = std::move(on_error)](std::exception_ptr exception) mutable {
+            if (!exception || !on_error) {
+                return;
+            }
 
-                       std::string message = std::format("{} failed", task_name);
-                       try {
-                           std::rethrow_exception(exception);
-                       } catch (const std::exception& error) {
-                           message += std::format(": {}", error.what());
-                       } catch (...) {
-                           message += ": unknown error";
-                       }
+            std::string message = std::format("{} failed", task_name);
+            try {
+                std::rethrow_exception(exception);
+            } catch (const std::exception& error) {
+                message += std::format(": {}", error.what());
+            } catch (...) {
+                message += ": unknown error";
+            }
 
-                       postToUi([on_error = std::move(on_error), message = std::move(message)]() mutable {
-                           on_error(Error{ErrorCategory::System, std::move(message)});
-                       });
-                   });
+            postToUi([on_error = std::move(on_error), message = std::move(message)]() mutable {
+                on_error(Error{ErrorCategory::System, std::move(message)});
+            });
+        });
 }
 #endif
 

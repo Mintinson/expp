@@ -24,14 +24,16 @@
 
 namespace expp::core {
 
-// In Asio, the Executor determines where the code runs 
-// (e.g., in a single-threaded io_context or a multi-threaded thread_pool). 
-// any_io_executor is a polymorphic wrapper that can accept any Asio-compliant executor, 
+// In Asio, the Executor determines where the code runs
+// (e.g., in a single-threaded io_context or a multi-threaded thread_pool).
+// any_io_executor is a polymorphic wrapper that can accept any Asio-compliant executor,
 // making subsequent code not limited to a specific underlying implementation.
 using AsyncExecutor = asio::any_io_executor;
 
-/// `asio::awaitable` is a standard C++20 coroutine type provided by Asio. An alias `Task` is defined here.<T> This indicates that this is a coroutine that returns type T, 
-///  and that the coroutine is bound by the previously defined generic executor AsyncExecutor by default.
+/// `asio::awaitable` is a standard C++20 coroutine type provided by Asio. An alias `Task` is
+/// defined here.<T> This indicates that this is a coroutine that returns type T,
+///  and that the coroutine is bound by the previously defined generic executor AsyncExecutor by
+///  default.
 template <typename T>
 using Task = asio::awaitable<T, AsyncExecutor>;
 
@@ -76,7 +78,8 @@ public:
     }
 
 private:
-    explicit CancellationToken(std::weak_ptr<std::atomic_bool> state) noexcept : state_(std::move(state)) {}
+    explicit CancellationToken(std::weak_ptr<std::atomic_bool> state) noexcept
+        : state_(std::move(state)) {}
 
     std::weak_ptr<std::atomic_bool> state_;
 
@@ -96,23 +99,17 @@ public:
     /**
      * @brief Marks the current task generation as cancelled.
      */
-    void cancel() const noexcept {
-        state_->store(true, std::memory_order_relaxed);
-    }
+    void cancel() const noexcept { state_->store(true, std::memory_order_relaxed); }
 
     /**
      * @brief Creates a fresh uncancelled generation.
      */
-    void reset() {
-        state_ = std::make_shared<std::atomic_bool>(false);
-    }
+    void reset() { state_ = std::make_shared<std::atomic_bool>(false); }
 
     /**
      * @brief Returns a token bound to the current generation.
      */
-    [[nodiscard]] CancellationToken token() const noexcept {
-        return CancellationToken{state_};
-    }
+    [[nodiscard]] CancellationToken token() const noexcept { return CancellationToken{state_}; }
 
 private:
     std::shared_ptr<std::atomic_bool> state_;
@@ -158,8 +155,8 @@ public:
 
 /**
  * @brief Suspends the current coroutine and resumes it on `executor`.
- * 
- * The code before `co_await switch_to(...)` runs on the original thread, 
+ *
+ * The code before `co_await switch_to(...)` runs on the original thread,
  * while the code after it runs directly on the thread corresponding to the new executor.
  */
 template <typename Executor>
@@ -169,7 +166,8 @@ Task<void> switch_to(Executor executor) {
 }
 
 /**
- * @brief Executes a callable on a specified executor and automatically resumes on the calling executor.
+ * @brief Executes a callable on a specified executor and automatically resumes on the calling
+ * executor.
  *
  * This coroutine temporarily switches the execution context to the target `executor`,
  * invokes the provided `callable` (e.g., a lambda or function) to perform blocking
@@ -182,11 +180,12 @@ Task<void> switch_to(Executor executor) {
  * @param executor The target executor where the callable should be executed.
  * @param callable The zero-argument function, lambda, or functor to execute.
  *
- * @return A core::Task containing the result of the callable.
+ * @return A `core::Task` containing the result of the callable.
  *         If the callable returns void, the task will yield no value.
  */
 template <typename Executor, std::invocable Callable>
-auto invoke_on(Executor executor, Callable&& callable) -> core::Task<std::invoke_result_t<Callable>> {
+auto invoke_on(Executor executor, Callable&& callable)
+    -> core::Task<std::invoke_result_t<Callable>> {
     // Save the original executor (the caller's context)
     auto caller = co_await asio::this_coro::executor;
 
@@ -211,7 +210,6 @@ auto invoke_on(Executor executor, Callable&& callable) -> core::Task<std::invoke
         co_return result;
     }
 }
-
 
 }  // namespace expp::core
 

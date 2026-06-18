@@ -383,6 +383,7 @@ bool is_executable(const fs::path& filepath) noexcept {
 bool is_previewable(const fs::path& path) noexcept {
     return open_if_previewable(path).is_open();
 }
+
 std::ifstream open_if_previewable(const fs::path& path) noexcept {
     std::ifstream file(path, std::ios::binary);
     if (!file) {
@@ -689,7 +690,8 @@ VoidResult open_with_default(const fs::path& path) {
 
 // }
 
-// [[nodiscard]] Result<std::vector<std::string>> read_preview(const fs::path& path, int max_lines) {
+// [[nodiscard]] Result<std::vector<std::string>> read_preview(const fs::path& path, int max_lines)
+// {
 //     std::vector<std::string> lines;
 
 //     std::error_code symlink_ec;
@@ -854,11 +856,14 @@ Result<bool> read_preview(const fs::path& path,
     std::string line;
     int current_lines = static_cast<int>(out_lines.size());
 
-    // 循环条件剥离出耗时的 size() 调用
     while (current_lines < max_lines && std::getline(preview_file, line)) {
+        // fix the '\r' on windows
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        // TODO: Don't make it static
         constexpr size_t kMaxLineLength = 80;
 
-        // 性能优化：直接 resize 并追加，避免 substr 分配新内存
         if (line.length() > kMaxLineLength) {
             line.resize(kMaxLineLength - 3);
             line += "...";
