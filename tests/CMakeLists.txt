@@ -28,10 +28,18 @@ target_link_libraries(expp_tests
         expp_ui
         expp_app
         expp_project_options
-        expp_warnings
+        # expp_warnings
         expp_sanitizers
         Catch2::Catch2WithMain
 )
+# clang will issues warning on __COUNTER__
+if (NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang"))
+    target_compile_options(expp_tests PRIVATE 
+        # -Wno-c2y-extensions
+        expp_warnings
+
+    )
+endif ()
 
 target_include_directories(expp_tests
     PRIVATE
