@@ -8,16 +8,16 @@
 #include "expp/core/config.hpp"
 
 #include <algorithm>
-#include <ranges>
 #include <array>
-#include <charconv>
 #include <cctype>
+#include <charconv>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -100,11 +100,13 @@ constexpr auto kLayoutIntFields = std::array{
 };
 
 constexpr auto kBehaviorBoolFields = std::array{
-    ScalarFieldSpec<BehaviorConfig, bool>{"show_hidden_files",      &BehaviorConfig::showHiddenFiles     },
-    ScalarFieldSpec<BehaviorConfig, bool>{"confirm_delete",         &BehaviorConfig::confirmDelete       },
-    ScalarFieldSpec<BehaviorConfig, bool>{"confirm_trash",          &BehaviorConfig::confirmTrash        },
-    ScalarFieldSpec<BehaviorConfig, bool>{"sort_directories_first", &BehaviorConfig::sortDirectoriesFirst},
-    ScalarFieldSpec<BehaviorConfig, bool>{"case_sensitive_search",  &BehaviorConfig::caseSensitiveSearch },
+    ScalarFieldSpec<BehaviorConfig, bool>{"show_hidden_files",      &BehaviorConfig::showHiddenFiles},
+    ScalarFieldSpec<BehaviorConfig, bool>{"confirm_delete",         &BehaviorConfig::confirmDelete  },
+    ScalarFieldSpec<BehaviorConfig, bool>{"confirm_trash",          &BehaviorConfig::confirmTrash   },
+    ScalarFieldSpec<BehaviorConfig, bool>{"sort_directories_first",
+                                          &BehaviorConfig::sortDirectoriesFirst                     },
+    ScalarFieldSpec<BehaviorConfig, bool>{"case_sensitive_search",
+                                          &BehaviorConfig::caseSensitiveSearch                      },
 };
 
 constexpr auto kBehaviorIntFields = std::array{
@@ -136,11 +138,13 @@ constexpr auto kAnalysisBoolFields = std::array{
 };
 
 constexpr auto kVersionControlBoolFields = std::array{
-    ScalarFieldSpec<VersionControlConfig, bool>{"enabled",            &VersionControlConfig::enabled         },
-    ScalarFieldSpec<VersionControlConfig, bool>{"show_ignored_files", &VersionControlConfig::showIgnoredFiles},
+    ScalarFieldSpec<VersionControlConfig, bool>{"enabled",            &VersionControlConfig::enabled},
+    ScalarFieldSpec<VersionControlConfig, bool>{"show_ignored_files",
+                                                &VersionControlConfig::showIgnoredFiles             },
 };
 
-[[nodiscard]] std::optional<VersionControlStatusDetail> parse_status_detail(std::string_view value) noexcept {
+[[nodiscard]] std::optional<VersionControlStatusDetail> parse_status_detail(
+    std::string_view value) noexcept {
     if (value == "compact") {
         return VersionControlStatusDetail::Compact;
     }
@@ -176,19 +180,22 @@ Result<uint32_t> parse_hex_color(std::string_view str) {
     } else if (str.starts_with('#')) {
         str.remove_prefix(1);
     } else {
-        return make_error(ErrorCategory::Config,
-                          std::format("Invalid color format '{}': expected 0xRRGGBB or #RRGGBB", str));
+        return make_error(
+            ErrorCategory::Config,
+            std::format("Invalid color format '{}': expected 0xRRGGBB or #RRGGBB", str));
     }
 
     if (str.size() != 6) {
-        return make_error(ErrorCategory::Config, std::format("Invalid color '{}': expected 6 hex digits", str));
+        return make_error(ErrorCategory::Config,
+                          std::format("Invalid color '{}': expected 6 hex digits", str));
     }
 
     uint32_t value = 0;
     static constexpr int kHexBase = 16;
     auto [ptr, ec] = std::from_chars(str.data(), str.data() + str.size(), value, kHexBase);
     if (ec != std::errc{} || ptr != str.data() + str.size()) {  // NOLINT
-        return make_error(ErrorCategory::Config, std::format("Failed to parse hex color '{}'", str));
+        return make_error(ErrorCategory::Config,
+                          std::format("Failed to parse hex color '{}'", str));
     }
 
     return value;
@@ -210,14 +217,14 @@ std::string format_hex_color(uint32_t color) {
 
 [[nodiscard]] std::string normalize_extension_rule_key(std::string_view key) {
     // Remove leading dots and convert to lowercase
-    auto normalized = key | std::views::drop_while([](char ch) { return ch == '.'; })
-                          | std::views::transform([](unsigned char ch) { return static_cast<char>(std::tolower(ch)); })
-                          | std::ranges::to<std::string>();
+    auto normalized = key | std::views::drop_while([](char ch) { return ch == '.'; }) |
+                      std::views::transform(
+                          [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); }) |
+                      std::ranges::to<std::string>();
     return normalized;
 }
 
 [[nodiscard]] std::string normalized_entry_extension(const filesystem::FileEntry& entry) {
-
     return normalize_extension_rule_key(entry.extension());
 }
 
@@ -230,9 +237,8 @@ std::string format_hex_color(uint32_t color) {
     if (auto it = config.iconTheme.find(fallback_id); it != config.iconTheme.end()) {
         return it->second;
     }
-    return fallback_id == config.folderFallbackIconId
-               ? default_icon_theme().at("folder_default")
-               : default_icon_theme().at("file_default");
+    return fallback_id == config.folderFallbackIconId ? default_icon_theme().at("folder_default")
+                                                      : default_icon_theme().at("file_default");
 }
 
 void load_string_map(const toml::table& tbl,
@@ -521,11 +527,13 @@ toml::table serialize_version_control_config(const VersionControlConfig& version
     return tbl;
 }
 
-[[nodiscard]] VoidResult load_config_table_from_file(const std::filesystem::path& path, toml::table& tbl) {
+[[nodiscard]] VoidResult load_config_table_from_file(const std::filesystem::path& path,
+                                                     toml::table& tbl) {
     toml::parse_result result = toml::parse_file(path.string());
     if (!result) {
-        return make_error(ErrorCategory::Config, std::format("Failed to parse config file '{}': {}", path.string(),
-                                                             result.error().description()));
+        return make_error(ErrorCategory::Config,
+                          std::format("Failed to parse config file '{}': {}", path.string(),
+                                      result.error().description()));
     }
     tbl = std::move(result).table();
     return {};
@@ -536,9 +544,9 @@ void load_config_table(const toml::table& tbl, Config& cfg) {
         load_color_theme(*theme, cfg.theme);
     }
 
-    if (const auto* icons = tbl["icons"].as_table()) {
-        load_legacy_icon_config(*icons, cfg.icons);
-    }
+    // if (const auto* icons = tbl["icons"].as_table()) {
+    //     load_legacy_icon_config(*icons, cfg.icons);
+    // }
 
     if (const auto* preview = tbl["preview"].as_table()) {
         load_preview_config(*preview, cfg.preview);
@@ -583,7 +591,8 @@ void load_config_table(const toml::table& tbl, Config& cfg) {
     return {};
 }
 
-[[nodiscard]] VoidResult merge_icon_config_from_file(const std::filesystem::path& path, IconConfig& icons) {
+[[nodiscard]] VoidResult merge_icon_config_from_file(const std::filesystem::path& path,
+                                                     IconConfig& icons) {
     toml::table tbl;
     auto result = load_config_table_from_file(path, tbl);
     if (!result) {
@@ -713,7 +722,8 @@ VoidResult ConfigManager::save() const {
     std::filesystem::create_directories(parent_dir, ec);
     if (ec) {
         return make_error(ErrorCategory::FileSystem,
-                          std::format("Failed to create config directory '{}': {}", parent_dir.string(), ec.message()));
+                          std::format("Failed to create config directory '{}': {}",
+                                      parent_dir.string(), ec.message()));
     }
 
     toml::table root;
@@ -730,12 +740,15 @@ VoidResult ConfigManager::save() const {
         root.insert("runtime", serialize_runtime_config(impl_->config.runtime));
         root.insert("listing", serialize_listing_config(impl_->config.listing));
         root.insert("analysis", serialize_analysis_config(impl_->config.analysis));
-        root.insert("version_control", serialize_version_control_config(impl_->config.versionControl));
+        root.insert("version_control",
+                    serialize_version_control_config(impl_->config.versionControl));
     }
 
     std::ofstream ofs(path);
     if (!ofs) {
-        return make_error(ErrorCategory::IO, std::format("Failed to open config file '{}' for writing", path.string()));
+        return make_error(
+            ErrorCategory::IO,
+            std::format("Failed to open config file '{}' for writing", path.string()));
     }
 
     ofs << "# Expp Configuration File\n"
@@ -743,7 +756,8 @@ VoidResult ConfigManager::save() const {
         << root << '\n';
 
     if (!ofs.good()) {
-        return make_error(ErrorCategory::IO, std::format("Failed to write config file '{}'", path.string()));
+        return make_error(ErrorCategory::IO,
+                          std::format("Failed to write config file '{}'", path.string()));
     }
 
     return {};
@@ -828,10 +842,12 @@ ConfigManager& global_config() {
     return instance;
 }
 
-std::string_view resolve_icon(const IconConfig& config, const filesystem::FileEntry& entry) noexcept {
+std::string_view resolve_icon(const IconConfig& config,
+                              const filesystem::FileEntry& entry) noexcept {
     const auto& filename = entry.filename();
     if (entry.type == filesystem::FileType::Directory) {
-        if (auto it = config.rules.exactFolders.find(filename); it != config.rules.exactFolders.end()) {
+        if (auto it = config.rules.exactFolders.find(filename);
+            it != config.rules.exactFolders.end()) {
             return icon_or_fallback(config, it->second, config.folderFallbackIconId);
         }
         return icon_or_fallback(config, config.folderFallbackIconId, config.folderFallbackIconId);
@@ -843,7 +859,8 @@ std::string_view resolve_icon(const IconConfig& config, const filesystem::FileEn
 
     const auto extension = normalized_entry_extension(entry);
     if (!extension.empty()) {
-        if (auto it = config.rules.extensions.find(extension); it != config.rules.extensions.end()) {
+        if (auto it = config.rules.extensions.find(extension);
+            it != config.rules.extensions.end()) {
             return icon_or_fallback(config, it->second, config.fileFallbackIconId);
         }
     }

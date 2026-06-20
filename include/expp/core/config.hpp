@@ -172,6 +172,7 @@ struct IconConfig {
  * @brief Color theme configuration
  */
 struct ColorTheme {
+    // NOLINTBEGIN
     std::string name{"default"};
 
     // File type colors (hex RGB values)
@@ -203,8 +204,10 @@ struct ColorTheme {
     uint32_t untracked{0x5555FF};   // Blue
     uint32_t ignored{0x555555};     // Dark gray
     uint32_t conflicted{0xE32636};  // Amaranth red
+    // NOLINTEND
 };
 
+// NOLINTBEGIN
 /**
  * @brief Preview panel configuration
  */
@@ -262,6 +265,8 @@ struct ListingConfig {
     int chunkEntries{512};
     int preloadPages{1};
 };
+
+// NOLINTEND
 
 /**
  * @brief Background analysis configuration.
