@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -404,7 +405,7 @@ std::ifstream open_if_previewable(const fs::path& path) noexcept {
     std::size_t text_chars = 0;
     std::size_t binary_chars = 0;
 
-    for (std::streamsize i = 0; i < bytes_read; ++i) {
+    for (std::size_t i = 0; i < static_cast<std::size_t>(bytes_read); ++i) {
         const auto byte = static_cast<unsigned char>(buffer[i]);
 
         // 空字节 → 二进制文件

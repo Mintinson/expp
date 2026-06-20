@@ -314,8 +314,7 @@ TEST_CASE("readPreview", "[core][filesystem]") {
     }
 
     SECTION("binary file shows info") {
-
-        //auto file = tmpDir.createFile("binary.bin", "data");
+        // auto file = tmpDir.createFile("binary.bin", "data");
         auto file = std::filesystem::path(SOURCE_PATH) / "resource" / "binary.exe";
 
         std::vector<std::string> result{};
@@ -329,12 +328,12 @@ TEST_CASE("readPreview", "[core][filesystem]") {
     SECTION("recursive symlink preview is reported safely") {
         auto loop_link = tmpDir.path() / "loop";
         fs::create_symlink(loop_link, loop_link);
-
-        auto result = filesystem::read_preview(loop_link, 10);
-        REQUIRE(result.has_value());
+        std::vector<std::string> result{};
+        auto res = filesystem::read_preview(loop_link, result, 10);
+        REQUIRE(res.has_value());
 
         const bool found_recursive_msg =
-            std::any_of(result->begin(), result->end(), [](const std::string& line) {
+            std::any_of(result.begin(), result.end(), [](const std::string& line) {
                 return line == "[Recursive symlink detected]";
             });
         CHECK(found_recursive_msg);
@@ -344,11 +343,12 @@ TEST_CASE("readPreview", "[core][filesystem]") {
         auto broken_link = tmpDir.path() / "missing_link";
         fs::create_symlink(tmpDir.path() / "does_not_exist.txt", broken_link);
 
-        auto result = filesystem::read_preview(broken_link, 10);
-        REQUIRE(result.has_value());
+        std::vector<std::string> result{};
+        auto res = filesystem::read_preview(broken_link, result, 10);
+        REQUIRE(res.has_value());
 
         const bool found_broken_msg =
-            std::any_of(result->begin(), result->end(),
+            std::any_of(result.begin(), result.end(),
                         [](const std::string& line) { return line == "[Broken symlink]"; });
         CHECK(found_broken_msg);
     }
