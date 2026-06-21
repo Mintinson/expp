@@ -1,3 +1,0 @@
-PSVersion: 7.6.2
-ComputerName: LAPTOP-AE6H1F3S
-Date: 06/21/2026 08:56:54
