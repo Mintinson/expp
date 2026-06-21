@@ -11,7 +11,6 @@
 #include <asio/thread_pool.hpp>
 
 #include <chrono>
-#include <concepts>
 #include <exception>
 #include <format>
 #include <functional>
@@ -115,14 +114,15 @@ public:
         std::promise<T> promise;
         auto future = promise.get_future();
 
-        asio::co_spawn(ioContext_, std::move(task),
-                       [promise = std::move(promise)](std::exception_ptr exception, T result) mutable {
-                           if (exception) {
-                               promise.set_exception(exception);
-                               return;
-                           }
-                           promise.set_value(std::move(result));
-                       });
+        asio::co_spawn(
+            ioContext_, std::move(task),
+            [promise = std::move(promise)](std::exception_ptr exception, T result) mutable {
+                if (exception) {
+                    promise.set_exception(exception);
+                    return;
+                }
+                promise.set_value(std::move(result));
+            });
 #if !_HAS_EXCEPTIONS
         return future.get();
 #else
@@ -130,8 +130,8 @@ public:
             return future.get();
         } catch (const std::exception& error) {
             if constexpr (requires { T{make_error(ErrorCategory::System, std::string{})}; }) {
-                return T{
-                    make_error(ErrorCategory::System, std::format("blocking async task failed: {}", error.what()))};
+                return T{make_error(ErrorCategory::System,
+                                    std::format("blocking async task failed: {}", error.what()))};
             } else {
                 throw;
             }
@@ -167,18 +167,20 @@ public:
      * @param closure The task to run on the UI thread after the delay.
      */
     template <typename Rep, typename Period, typename Closure>
-    void scheduleAfter(std::chrono::duration<Rep, Period> delay, Closure&& closure) {
+    void scheduleAfter(std::chrono::duration<Rep, Period> delay, Closure&& closure)  // NOLINT
+    {
         auto timer = std::make_shared<asio::steady_timer>(ioContext_);
         timer->expires_after(delay);
         // Wait asynchronously on the I/O thread...
-        timer->async_wait([this, timer, closure = std::function<void()>(std::forward<Closure>(closure))](
-                              const std::error_code& error) mutable {
-            if (error) {
-                return;
-            }
-            // ... then dispatch the work to the UI thread
-            postToUi(std::move(closure));
-        });
+        timer->async_wait(
+            [this, timer, closure = std::function<void()>(std::forward<Closure>(closure))](
+                const std::error_code& error) mutable {
+                if (error) {
+                    return;
+                }
+                // ... then dispatch the work to the UI thread
+                postToUi(std::move(closure));
+            });
     }
 
 private:

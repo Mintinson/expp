@@ -18,8 +18,9 @@
 #include <span>
 #include <string_view>
 
-namespace expp::app {
 
+namespace expp::app {
+class Explorer;
 /**
  * @brief Strongly typed command identifiers for explorer actions.
  */

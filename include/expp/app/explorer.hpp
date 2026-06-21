@@ -113,7 +113,9 @@ struct ClipboardState {
     /**
      * @brief Returns whether the clipboard carries a usable operation.
      */
-    [[nodiscard]] bool empty() const noexcept { return operation == Operation::None || paths.empty(); }
+    [[nodiscard]] bool empty() const noexcept {
+        return operation == Operation::None || paths.empty();
+    }
 };
 
 /**
@@ -187,7 +189,8 @@ public:
      * @return Initialized explorer instance or an error if the initial refresh fails.
      */
     [[nodiscard]] static core::Result<std::shared_ptr<Explorer>> create(
-        std::filesystem::path start_path, ExplorerServices services = make_default_explorer_services());
+        std::filesystem::path start_path,
+        ExplorerServices services = make_default_explorer_services());
     ~Explorer();
 
     Explorer(Explorer&&) noexcept;
@@ -247,7 +250,8 @@ public:
     [[nodiscard]] core::VoidResult navigateTo(const std::filesystem::path& path);
 
     /**
-     * @brief Navigates to the parent directory, preserving the previous child selection when possible.
+     * @brief Navigates to the parent directory, preserving the previous child selection when
+     * possible.
      */
     [[nodiscard]] core::VoidResult goParent();
 
@@ -344,13 +348,15 @@ public:
 
     /**
      * @brief Copies the selected entry path to the system clipboard.
-     * @param absolute When false, the path is made relative to the explorer base directory when possible.
+     * @param absolute When false, the path is made relative to the explorer base directory when
+     * possible.
      */
     [[nodiscard]] core::VoidResult copySelectedPathToSystemClipboard(bool absolute = false);
 
     /**
      * @brief Copies the current directory path to the system clipboard.
-     * @param absolute When false, the path is made relative to the explorer base directory when possible.
+     * @param absolute When false, the path is made relative to the explorer base directory when
+     * possible.
      */
     [[nodiscard]] core::VoidResult copyCurrentDirectoryPathToSystemClipboard(bool absolute = false);
 

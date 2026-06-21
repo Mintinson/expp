@@ -9,30 +9,35 @@
 #define EXPP_UI_COMPONENTS_HPP
 
 #include "expp/app/preview_model.hpp"
-#include "expp/core/filesystem.hpp"
-#include "expp/ui/help_menu_model.hpp"
 #include "expp/ui/key_handler.hpp"
-#include "expp/ui/theme.hpp"
 
 #include <ftxui/dom/node.hpp>
 #include <ftxui/screen/color.hpp>
 
 #include <cstdint>
-#include <filesystem>
 #include <memory>
 #include <span>
 #include <string>
-#include <variant>
 #include <vector>
 
+namespace expp::core {
+namespace filesystem {
+struct FileEntry;
+}  // namespace filesystem
+}  // namespace expp::core
+
 namespace expp::ui {
+class Theme;
+struct HelpEntry;
+struct HelpViewport;
+class HelpMenuModel;
 
 /**
  * @brief Configuration for file-list rendering.
  */
 struct FileListConfig {
     /// Theme used to derive colors and icons.
-    const Theme* theme{&global_theme()};
+    const Theme* theme;
     /// Whether file-type icons are shown before names.
     bool showIcons{true};
     /// Whether directory entries are rendered in bold.
@@ -50,7 +55,7 @@ struct FileListConfig {
  */
 class FileListComponent {
 public:
-    explicit FileListComponent(const FileListConfig& config = {});
+    explicit FileListComponent(const FileListConfig& config);
     ~FileListComponent();
 
     FileListComponent(FileListComponent&&) noexcept;
@@ -105,7 +110,7 @@ struct StatusBarInfo {
  */
 class StatusBarComponent {
 public:
-    explicit StatusBarComponent(const Theme* theme = &global_theme());
+    explicit StatusBarComponent(const Theme* theme = nullptr);
     ~StatusBarComponent();
 
     StatusBarComponent(StatusBarComponent&&) noexcept;
@@ -150,7 +155,7 @@ struct ToastInfo {
  */
 class ToastComponent {
 public:
-    explicit ToastComponent(const Theme* theme = &global_theme());
+    explicit ToastComponent(const Theme* theme = nullptr);
     ~ToastComponent();
 
     ToastComponent(ToastComponent&&) noexcept;
@@ -185,7 +190,7 @@ private:
  */
 class HelpMenuComponent {
 public:
-    explicit HelpMenuComponent(const Theme* theme = &global_theme());
+    explicit HelpMenuComponent(const Theme* theme = nullptr);
     ~HelpMenuComponent();
 
     HelpMenuComponent(HelpMenuComponent&&) noexcept;
@@ -200,7 +205,9 @@ public:
      * @param viewport Selection and scroll state for the overlay body.
      * @return FTXUI element for the help overlay.
      */
-    [[nodiscard]] ftxui::Element render(const HelpMenuModel& model, bool filter_mode, HelpViewport viewport) const;
+    [[nodiscard]] ftxui::Element render(const HelpMenuModel& model,
+                                        bool filter_mode,
+                                        HelpViewport viewport) const;
     /**
      * @brief Changes the theme used by the help overlay.
      */
@@ -211,35 +218,36 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-/**
- * @brief Visual configuration for a dialog button.
- */
-struct DialogButton {
-    std::string label;
-    ftxui::Color color{ftxui::Color::White};
-    bool primary{false};
-};
-
-/**
- * @brief Supported dialog presentation styles.
- */
-enum class DialogType : std::uint8_t {
-    Confirmation,
-    Input,
-    Message
-};
-
-/**
- * @brief Generic dialog configuration container.
- */
-struct DialogConfig {
-    DialogType type{DialogType::Message};
-    std::string title;
-    std::string message;
-    std::vector<DialogButton> buttons;
-    int width{};
-    const Theme* theme{&global_theme()};
-};
+// TODO: why those below are not used?
+///**
+// * @brief Visual configuration for a dialog button.
+// */
+// struct DialogButton {
+//    std::string label;
+//    ftxui::Color color{ftxui::Color::White};
+//    bool primary{false};
+//};
+//
+///**
+// * @brief Supported dialog presentation styles.
+// */
+// enum class DialogType : std::uint8_t {
+//    Confirmation,
+//    Input,
+//    Message
+//};
+//
+///**
+// * @brief Generic dialog configuration container.
+// */
+// struct DialogConfig {
+//    DialogType type{DialogType::Message};
+//    std::string title;
+//    std::string message;
+//    std::vector<DialogButton> buttons;
+//    int width{};
+//    const Theme* theme{&global_theme()};
+//};
 
 /**
  * @brief Renders modal dialog variants used by the explorer.
@@ -266,7 +274,8 @@ public:
                                              ftxui::Element input_component) const;
 
     /// Renders a simple informational message dialog.
-    [[nodiscard]] ftxui::Element renderMessage(const std::string& title, const std::string& message) const;
+    [[nodiscard]] ftxui::Element renderMessage(const std::string& title,
+                                               const std::string& message) const;
     /// Changes the theme used by dialogs.
     void setTheme(const Theme* theme);
 
@@ -287,7 +296,7 @@ struct PanelConfig {
     int parentWidth{};
     /// Fixed width for the preview panel when enabled.
     int previewWidth{};
-    const Theme* theme{&global_theme()};
+    // const Theme* theme{&global_theme()};
 };
 
 /**
@@ -327,7 +336,6 @@ private:
  * @brief Preview rendering configuration.
  */
 struct PreviewRenderConfig {
-    const Theme* theme{&global_theme()};
     /// Maximum number of preview lines to display.
     int maxRenderLines{};
     /// Message rendered when no preview is available.
@@ -335,8 +343,6 @@ struct PreviewRenderConfig {
     /// Prefix used for preview error output.
     std::string errorPrefix{"[Error: "};
 };
-
-
 
 /**
  * @brief Renders preview content from a precomputed preview model.

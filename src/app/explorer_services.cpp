@@ -442,7 +442,7 @@ public:
                 return core::Result<bool>(
                     core::make_error(core::ErrorCategory::InvalidState, "Preview load cancelled"));
             }
-            return core::filesystem::read_preview(request.target, lines, request.maxLines);
+            return core::filesystem::read_preview(request.target, lines, request.maxLines, request.maxLineLength);
         });
         if (!preview_result.has_value()) {
             co_return std::unexpected(preview_result.error());

@@ -3,16 +3,24 @@
 #include "expp/app/navigation_utils.hpp"
 #include "expp/core/config.hpp"
 #include "expp/core/task.hpp"
-
-#include <asio/co_spawn.hpp>
+#include "expp/app/explorer.hpp"
+#include "expp/app/notification_center.hpp"
 #include <asio/detached.hpp>
-#include <asio/this_coro.hpp>
 
 #include <algorithm>
 #include <format>
-#include <functional>
 #include <iostream>
 #include <utility>
+#include <cstdint>
+#include <filesystem>
+#include <iterator>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+#include <expp/app/explorer_services.hpp>
+#include <expp/core/version_control.hpp>
+#include <expp/ui/components.hpp>
 
 namespace expp::app {
 

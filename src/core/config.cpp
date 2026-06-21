@@ -670,16 +670,17 @@ VoidResult ConfigManager::load() {
         }
     }
 
+    Config snapshot;
     {
         std::lock_guard lock(impl_->mutex);
         impl_->config = std::move(cfg);
         impl_->loadedPath = std::move(loaded_path);
+        snapshot = impl_->config;  // Capture snapshot under the lock.
     }
 
-    // Notify callbacks outside the lock.
-    const auto& current_config = impl_->config;
+    // Notify callbacks outside the lock using the snapshot.
     for (const auto& [id, callback] : impl_->callbacks) {
-        callback(current_config);
+        callback(snapshot);
     }
 
     // No config file found is not an error; defaults still become active.
@@ -698,16 +699,17 @@ VoidResult ConfigManager::loadFrom(const std::filesystem::path& path) {
     // Note: [keys] section is handled separately by KeyMap::loadFromFile()
     // because keybindings need the ActionRegistry context.
 
+    Config snapshot;
     {
         std::lock_guard lock(impl_->mutex);
         impl_->config = std::move(cfg);
         impl_->loadedPath = path;
+        snapshot = impl_->config;  // Capture snapshot under the lock.
     }
 
-    // Notify callbacks outside the lock
-    const auto& current_config = impl_->config;
+    // Notify callbacks outside the lock using the snapshot.
     for (const auto& [id, callback] : impl_->callbacks) {
-        callback(current_config);
+        callback(snapshot);
     }
 
     return {};
@@ -763,19 +765,22 @@ VoidResult ConfigManager::save() const {
     return {};
 }
 
-const Config& ConfigManager::config() const noexcept {
-    return impl_->config;
+Config ConfigManager::config() const {
+    std::lock_guard lock(impl_->mutex);
+    return impl_->config;  // Deep copy under the lock.
 }
 
 void ConfigManager::setConfig(Config new_config) {
+    Config snapshot;
     {
         std::lock_guard lock(impl_->mutex);
         impl_->config = std::move(new_config);
+        snapshot = impl_->config;  // Capture snapshot under the lock.
     }
 
-    const auto& current_config = impl_->config;
+    // Notify callbacks outside the lock using the snapshot.
     for (const auto& [id, callback] : impl_->callbacks) {
-        callback(current_config);
+        callback(snapshot);
     }
 }
 
@@ -797,8 +802,9 @@ void ConfigManager::removeConfigChangeCallback(size_t id) {
 }
 
 void ConfigManager::enableHotReload(bool enable) {
+    // Placeholder: only records the intent flag. A real file watcher
+    // (inotify / kqueue / ReadDirectoryChangesW) is a future enhancement.
     impl_->hotReloadEnabled = enable;
-    // TODO: Implement file watching (inotify/kqueue/ReadDirectoryChangesW)
 }
 
 std::filesystem::path ConfigManager::userConfigPath() {

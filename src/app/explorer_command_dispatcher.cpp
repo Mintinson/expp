@@ -5,12 +5,18 @@
 
 #include "expp/app/explorer_command_dispatcher.hpp"
 
+#include "expp/app/explorer.hpp"
+#include "expp/app/explorer_commands.hpp"
 #include "expp/app/explorer_presenter.hpp"  // for kPageStep
 #include "expp/app/navigation_utils.hpp"
-#include "expp/core/config.hpp"
+#include "expp/app/notification_center.hpp"
+//#include "expp/core/config.hpp"
+#include "expp/ui/key_handler.hpp"
 
 #include <algorithm>
 #include <format>
+
+#include <expp/ui/components.hpp>
 
 namespace expp::app {
 
@@ -59,7 +65,8 @@ ExplorerCommandDispatcher::ExplorerCommandDispatcher(std::shared_ptr<Explorer> e
     , visualModeObserver_(std::move(visual_mode_observer))
     , asyncCommand_(std::move(async_command)) {}
 
-void ExplorerCommandDispatcher::execute(const ExplorerCommand command, const ui::ActionContext& ctx) {
+void ExplorerCommandDispatcher::execute(const ExplorerCommand command,
+                                        const ui::ActionContext& ctx) {
     // Commands that strictly open overlays or quit short-circuit here. Their
     // side effects happen in the overlay controller / view loop, not below.
     switch (command) {
@@ -94,7 +101,8 @@ void ExplorerCommandDispatcher::execute(const ExplorerCommand command, const ui:
     handleSorting(command);
 }
 
-void ExplorerCommandDispatcher::handleNavigation(const ExplorerCommand command, const ui::ActionContext& ctx) const {
+void ExplorerCommandDispatcher::handleNavigation(const ExplorerCommand command,
+                                                 const ui::ActionContext& ctx) const {
     switch (command) {
         case ExplorerCommand::MoveDown:
             explorer_->moveDown(ctx.count);
@@ -131,8 +139,8 @@ void ExplorerCommandDispatcher::handleNavigation(const ExplorerCommand command, 
     }
 }
 
-void ExplorerCommandDispatcher::handleFileOperations(const ExplorerCommand command,
-                                                     [[maybe_unused]] const ui::ActionContext& ctx) const {
+void ExplorerCommandDispatcher::handleFileOperations(
+    const ExplorerCommand command, [[maybe_unused]] const ui::ActionContext& ctx) const {
     switch (command) {
         case ExplorerCommand::EnterVisualMode:
             explorer_->enterVisualMode();
@@ -152,8 +160,8 @@ void ExplorerCommandDispatcher::handleFileOperations(const ExplorerCommand comma
     }
 }
 
-void ExplorerCommandDispatcher::handleClipboard(const ExplorerCommand command,
-                                                [[maybe_unused]] const ui::ActionContext& ctx) const {
+void ExplorerCommandDispatcher::handleClipboard(
+    const ExplorerCommand command, [[maybe_unused]] const ui::ActionContext& ctx) const {
     (void)command;
 }
 
@@ -208,7 +216,8 @@ std::string ExplorerCommandDispatcher::nounWithCount(int count, std::string_view
 bool ExplorerCommandDispatcher::navigateToHomeDirectory() const {
     auto home_result = resolve_home_directory();
     if (!home_result) {
-        notifications_.publish(severity_for_error(home_result.error()), home_result.error().message());
+        notifications_.publish(severity_for_error(home_result.error()),
+                               home_result.error().message());
         return false;
     }
     return publish_if_error(notifications_, explorer_->navigateTo(*home_result));

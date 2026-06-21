@@ -1,5 +1,6 @@
 #include "expp/app/explorer_commands.hpp"
 #include "expp/ui/components.hpp"
+#include "expp/ui/help_menu_model.hpp"
 #include "expp/ui/key_handler.hpp"
 
 #include <catch2/catch_test_macros.hpp>

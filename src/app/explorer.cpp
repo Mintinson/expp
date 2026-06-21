@@ -37,12 +37,15 @@ struct NavigationSnapshot {
 
 struct Explorer::Impl {
     explicit Impl(fs::path start_path, ExplorerServices service_bundle)
-        : services(std::move(service_bundle))
-        , showHidden(core::global_config().config().behavior.showHiddenFiles)
-        , showGitIgnored(core::global_config().config().versionControl.showIgnoredFiles) {
+        : services(std::move(service_bundle)) {
+        // Take a single config snapshot to avoid four independent reads racing
+        // with concurrent setConfig() calls during construction.
+        const auto cfg = core::global_config().config();
+        showHidden = cfg.behavior.showHiddenFiles;
+        showGitIgnored = cfg.versionControl.showIgnoredFiles;
         state.currentDir = std::move(start_path);
-        state.versionControlEnabled = core::global_config().config().versionControl.enabled;
-        state.showIgnoredFiles = core::global_config().config().versionControl.showIgnoredFiles;
+        state.versionControlEnabled = cfg.versionControl.enabled;
+        state.showIgnoredFiles = cfg.versionControl.showIgnoredFiles;
         baseDirectory = services.fileSystem->normalize(state.currentDir);
     }
 

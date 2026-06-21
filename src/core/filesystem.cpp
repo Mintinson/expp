@@ -782,7 +782,8 @@ VoidResult open_with_default(const fs::path& path) {
 
 Result<bool> read_preview(const fs::path& path,
                           std::vector<std::string>& out_lines,
-                          int max_lines) {
+                          int max_lines,
+                          int max_line_length) {
     out_lines.clear();
     std::error_code ec;
 
@@ -857,16 +858,17 @@ Result<bool> read_preview(const fs::path& path,
     std::string line;
     int current_lines = static_cast<int>(out_lines.size());
 
+    // Clamp to leave room for the "..." suffix; values <= 0 are treated as 3.
+    const auto line_limit = static_cast<std::size_t>(std::max(3, max_line_length));
+
     while (current_lines < max_lines && std::getline(preview_file, line)) {
         // fix the '\r' on windows
         if (!line.empty() && line.back() == '\r') {
             line.pop_back();
         }
-        // TODO: Don't make it static
-        constexpr size_t kMaxLineLength = 80;
 
-        if (line.length() > kMaxLineLength) {
-            line.resize(kMaxLineLength - 3);
+        if (line.length() > line_limit) {
+            line.resize(line_limit - 3);
             line += "...";
         }
         out_lines.push_back(std::move(line));

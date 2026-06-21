@@ -325,6 +325,44 @@ TEST_CASE("readPreview", "[core][filesystem]") {
         CHECK(result[0] == "[Binary or unsupported file]");
     }
 
+    SECTION("long lines are truncated to max_line_length") {
+        const std::string long_line(200, 'x');
+        auto file = tmpDir.createFile("long.txt", long_line);
+
+        std::vector<std::string> result;
+        auto res = filesystem::read_preview(file, result, 10, 20);
+
+        REQUIRE(res.has_value());
+        REQUIRE(result.size() == 1);
+        CHECK(result[0].size() == 20);  // 17 chars + "..."
+        CHECK(result[0].ends_with("..."));
+    }
+
+    SECTION("max_line_length default preserves short lines") {
+        auto file = tmpDir.createFile("short.txt", "hello");
+
+        std::vector<std::string> result;
+        auto res = filesystem::read_preview(file, result, 10);  // default max_line_length=80
+
+        REQUIRE(res.has_value());
+        REQUIRE(result.size() == 1);
+        CHECK(result[0] == "hello");
+    }
+
+    SECTION("max_line_length below 3 is clamped") {
+        const std::string long_line(50, 'x');
+        auto file = tmpDir.createFile("tiny_limit.txt", long_line);
+
+        std::vector<std::string> result;
+        auto res = filesystem::read_preview(file, result, 10, 0);  // clamped to 3
+
+        REQUIRE(res.has_value());
+        REQUIRE(result.size() == 1);
+        // Clamped to 3, so resize(0) + "..." => size 3.
+        CHECK(result[0].size() == 3);
+        CHECK(result[0] == "...");
+    }
+
 #ifndef _WIN32
     SECTION("recursive symlink preview is reported safely") {
         auto loop_link = tmpDir.path() / "loop";

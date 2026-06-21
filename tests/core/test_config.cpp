@@ -346,3 +346,39 @@ TEST_CASE("Invalid user icons.toml reports a config error", "[core][config][icon
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().message().find("icons.toml") != std::string::npos);
 }
+
+TEST_CASE("config() returns an independent snapshot", "[core][config]") {
+    expp::core::ConfigManager manager;
+    auto original = manager.config();
+
+    // Mutate the snapshot in place; the manager must not observe this change.
+    original.preview.maxLines = 9999;
+    original.preview.maxLineLength = 4242;
+    CHECK(manager.config().preview.maxLines != 9999);
+    CHECK(manager.config().preview.maxLineLength != 4242);
+
+    // A setConfig() must not retroactively mutate a previously returned snapshot.
+    auto before = manager.config();
+    auto mutated = before;
+    mutated.behavior.showHiddenFiles = !before.behavior.showHiddenFiles;
+    manager.setConfig(std::move(mutated));
+    CHECK(before.behavior.showHiddenFiles != manager.config().behavior.showHiddenFiles);
+}
+
+TEST_CASE("onConfigChange delivers a stable snapshot to subscribers", "[core][config]") {
+    expp::core::ConfigManager manager;
+    expp::core::Config captured_at_notification;
+
+    const auto id = manager.onConfigChange([&](const expp::core::Config& cfg) {
+        captured_at_notification = cfg;
+    });
+
+    auto next = manager.config();
+    next.behavior.confirmDelete = !next.behavior.confirmDelete;
+    manager.setConfig(std::move(next));
+
+    // The snapshot delivered to the callback must match the post-update state.
+    CHECK(captured_at_notification.behavior.confirmDelete == manager.config().behavior.confirmDelete);
+
+    manager.removeConfigChangeCallback(id);
+}

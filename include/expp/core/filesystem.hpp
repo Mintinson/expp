@@ -19,7 +19,6 @@
 #include "expp/core/error.hpp"
 #include "expp/core/version_control.hpp"
 
-#include <bitset>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -197,11 +196,16 @@ struct FileEntry {
  * @param path Path to read
  * @param out_lines Output vector to fill with lines
  * @param max_lines Maximum lines to read
+ * @param max_line_length Maximum visible line length; lines longer than this
+ *                        are truncated and suffixed with "...". Values smaller
+ *                        than 3 are clamped to 3 to leave room for the suffix.
+ *                        Defaults to 80 to match the built-in PreviewConfig default.
  * @return True if preview is available, false otherwise. Error if error occurs.
  */
 [[nodiscard]] Result<bool> read_preview(const fs::path& path,
                                         std::vector<std::string>& out_lines,
-                                        int max_lines);
+                                        int max_lines,
+                                        int max_line_length = 80);
 
 /**
  * @brief Gets human-readable file size string

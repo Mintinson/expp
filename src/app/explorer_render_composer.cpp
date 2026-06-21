@@ -19,7 +19,6 @@ ExplorerRenderComposer::ExplorerRenderComposer(const ui::Theme* theme) : theme_(
     // state into these primitives each frame.
     fileList_ = std::make_unique<ui::FileListComponent>(ui::FileListConfig{.theme = theme_});
     preview_ = std::make_unique<ui::PreviewComponent>(ui::PreviewRenderConfig{
-        .theme = theme_,
         .maxRenderLines = cfg.preview.maxLines,
     });
     statusBar_ = std::make_unique<ui::StatusBarComponent>(theme_);
@@ -34,7 +33,6 @@ ExplorerRenderComposer::ExplorerRenderComposer(const ui::Theme* theme) : theme_(
         .showPreview = cfg.layout.showPreviewPanel,
         .parentWidth = cfg.layout.parentPanelWidth,
         .previewWidth = cfg.layout.previewPanelWidth,
-        .theme = theme_,
     });
 }
 
@@ -76,24 +74,28 @@ ftxui::Element ExplorerRenderComposer::composeMainLayout(const ExplorerState& st
     using namespace ftxui;
 
     // Render parent directory list
-    auto parent_content = fileList_->render(state.parentEntries, state.selection.parentSelected, {}, -1, {});
+    auto parent_content =
+        fileList_->render(state.parentEntries, state.selection.parentSelected, {}, -1, {});
 
     // Render only the visible slice determined by the presenter. The presenter
     // computes absolute offsets; the file list expects a local contiguous span.
     std::span<const core::filesystem::FileEntry> visible_entries{state.entries};
     visible_entries = visible_entries.subspan(
         static_cast<std::size_t>(screen_model.currentList.offset),
-        static_cast<std::size_t>(std::max(0, screen_model.currentList.visibleEnd - screen_model.currentList.offset)));
+        static_cast<std::size_t>(
+            std::max(0, screen_model.currentList.visibleEnd - screen_model.currentList.offset)));
     auto current_content = fileList_->render(
-        visible_entries, screen_model.currentList.selectedIndex, screen_model.currentList.searchMatches,
-        screen_model.currentList.currentMatchIndex, screen_model.currentList.visualSelectedIndices);
+        visible_entries, screen_model.currentList.selectedIndex,
+        screen_model.currentList.searchMatches, screen_model.currentList.currentMatchIndex,
+        screen_model.currentList.visualSelectedIndices);
 
     // Render preview area
     auto preview_content = preview_->render(preview_model);
 
     // Assemble the three columns into a Panel
-    auto panels = panel_->render(screen_model.parentTitle, std::move(parent_content), screen_model.currentTitle,
-                                 std::move(current_content), "Preview", std::move(preview_content));
+    auto panels = panel_->render(screen_model.parentTitle, std::move(parent_content),
+                                 screen_model.currentTitle, std::move(current_content), "Preview",
+                                 std::move(preview_content));
     // Render status bar
     const ui::StatusBarInfo status_info{.currentPath = screen_model.statusPath,
                                         .keyBuffer = screen_model.keyBuffer,
@@ -120,35 +122,48 @@ ftxui::Element ExplorerRenderComposer::composeOverlay(ftxui::Element base_conten
 
             if constexpr (std::is_same_v<Overlay, HelpOverlayState>) {
                 // Keep composer pure: viewport/model mutation happens upstream.
-                auto help_elem = helpMenu_->render(overlay.model, overlay.filterMode, overlay.viewport);
-                return dbox({std::move(base_content) | dim, std::move(help_elem) | clear_under | center});
+                auto help_elem =
+                    helpMenu_->render(overlay.model, overlay.filterMode, overlay.viewport);
+                return dbox(
+                    {std::move(base_content) | dim, std::move(help_elem) | clear_under | center});
             } else if constexpr (std::is_same_v<Overlay, DirectoryJumpOverlayState>) {
                 // Contract: input-bearing overlays provide a valid active_input.
-                auto dialog_elem = dialog_->renderInput("Jump To Directory",
-                                                        "Enter a path, or use ~ for home:", active_input->Render());
-                return dbox({std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
-            } else if constexpr (std::is_same_v<Overlay, CreateOverlayState>) {
                 auto dialog_elem = dialog_->renderInput(
-                    "Create New File/Directory",
-                    "Enter name (end with / for directory):\ne.g., foo/bar/baz/ creates nested dirs",
-                    active_input->Render());
-                return dbox({std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
+                    "Jump To Directory",
+                    "Enter a path, or use ~ for home:", active_input->Render());
+                return dbox(
+                    {std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
+            } else if constexpr (std::is_same_v<Overlay, CreateOverlayState>) {
+                auto dialog_elem =
+                    dialog_->renderInput("Create New File/Directory",
+                                         "Enter name (end with / for directory):\ne.g., "
+                                         "foo/bar/baz/ creates nested dirs",
+                                         active_input->Render());
+                return dbox(
+                    {std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
             } else if constexpr (std::is_same_v<Overlay, RenameOverlayState>) {
-                auto dialog_elem = dialog_->renderInput("Rename Current File/Directory",
-                                                        "Enter the new name:", active_input->Render());
-                return dbox({std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
+                auto dialog_elem = dialog_->renderInput(
+                    "Rename Current File/Directory", "Enter the new name:", active_input->Render());
+                return dbox(
+                    {std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
             } else if constexpr (std::is_same_v<Overlay, SearchOverlayState>) {
-                auto dialog_elem = dialog_->renderInput("Search (case-sensitive)", "",
-                                                        hbox({text(" / "), active_input->Render() | flex}));
-                return dbox({std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
+                auto dialog_elem =
+                    dialog_->renderInput("Search (case-sensitive)", "",
+                                         hbox({text(" / "), active_input->Render() | flex}));
+                return dbox(
+                    {std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
             } else if constexpr (std::is_same_v<Overlay, DeleteConfirmOverlayState>) {
                 auto dialog_elem = dialog_->renderConfirmation(
-                    "Delete Confirmation", "Are you sure you want to delete:", overlay.targetName, Color::Red);
-                return dbox({std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
+                    "Delete Confirmation", "Are you sure you want to delete:", overlay.targetName,
+                    Color::Red);
+                return dbox(
+                    {std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
             } else if constexpr (std::is_same_v<Overlay, TrashConfirmOverlayState>) {
                 auto dialog_elem = dialog_->renderConfirmation(
-                    "Trash Confirmation", "Are you sure you want to move to trash:", overlay.targetName, Color::Red);
-                return dbox({std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
+                    "Trash Confirmation",
+                    "Are you sure you want to move to trash:", overlay.targetName, Color::Red);
+                return dbox(
+                    {std::move(base_content) | dim, std::move(dialog_elem) | clear_under | center});
             } else {
                 return base_content;
             }

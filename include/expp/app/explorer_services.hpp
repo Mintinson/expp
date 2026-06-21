@@ -70,6 +70,10 @@ using DirectoryChunkHandler = std::function<void(DirectoryListChunk)>;
 struct PreviewRequest {
     fs::path target;
     int maxLines{0};
+    /// Visible line length cap passed to `read_preview`. Defaults to the same
+    /// value as `core::PreviewConfig::maxLineLength` so callers that omit it
+    /// still get sensible truncation.
+    int maxLineLength{80};
     core::CancellationToken cancellation;
 };
 

@@ -34,11 +34,9 @@ target_link_libraries(expp_tests
 )
 # clang will issues warning on __COUNTER__
 if (NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang"))
-    target_compile_options(expp_tests PRIVATE 
-        # -Wno-c2y-extensions
-        expp_warnings
-
-    )
+    # Link the warning flags interface library instead of passing its name as
+    # a compile option (which would be treated as a source file by cl.exe).
+    target_link_libraries(expp_tests PRIVATE expp_warnings)
 endif ()
 
 target_include_directories(expp_tests

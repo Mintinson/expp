@@ -316,8 +316,11 @@ struct Config {
  * 3. System config (/etc/expp/config.toml)
  * 4. Built-in defaults
  *
- * Thread-safety: Thread-safe for read operations after initialization.
- * Use setConfig() for thread-safe updates.
+ * Thread-safety: All public methods are thread-safe. Reads return an independent
+ * snapshot (value copy) so callers can hold and inspect it without worrying
+ * about concurrent setConfig() mutations. Updates go through setConfig() which
+ * serializes writes under an internal mutex and notifies subscribers with a
+ * snapshot taken under the same lock.
  */
 class ConfigManager {
 public:
@@ -360,10 +363,15 @@ public:
     [[nodiscard]] VoidResult save() const;
 
     /**
-     * @brief Gets the current configuration (thread-safe)
-     * @return Const reference to current config
+     * @brief Returns an independent snapshot of the current configuration.
+     *
+     * The returned value is a deep copy produced under the internal mutex.
+     * Callers may freely hold and read it without external synchronization;
+     * later setConfig() calls will not mutate a previously returned snapshot.
+     *
+     * @return Value copy of the current configuration.
      */
-    [[nodiscard]] const Config& config() const noexcept;
+    [[nodiscard]] Config config() const;
 
     /**
      * @brief Updates configuration (thread-safe)
@@ -390,8 +398,15 @@ public:
     void removeConfigChangeCallback(size_t id);
 
     /**
-     * @brief Enables hot-reloading of config file
-     * @param enable True to enable monitoring
+     * @brief Requests enabling or disabling hot-reloading of the config file.
+     *
+     * @note Current implementation is a placeholder: it only records the intent
+     *       flag and does NOT install any file watcher. Calling this method has
+     *       no observable effect. Reload still requires an explicit load() or
+     *       loadFrom() call. A future revision will wire this to a native
+     *       platform watcher (inotify / kqueue / ReadDirectoryChangesW).
+     *
+     * @param enable Desired hot-reload state. Stored for future watcher use.
      */
     void enableHotReload(bool enable);
 

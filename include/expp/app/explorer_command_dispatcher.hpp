@@ -12,14 +12,21 @@
  * notifications, while keeping `ExplorerView` focused on input/render plumbing.
  */
 
-#include "expp/app/explorer.hpp"
 #include "expp/app/explorer_commands.hpp"
-#include "expp/app/notification_center.hpp"
 
+#include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
+
+namespace expp::ui {
+struct ActionContext;
+}  // namespace expp::ui
 
 namespace expp::app {
+// enum class ExplorerCommand: expp::ui::CommandId;
+class NotificationCenter;
+class Explorer;
 
 /**
  * @brief Routes high-level explorer commands to domain and UI side effects.

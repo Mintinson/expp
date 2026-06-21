@@ -185,7 +185,7 @@ struct ActionContext {
 };
 
 using ActionHandler = std::function<void(const ActionContext&)>;
-using CommandId = std::uint32_t;
+using CommandId = std::uint8_t;
 constexpr CommandId kInvalidCommandId = std::numeric_limits<CommandId>::max();
 
 /**

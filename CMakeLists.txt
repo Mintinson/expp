@@ -104,6 +104,7 @@ target_compile_options(expp_project_options INTERFACE
     # Frontend-variant checks keep clang-cl aligned with cl.exe while still
     # allowing GCC/Clang-on-Unix to use their native flags.
     $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>:
+        -Xclang -std=c++23  # <--- Visual Studio may need this to correctly configure IntelliSense
         /permissive-
         /Zc:__cplusplus
         /utf-8
@@ -203,33 +204,33 @@ include(FetchContent)
 find_package(Threads REQUIRED)
 
 # FTXUI - TUI library
-FetchContent_Declare(ftxui
+fetchcontent_declare(ftxui
         GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI
         GIT_TAG v6.1.9
 )
 
 # toml++ - Configuration parsing (header-only)
-FetchContent_Declare(tomlplusplus
+fetchcontent_declare(tomlplusplus
         GIT_REPOSITORY https://github.com/marzer/tomlplusplus
         GIT_TAG v3.4.0
 )
 
 # Catch2 - Testing framework
 if (EXPP_BUILD_TESTS OR EXPP_ENABLE_BENCHMARKS)
-    FetchContent_Declare(Catch2
+    fetchcontent_declare(Catch2
             GIT_REPOSITORY https://github.com/catchorg/Catch2
             GIT_TAG v3.5.2
     )
 endif ()
 
 # Asio - standalone async runtime
-FetchContent_Declare(asio_src
+fetchcontent_declare(asio_src
         GIT_REPOSITORY https://github.com/chriskohlhoff/asio
         GIT_TAG asio-1-38-0
 )
 
 if (EXPP_ENABLE_LIBGIT2 AND EXPP_FETCH_LIBGIT2)
-    FetchContent_Declare(libgit2
+    fetchcontent_declare(libgit2
             GIT_REPOSITORY https://github.com/libgit2/libgit2
             GIT_TAG v1.9.1
             GIT_SUBMODULES ""
@@ -425,7 +426,13 @@ endif ()
 add_library(expp_ui STATIC
         src/ui/key_handler.cpp
         src/ui/theme.cpp
-        src/ui/components.cpp
+        src/ui/file_list_component.cpp
+        src/ui/status_bar_component.cpp
+        src/ui/toast_component.cpp
+        src/ui/help_menu_component.cpp
+        src/ui/dialog_component.cpp
+        src/ui/panel_component.cpp
+        src/ui/preview_component.cpp
         src/ui/help_menu_model.cpp
 )
 expp_apply_target_defaults(expp_ui)

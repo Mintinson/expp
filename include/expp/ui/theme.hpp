@@ -1,13 +1,27 @@
 #ifndef EXPP_UI_THEME_HPP
 #define EXPP_UI_THEME_HPP
 
-#include "expp/core/config.hpp"
-#include "expp/core/filesystem.hpp"
-#include "expp/core/version_control.hpp"
+// #include "expp/core/config.hpp"
+//  #include "expp/core/filesystem.hpp"
+//  #include "expp/core/version_control.hpp"
 
 #include <ftxui/screen/color.hpp>
 
 #include <cstdint>
+#include <memory>
+#include <string_view>
+
+namespace expp::core {
+enum class VersionStatus : std::uint8_t;
+
+struct ColorTheme;
+struct IconConfig;
+
+namespace filesystem {
+enum class FileType : std::uint8_t;
+struct FileEntry;
+}  // namespace filesystem
+}  // namespace expp::core
 
 namespace expp::ui {
 /**
@@ -31,8 +45,10 @@ namespace expp::ui {
  */
 class Theme {
 public:
-    explicit Theme(const core::ColorTheme& config_theme = {},
-                   const core::IconConfig& icon_config = {});
+    explicit Theme();
+    // explicit Theme(const core::ColorTheme& config_theme = {},
+    //                const core::IconConfig& icon_config = {});
+    explicit Theme(const core::ColorTheme& config_theme, const core::IconConfig& icon_config);
 
     /**
      * @brief Gets color for a file type
@@ -41,7 +57,8 @@ public:
      */
     [[nodiscard]] ftxui::Color getFileTypeColor(core::filesystem::FileType type) const noexcept;
 
-    [[nodiscard]] std::string_view getFileTypeIcon(const core::filesystem::FileEntry& entry) const noexcept;
+    [[nodiscard]] std::string_view getFileTypeIcon(
+        const core::filesystem::FileEntry& entry) const noexcept;
 
     /**
      * @brief Gets color for a file entry (considers hidden status)
@@ -51,11 +68,18 @@ public:
     [[nodiscard]] ftxui::Color getFileEntryColor(core::filesystem::FileEntry entry) const noexcept;
 
     [[nodiscard]] ftxui::Color getBackgroundColor() const noexcept { return backgroundColor_; }
+
     [[nodiscard]] ftxui::Color getForegroundColor() const noexcept { return foregroundColor_; }
+
     [[nodiscard]] ftxui::Color getSelectionColor() const noexcept { return selectionColor_; }
+
     [[nodiscard]] ftxui::Color getBorderColor() const noexcept { return borderColor_; }
+
     [[nodiscard]] ftxui::Color getStatusBarColor() const noexcept { return statusBarColor_; }
-    [[nodiscard]] ftxui::Color getSearchHighlightColor() const noexcept { return searchHighlightColor_; }
+
+    [[nodiscard]] ftxui::Color getSearchHighlightColor() const noexcept {
+        return searchHighlightColor_;
+    }
 
     [[nodiscard]] ftxui::Color getVersionStatusColor(core::VersionStatus status) const noexcept;
 
@@ -69,7 +93,7 @@ public:
      * @brief Reloads icons from configuration
      * @param iconConfig New icon configuration
      */
-    void reloadIcons(const core::IconConfig& icon_config);
+    void reloadIcons(core::IconConfig icon_config);
 
 private:
     // File type colors
@@ -103,7 +127,7 @@ private:
     ftxui::Color conflictedColor_;
 
     // Icons
-    core::IconConfig iconConfig_;
+    std::unique_ptr<core::IconConfig> iconConfig_;
 };
 
 /**

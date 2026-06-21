@@ -1,6 +1,14 @@
 #include "expp/ui/theme.hpp"
 
+#include "expp/core/config.hpp"
+#include "expp/core/filesystem.hpp"
+#include "expp/core/version_control.hpp"
+
+#include <memory>
+#include <utility>
+
 namespace expp::ui {
+Theme::Theme() : Theme(core::ColorTheme{}, core::IconConfig{}) {}
 
 Theme::Theme(const core::ColorTheme& config_theme, const core::IconConfig& icon_config) {
     reload(config_theme);
@@ -66,7 +74,7 @@ ftxui::Color Theme::getVersionStatusColor(core::VersionStatus status) const noex
 }
 
 std::string_view Theme::getFileTypeIcon(const core::filesystem::FileEntry& entry) const noexcept {
-    return core::resolve_icon(iconConfig_, entry);
+    return core::resolve_icon(*iconConfig_, entry);
 }
 
 void Theme::reload(const core::ColorTheme& config) {
@@ -98,8 +106,8 @@ void Theme::reload(const core::ColorTheme& config) {
     conflictedColor_ = hex_to_color(config.conflicted);
 }
 
-void Theme::reloadIcons(const core::IconConfig& icon_config) {
-    iconConfig_ = icon_config;
+void Theme::reloadIcons(core::IconConfig icon_config) {
+    iconConfig_ = std::make_unique<core::IconConfig>(std::move(icon_config));
 }
 
 // Global theme instance

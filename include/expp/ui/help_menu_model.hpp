@@ -32,7 +32,7 @@ struct HelpEntry {
 struct HelpViewport {
     int selectedIndex{0};
     int scrollOffset{0};
-    int viewportRows{12};
+    int viewportRows{12};  // NOLINT
 };
 
 /**
