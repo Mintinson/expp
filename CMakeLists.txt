@@ -104,7 +104,7 @@ target_compile_options(expp_project_options INTERFACE
     # Frontend-variant checks keep clang-cl aligned with cl.exe while still
     # allowing GCC/Clang-on-Unix to use their native flags.
     $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>:
-        -Xclang -std=c++23  # <--- Visual Studio may need this to correctly configure IntelliSense
+        # -Xclang -std=c++23  # <--- Visual Studio may need this to correctly configure IntelliSense
         /permissive-
         /Zc:__cplusplus
         /utf-8
@@ -114,6 +114,9 @@ target_compile_options(expp_project_options INTERFACE
     $<$<CXX_COMPILER_ID:MSVC>:/Zc:preprocessor>
     $<$<AND:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},GNU>,$<BOOL:${EXPP_DISABLE_EXCEPTIONS}>>:-fno-exceptions>
 )
+if (MSVC AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(expp_project_options INTERFACE -Xclang -std=c++23)
+endif()
 
 # ==============================================================================
 # Compiler warnings (strict by default)

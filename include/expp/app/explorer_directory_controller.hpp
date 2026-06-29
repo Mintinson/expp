@@ -1,8 +1,10 @@
 #ifndef EXPP_APP_EXPLORER_DIRECTORY_CONTROLLER_HPP
 #define EXPP_APP_EXPLORER_DIRECTORY_CONTROLLER_HPP
 
-#include "expp/app/explorer.hpp"
-#include "expp/app/notification_center.hpp"
+// #include "expp/app/explorer.hpp"
+// #include "expp/app/notification_center.hpp"
+#include "expp/core/task.hpp"
+#include "expp/core/version_control.hpp"
 
 #include <filesystem>
 #include <list>
@@ -13,6 +15,8 @@
 #include <vector>
 
 namespace expp::app {
+class Explorer;
+class NotificationCenter;
 
 /**
  * @brief Async coordinator for directory loading, navigation, and viewport-scoped MIME preload.

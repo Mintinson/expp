@@ -11,14 +11,16 @@
 #ifndef EXPP_EXPLORER_PREVIEW_CONTROLLER_HPP
 #define EXPP_EXPLORER_PREVIEW_CONTROLLER_HPP
 
-#include "expp/app/explorer.hpp"
-#include "expp/ui/components.hpp"
-#include "expp/app/explorer_presenter.hpp"
+// #include "expp/app/explorer.hpp"
+// #include "expp/ui/components.hpp"
+#include "expp/app/preview_model.hpp"
+#include "expp/core/task.hpp"
 
 #include <filesystem>
 #include <optional>
 
 namespace expp::app {
+class Explorer;
 
 /**
  * @brief Maintains preview state for the currently focused explorer entry.
@@ -32,7 +34,8 @@ public:
     /**
      * @brief Constructs a preview controller bound to an explorer instance.
      */
-    explicit ExplorerPreviewController(std::shared_ptr<Explorer> explorer) : explorer_(std::move(explorer)) {}
+    explicit ExplorerPreviewController(std::shared_ptr<Explorer> explorer)
+        : explorer_(std::move(explorer)) {}
 
     /**
      * @brief Returns the latest preview model snapshot for rendering.
@@ -41,10 +44,12 @@ public:
 
     /**
      * @brief Synchronizes preview state with the current selection target.
-     * @param current_target The currently selected path, or `std::nullopt` when nothing is selected.
+     * @param current_target The currently selected path, or `std::nullopt` when nothing is
+     * selected.
      * @param force_refresh When true, reloads even if target did not change.
      */
-    void sync(const std::optional<std::filesystem::path>& current_target, bool force_refresh = false);
+    void sync(const std::optional<std::filesystem::path>& current_target,
+              bool force_refresh = false);
 
 private:
     /// Explorer facade used to access preview and filesystem services.

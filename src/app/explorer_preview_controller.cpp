@@ -5,14 +5,18 @@
 
 #include "expp/app/explorer_preview_controller.hpp"
 
+#include "expp/app/explorer.hpp"
 #include "expp/core/config.hpp"
 
 #include <asio/co_spawn.hpp>
 #include <asio/detached.hpp>
 
+#include <utility>
+
 namespace expp::app {
 
-void ExplorerPreviewController::sync(const std::optional<std::filesystem::path>& current_target, bool force_refresh) {
+void ExplorerPreviewController::sync(const std::optional<std::filesystem::path>& current_target,
+                                     bool force_refresh) {
     if (!force_refresh && current_target == previewTarget_) {
         return;
     }
@@ -45,36 +49,37 @@ void ExplorerPreviewController::sync(const std::optional<std::filesystem::path>&
     const int max_read_lines = config_max_lines < 0 ? 500 : std::max(1, config_max_lines);
     const int max_line_length = std::max(1, cfg.preview.maxLineLength);
 
-    asio::co_spawn(runtime->ioExecutor(),
-                   [this, runtime, preview_service, token, generation, target, max_read_lines,
-                    max_line_length]() -> core::Task<void> {
-                       auto result = co_await preview_service->loadPreview(PreviewRequest{
-                           .target = target,
-                           .maxLines = max_read_lines,
-                           .maxLineLength = max_line_length,
-                           .cancellation = token,
-                       });
+    asio::co_spawn(
+        runtime->ioExecutor(),
+        [this, runtime, preview_service = std::move(preview_service), token, generation,
+         target = std::move(target), max_read_lines, max_line_length]() -> core::Task<void> {
+            auto result = co_await preview_service->loadPreview(PreviewRequest{
+                .target = target,
+                .maxLines = max_read_lines,
+                .maxLineLength = max_line_length,
+                .cancellation = token,
+            });
 
-                       runtime->postToUi([this, generation, target, result = std::move(result)]() mutable {
-                           if (generation != previewGeneration_) {
-                               return;
-                           }
+            runtime->postToUi([this, generation, target, result = std::move(result)]() mutable {
+                if (generation != previewGeneration_) {
+                    return;
+                }
 
-                           if (!result) {
-                               previewModel_ = app::PreviewErrorState{
-                                   .target = target,
-                                   .message = result.error().message(),
-                               };
-                               return;
-                           }
+                if (!result) {
+                    previewModel_ = app::PreviewErrorState{
+                        .target = target,
+                        .message = result.error().message(),
+                    };
+                    return;
+                }
 
-                           previewModel_ = app::PreviewReadyState{
-                               .target = target,
-                               .lines = std::move(result->lines),
-                           };
-                       });
-                   },
-                   asio::detached);
+                previewModel_ = app::PreviewReadyState{
+                    .target = target,
+                    .lines = std::move(result->lines),
+                };
+            });
+        },
+        asio::detached);
 }
 
 }  // namespace expp::app

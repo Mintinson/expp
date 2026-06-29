@@ -1,26 +1,25 @@
 #include "expp/app/explorer_directory_controller.hpp"
 
-#include "expp/app/navigation_utils.hpp"
-#include "expp/core/config.hpp"
-#include "expp/core/task.hpp"
 #include "expp/app/explorer.hpp"
+#include "expp/app/explorer_services.hpp"
+#include "expp/app/navigation_utils.hpp"
 #include "expp/app/notification_center.hpp"
+#include "expp/core/config.hpp"
+#include "expp/ui/components.hpp"
+
 #include <asio/detached.hpp>
 
 #include <algorithm>
-#include <format>
-#include <iostream>
-#include <utility>
 #include <cstdint>
 #include <filesystem>
+#include <format>
+#include <iostream>
 #include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
-#include <expp/app/explorer_services.hpp>
-#include <expp/core/version_control.hpp>
-#include <expp/ui/components.hpp>
 
 namespace expp::app {
 
@@ -196,8 +195,8 @@ void ExplorerDirectoryController::startDirectoryLoad(fs::path directory,
     preloadEnd_ = -1;
     preloadEntryCount_ = 0;
 
-    const auto runtime = explorer_->services().runtime;
-    const auto file_system = explorer_->services().fileSystem;
+    const auto& runtime = explorer_->services().runtime;
+    const auto& file_system = explorer_->services().fileSystem;
 
     // 2. Increment generation counter to track this specific request
     const auto generation = ++listingGeneration_;
@@ -214,7 +213,7 @@ void ExplorerDirectoryController::startDirectoryLoad(fs::path directory,
         [this, runtime, file_system, directory = std::move(directory), generation, include_hidden,
          token, chunk_entries]() -> core::Task<void> {
             // Step A: Canonicalize the directory path (resolve symlinks/absolute path)
-            auto canonical_result = co_await file_system->canonicalize(directory);
+            const auto& canonical_result = co_await file_system->canonicalize(directory);
             if (!canonical_result) {
                 runtime->postToUi([this, generation, error = canonical_result.error()] {
                     if (generation != listingGeneration_) {

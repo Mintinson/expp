@@ -16,10 +16,10 @@
 #ifndef EXPP_EXPLORER_OVERLAY_CONTROLLER_HPP
 #define EXPP_EXPLORER_OVERLAY_CONTROLLER_HPP
 
-#include "expp/app/explorer.hpp"
+//#include "expp/app/explorer.hpp"
 #include "expp/app/explorer_commands.hpp"
 #include "expp/app/explorer_presenter.hpp"
-#include "expp/app/notification_center.hpp"
+//#include "expp/app/notification_center.hpp"
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
@@ -27,8 +27,11 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace expp::app {
+class Explorer;
+class NotificationCenter;
 
 /**
  * @brief Controller for all modal explorer overlays.

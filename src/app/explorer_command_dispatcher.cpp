@@ -10,13 +10,12 @@
 #include "expp/app/explorer_presenter.hpp"  // for kPageStep
 #include "expp/app/navigation_utils.hpp"
 #include "expp/app/notification_center.hpp"
-//#include "expp/core/config.hpp"
+// #include "expp/core/config.hpp"
+#include "expp/ui/components.hpp"
 #include "expp/ui/key_handler.hpp"
 
 #include <algorithm>
 #include <format>
-
-#include <expp/ui/components.hpp>
 
 namespace expp::app {
 

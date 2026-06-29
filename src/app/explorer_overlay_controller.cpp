@@ -1,5 +1,8 @@
 #include "expp/app/explorer_overlay_controller.hpp"
 
+#include "expp/app/explorer.hpp"
+#include "expp/app/notification_center.hpp"
+
 #include <algorithm>
 
 namespace expp::app {
@@ -35,7 +38,9 @@ void ExplorerOverlayController::openOverlayForCommand(const ExplorerCommand comm
             // immediately editable without another lookup in the view layer.
             RenameOverlayState overlay;
             if (const auto& state = explorer_->state(); !state.entries.empty()) {
-                overlay.input = state.entries[static_cast<std::size_t>(state.selection.currentSelected)].filename();
+                overlay.input =
+                    state.entries[static_cast<std::size_t>(state.selection.currentSelected)]
+                        .filename();
             }
             overlayState_ = std::move(overlay);
             break;
@@ -53,9 +58,13 @@ void ExplorerOverlayController::openOverlayForCommand(const ExplorerCommand comm
             }
             // Confirmation overlays snapshot the current logical selection so the
             // dialog text stays stable even if the underlying explorer refreshes.
-            const int count = state.selection.visualModeActive ? std::max(1, explorer_->visualSelectionCount()) : 1;
+            const int count = state.selection.visualModeActive
+                                  ? std::max(1, explorer_->visualSelectionCount())
+                                  : 1;
             overlayState_ = DeleteConfirmOverlayState{
-                .targetName = state.entries[static_cast<std::size_t>(state.selection.currentSelected)].filename(),
+                .targetName =
+                    state.entries[static_cast<std::size_t>(state.selection.currentSelected)]
+                        .filename(),
                 .selectionCount = count,
             };
             break;
@@ -65,9 +74,13 @@ void ExplorerOverlayController::openOverlayForCommand(const ExplorerCommand comm
             if (state.entries.empty()) {
                 return;
             }
-            const int count = state.selection.visualModeActive ? std::max(1, explorer_->visualSelectionCount()) : 1;
+            const int count = state.selection.visualModeActive
+                                  ? std::max(1, explorer_->visualSelectionCount())
+                                  : 1;
             overlayState_ = TrashConfirmOverlayState{
-                .targetName = state.entries[static_cast<std::size_t>(state.selection.currentSelected)].filename(),
+                .targetName =
+                    state.entries[static_cast<std::size_t>(state.selection.currentSelected)]
+                        .filename(),
                 .selectionCount = count,
             };
             break;
@@ -87,7 +100,8 @@ void ExplorerOverlayController::openOverlayForCommand(const ExplorerCommand comm
     rebuildInputComponents();
 }
 
-void ExplorerOverlayController::openHelpOverlay(const std::vector<ui::HelpEntry>& entries, int screen_rows) {
+void ExplorerOverlayController::openHelpOverlay(const std::vector<ui::HelpEntry>& entries,
+                                                int screen_rows) {
     // Help overlay initialization depends on the current screen height, so this
     // logic lives here rather than in the generic command-to-overlay switch.
     HelpOverlayState overlay;
@@ -113,7 +127,6 @@ void ExplorerOverlayController::closeOverlay() {
     overlayState_ = std::monostate{};
     activeInputComponent_ = nullptr;
 }
-
 
 void ExplorerOverlayController::rebuildInputComponents() {
     using namespace ftxui;
@@ -142,21 +155,24 @@ void ExplorerOverlayController::rebuildInputComponents() {
             using T = std::decay_t<T0>;
 
             if constexpr (std::is_same_v<T, CreateOverlayState>) {
-                activeInputComponent_ =
-                    Input(&overlay.input, "filename or path/to/dir/", make_input_option(Color::Cyan2));
+                activeInputComponent_ = Input(&overlay.input, "filename or path/to/dir/",
+                                              make_input_option(Color::Cyan2));
                 activeInputComponent_->TakeFocus();
             } else if constexpr (std::is_same_v<T, RenameOverlayState>) {
-                activeInputComponent_ = Input(&overlay.input, "new name", make_input_option(Color::DarkCyan));
+                activeInputComponent_ =
+                    Input(&overlay.input, "new name", make_input_option(Color::DarkCyan));
                 activeInputComponent_->TakeFocus();
             } else if constexpr (std::is_same_v<T, SearchOverlayState>) {
-                activeInputComponent_ = Input(&overlay.input, "pattern", make_input_option(Color::Yellow));
+                activeInputComponent_ =
+                    Input(&overlay.input, "pattern", make_input_option(Color::Yellow));
                 activeInputComponent_->TakeFocus();
             } else if constexpr (std::is_same_v<T, DirectoryJumpOverlayState>) {
-                activeInputComponent_ = Input(&overlay.input, "~/path/to/dir", make_input_option(Color::GreenLight));
+                activeInputComponent_ =
+                    Input(&overlay.input, "~/path/to/dir", make_input_option(Color::GreenLight));
                 activeInputComponent_->TakeFocus();
             } else if constexpr (std::is_same_v<T, HelpOverlayState>) {
-                activeInputComponent_ =
-                    Input(&overlay.filterText, "shortcut or description", make_input_option(Color::Yellow));
+                activeInputComponent_ = Input(&overlay.filterText, "shortcut or description",
+                                              make_input_option(Color::Yellow));
                 if (overlay.filterMode) {
                     activeInputComponent_->TakeFocus();
                 }
@@ -198,8 +214,8 @@ bool ExplorerOverlayController::handleHelpEvent(HelpOverlayState& help, const ft
         if (help.model.filteredCount() == 0U) {
             return true;
         }
-        help.viewport.selectedIndex =
-            std::clamp(help.viewport.selectedIndex + 1, 0, static_cast<int>(help.model.filteredCount()) - 1);
+        help.viewport.selectedIndex = std::clamp(help.viewport.selectedIndex + 1, 0,
+                                                 static_cast<int>(help.model.filteredCount()) - 1);
         help.viewport = ui::clamp_help_viewport(help.viewport, help.model);
         return true;
     }
@@ -207,8 +223,8 @@ bool ExplorerOverlayController::handleHelpEvent(HelpOverlayState& help, const ft
         if (help.model.filteredCount() == 0U) {
             return true;
         }
-        help.viewport.selectedIndex =
-            std::clamp(help.viewport.selectedIndex - 1, 0, static_cast<int>(help.model.filteredCount()) - 1);
+        help.viewport.selectedIndex = std::clamp(help.viewport.selectedIndex - 1, 0,
+                                                 static_cast<int>(help.model.filteredCount()) - 1);
         help.viewport = ui::clamp_help_viewport(help.viewport, help.model);
         return true;
     }
@@ -275,7 +291,8 @@ bool ExplorerOverlayController::handleDirectoryJumpEvent(DirectoryJumpOverlaySta
     return activeInputComponent_->OnEvent(event);
 }
 
-bool ExplorerOverlayController::handleCreateEvent(CreateOverlayState& overlay, const ftxui::Event& event) {
+bool ExplorerOverlayController::handleCreateEvent(CreateOverlayState& overlay,
+                                                  const ftxui::Event& event) {
     if (event == ftxui::Event::Return) {
         if (!overlay.input.empty() && create_) {
             create_(overlay.input);
@@ -290,7 +307,8 @@ bool ExplorerOverlayController::handleCreateEvent(CreateOverlayState& overlay, c
     return activeInputComponent_->OnEvent(event);
 }
 
-bool ExplorerOverlayController::handleRenameEvent(RenameOverlayState& overlay, const ftxui::Event& event) {
+bool ExplorerOverlayController::handleRenameEvent(RenameOverlayState& overlay,
+                                                  const ftxui::Event& event) {
     if (event == ftxui::Event::Return) {
         if (!overlay.input.empty() && rename_) {
             rename_(overlay.input);
@@ -305,7 +323,8 @@ bool ExplorerOverlayController::handleRenameEvent(RenameOverlayState& overlay, c
     return activeInputComponent_->OnEvent(event);
 }
 
-bool ExplorerOverlayController::handleSearchEvent(const SearchOverlayState& overlay, const ftxui::Event& event) {
+bool ExplorerOverlayController::handleSearchEvent(const SearchOverlayState& overlay,
+                                                  const ftxui::Event& event) {
     if (event == ftxui::Event::Return) {
         // Search is side-effect free on filesystem state, so always close after
         // applying the new pattern.
@@ -320,8 +339,8 @@ bool ExplorerOverlayController::handleSearchEvent(const SearchOverlayState& over
     return activeInputComponent_->OnEvent(event);
 }
 
-bool ExplorerOverlayController::handleDeleteEvent([[maybe_unused]] DeleteConfirmOverlayState& overlay,
-                                                  const ftxui::Event& event) {
+bool ExplorerOverlayController::handleDeleteEvent(
+    [[maybe_unused]] DeleteConfirmOverlayState& overlay, const ftxui::Event& event) {
     if (event == ftxui::Event::Character('y') || event == ftxui::Event::Character('Y')) {
         if (deleteSelected_) {
             deleteSelected_();
@@ -350,7 +369,8 @@ bool ExplorerOverlayController::handleTrashEvent([[maybe_unused]] TrashConfirmOv
         }
         return true;
     }
-    if (event == Event::Character('n') || event == Event::Character('N') || event == Event::Escape) {
+    if (event == Event::Character('n') || event == Event::Character('N') ||
+        event == Event::Escape) {
         closeOverlay();
         return true;
     }

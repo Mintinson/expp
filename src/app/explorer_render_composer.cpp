@@ -5,9 +5,14 @@
 
 #include "expp/app/explorer_render_composer.hpp"
 
+#include "expp/app/explorer.hpp"
 #include "expp/core/config.hpp"
+#include "expp/core/filesystem.hpp"
+#include "expp/ui/components.hpp"
+#include "expp/ui/theme.hpp"
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 namespace expp::app {

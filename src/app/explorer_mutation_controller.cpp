@@ -1,5 +1,9 @@
 #include "expp/app/explorer_mutation_controller.hpp"
 
+#include "expp/app/explorer.hpp"
+#include "expp/app/explorer_directory_controller.hpp"
+#include "expp/app/notification_center.hpp"
+
 #include <asio/co_spawn.hpp>
 #include <asio/detached.hpp>
 
@@ -22,9 +26,10 @@ namespace {
 
 }  // namespace
 
-ExplorerMutationController::ExplorerMutationController(std::shared_ptr<Explorer> explorer,
-                                                       NotificationCenter& notifications,
-                                                       ExplorerDirectoryController& directory_controller)
+ExplorerMutationController::ExplorerMutationController(
+    std::shared_ptr<Explorer> explorer,
+    NotificationCenter& notifications,
+    ExplorerDirectoryController& directory_controller)
     : explorer_(std::move(explorer))
     , notifications_(notifications)
     , directoryController_(directory_controller) {}
@@ -44,7 +49,8 @@ void ExplorerMutationController::create(std::string name) {
 
     asio::co_spawn(
         runtime->ioExecutor(),
-        [this, runtime, file_system, target, create_directory, name = std::move(name)]() -> core::Task<void> {
+        [this, runtime, file_system, target, create_directory,
+         name = std::move(name)]() -> core::Task<void> {
             // 1. Perform disk I/O in the background
             auto result = create_directory ? co_await file_system->createDirectory(target)
                                            : co_await file_system->createFile(target);
@@ -52,10 +58,12 @@ void ExplorerMutationController::create(std::string name) {
             // 2. Post result back to the UI thread safely
             runtime->postToUi([this, target, name, result = std::move(result)]() mutable {
                 if (!result) {
-                    notifications_.publish(severity_for_error(result.error()), result.error().message());
+                    notifications_.publish(severity_for_error(result.error()),
+                                           result.error().message());
                     return;
                 }
-                notifications_.publish(ui::ToastSeverity::Success, std::format("Created '{}'", name));
+                notifications_.publish(ui::ToastSeverity::Success,
+                                       std::format("Created '{}'", name));
 
                 // 3. Trigger a directory reload to show the newly created item
                 directoryController_.reloadCurrentDirectory(target);
@@ -70,21 +78,24 @@ void ExplorerMutationController::rename(std::string new_name) {
         return;
     }
 
-    const auto runtime = explorer_->services().runtime;
-    const auto file_system = explorer_->services().fileSystem;
-    const fs::path current_dir = explorer_->state().currentDir;
+    const auto& runtime = explorer_->services().runtime;
+    const auto& file_system = explorer_->services().fileSystem;
+    const fs::path& current_dir = explorer_->state().currentDir;
     const fs::path target = current_dir / new_name;
 
     asio::co_spawn(
         runtime->ioExecutor(),
-        [this, runtime, file_system, source = *selected, target, new_name = std::move(new_name)]() -> core::Task<void> {
+        [this, runtime, file_system, source = *selected, target = std::move(target),
+         new_name = std::move(new_name)]() -> core::Task<void> {
             auto result = co_await file_system->rename(source, target);
             runtime->postToUi([this, target, new_name, result = std::move(result)]() mutable {
                 if (!result) {
-                    notifications_.publish(severity_for_error(result.error()), result.error().message());
+                    notifications_.publish(severity_for_error(result.error()),
+                                           result.error().message());
                     return;
                 }
-                notifications_.publish(ui::ToastSeverity::Success, std::format("Renamed to '{}'", new_name));
+                notifications_.publish(ui::ToastSeverity::Success,
+                                       std::format("Renamed to '{}'", new_name));
                 directoryController_.reloadCurrentDirectory(target);
             });
         },
@@ -98,15 +109,17 @@ void ExplorerMutationController::deleteSelected() {
     }
 
     const int selection_count = static_cast<int>(targets.size());
-    const auto runtime = explorer_->services().runtime;
-    const auto file_system = explorer_->services().fileSystem;
+    const auto& runtime = explorer_->services().runtime;
+    const auto& file_system = explorer_->services().fileSystem;
 
     asio::co_spawn(
         runtime->ioExecutor(),
-        [this, runtime, file_system, targets, selection_count]() -> core::Task<void> {
+        [this, selection_count, runtime, file_system,
+         targets = std::move(targets)]() -> core::Task<void> {
             for (const auto& target : targets) {
-                auto result = fs::is_directory(target) ? co_await file_system->removeDirectory(target)
-                                                       : co_await file_system->removeFile(target);
+                auto result = fs::is_directory(target)
+                                  ? co_await file_system->removeDirectory(target)
+                                  : co_await file_system->removeFile(target);
                 if (!result) {
                     runtime->postToUi([this, error = result.error()] {
                         notifications_.publish(severity_for_error(error), error.message());
@@ -117,8 +130,9 @@ void ExplorerMutationController::deleteSelected() {
 
             runtime->postToUi([this, selection_count] {
                 explorer_->exitVisualMode();
-                notifications_.publish(ui::ToastSeverity::Success,
-                                       std::format("Deleted {}", noun_with_count(selection_count, "item")));
+                notifications_.publish(
+                    ui::ToastSeverity::Success,
+                    std::format("Deleted {}", noun_with_count(selection_count, "item")));
                 directoryController_.reloadCurrentDirectory();
             });
         },
@@ -132,12 +146,13 @@ void ExplorerMutationController::trashSelected() {
     }
 
     const int selection_count = static_cast<int>(targets.size());
-    const auto runtime = explorer_->services().runtime;
-    const auto file_system = explorer_->services().fileSystem;
+    const auto& runtime = explorer_->services().runtime;
+    const auto& file_system = explorer_->services().fileSystem;
 
     asio::co_spawn(
         runtime->ioExecutor(),
-        [this, runtime, file_system, targets, selection_count]() -> core::Task<void> {
+        [this, selection_count, runtime, file_system,
+         targets = std::move(targets)]() -> core::Task<void> {
             for (const auto& target : targets) {
                 auto result = co_await file_system->moveToTrash(target);
                 if (!result) {
@@ -150,8 +165,9 @@ void ExplorerMutationController::trashSelected() {
 
             runtime->postToUi([this, selection_count] {
                 explorer_->exitVisualMode();
-                notifications_.publish(ui::ToastSeverity::Success,
-                                       std::format("Trashed {}", noun_with_count(selection_count, "item")));
+                notifications_.publish(
+                    ui::ToastSeverity::Success,
+                    std::format("Trashed {}", noun_with_count(selection_count, "item")));
                 directoryController_.reloadCurrentDirectory();
             });
         },
@@ -180,10 +196,12 @@ void ExplorerMutationController::openSelected() {
             auto result = co_await file_system->openWithDefault(path);
             runtime->postToUi([this, result = std::move(result)]() mutable {
                 if (!result) {
-                    notifications_.publish(severity_for_error(result.error()), result.error().message());
+                    notifications_.publish(severity_for_error(result.error()),
+                                           result.error().message());
                     return;
                 }
-                notifications_.publish(ui::ToastSeverity::Success, "Opened with default application");
+                notifications_.publish(ui::ToastSeverity::Success,
+                                       "Opened with default application");
             });
         },
         asio::detached);
@@ -207,7 +225,8 @@ void ExplorerMutationController::pasteYanked(bool overwrite) {
             for (const auto& source : clipboard.paths) {
                 if (!fs::exists(source)) {
                     runtime->postToUi([this] {
-                        notifications_.publish(ui::ToastSeverity::Error, "Clipboard source does not exist");
+                        notifications_.publish(ui::ToastSeverity::Error,
+                                               "Clipboard source does not exist");
                     });
                     co_return;  // Abort coroutine
                 }
@@ -220,7 +239,8 @@ void ExplorerMutationController::pasteYanked(bool overwrite) {
                     if (!overwrite) {
                         runtime->postToUi([this, destination] {
                             notifications_.publish(ui::ToastSeverity::Error,
-                                                   std::format("Destination already exists: {}", destination.string()));
+                                                   std::format("Destination already exists: {}",
+                                                               destination.string()));
                         });
                         co_return;
                     }
@@ -251,8 +271,9 @@ void ExplorerMutationController::pasteYanked(bool overwrite) {
                 if (clipboard.operation == ClipboardState::Operation::Copy &&
                     isSourceParentOfDestination(source, destination)) {
                     runtime->postToUi([this] {
-                        notifications_.publish(ui::ToastSeverity::Warning,
-                                               "Cannot copy a directory into itself or its subdirectory");
+                        notifications_.publish(
+                            ui::ToastSeverity::Warning,
+                            "Cannot copy a directory into itself or its subdirectory");
                     });
                     co_return;
                 }
@@ -269,8 +290,10 @@ void ExplorerMutationController::pasteYanked(bool overwrite) {
                 } else {  // Operation is Cut (Move)
                     auto rename_result = co_await file_system->rename(source, destination);
                     if (!rename_result) {
-                        auto copy_result = co_await file_system->copy(source, destination, overwrite);
-                        // Fallback: If rename fails (e.g., EXDEV when moving across partitions/drives)
+                        auto copy_result =
+                            co_await file_system->copy(source, destination, overwrite);
+                        // Fallback: If rename fails (e.g., EXDEV when moving across
+                        // partitions/drives)
                         if (!copy_result) {
                             runtime->postToUi([this, error = copy_result.error()] {
                                 notifications_.publish(severity_for_error(error), error.message());
@@ -278,8 +301,9 @@ void ExplorerMutationController::pasteYanked(bool overwrite) {
                             co_return;
                         }
                         // Clean up original source after a successful deep copy
-                        auto remove_result = fs::is_directory(source) ? co_await file_system->removeDirectory(source)
-                                                                      : co_await file_system->removeFile(source);
+                        auto remove_result = fs::is_directory(source)
+                                                 ? co_await file_system->removeDirectory(source)
+                                                 : co_await file_system->removeFile(source);
                         if (!remove_result) {
                             runtime->postToUi([this, error = remove_result.error()] {
                                 notifications_.publish(severity_for_error(error), error.message());
@@ -297,10 +321,12 @@ void ExplorerMutationController::pasteYanked(bool overwrite) {
                 explorer_->exitVisualMode();
                 notifications_.publish(
                     ui::ToastSeverity::Success,
-                    overwrite
-                        ? std::format("Pasted {} with overwrite",
-                                      noun_with_count(static_cast<int>(clipboard.paths.size()), "item"))
-                        : std::format("Pasted {}", noun_with_count(static_cast<int>(clipboard.paths.size()), "item")));
+                    overwrite ? std::format("Pasted {} with overwrite",
+                                            noun_with_count(
+                                                static_cast<int>(clipboard.paths.size()), "item"))
+                              : std::format("Pasted {}",
+                                            noun_with_count(
+                                                static_cast<int>(clipboard.paths.size()), "item")));
                 // Refresh UI to show pasted items
                 directoryController_.reloadCurrentDirectory();
             });
@@ -309,25 +335,29 @@ void ExplorerMutationController::pasteYanked(bool overwrite) {
 }
 
 void ExplorerMutationController::yankSelected() {
-    const auto count =
-        explorer_->state().selection.visualModeActive ? std::max(1, explorer_->visualSelectionCount()) : 1;
+    const auto count = explorer_->state().selection.visualModeActive
+                           ? std::max(1, explorer_->visualSelectionCount())
+                           : 1;
     auto result = explorer_->yankSelected();
     if (!result) {
         notifications_.publish(severity_for_error(result.error()), result.error().message());
         return;
     }
-    notifications_.publish(ui::ToastSeverity::Success, std::format("Copied {}", noun_with_count(count, "item")));
+    notifications_.publish(ui::ToastSeverity::Success,
+                           std::format("Copied {}", noun_with_count(count, "item")));
 }
 
 void ExplorerMutationController::cutSelected() {
-    const auto count =
-        explorer_->state().selection.visualModeActive ? std::max(1, explorer_->visualSelectionCount()) : 1;
+    const auto count = explorer_->state().selection.visualModeActive
+                           ? std::max(1, explorer_->visualSelectionCount())
+                           : 1;
     auto result = explorer_->cutSelected();
     if (!result) {
         notifications_.publish(severity_for_error(result.error()), result.error().message());
         return;
     }
-    notifications_.publish(ui::ToastSeverity::Success, std::format("Cut {}", noun_with_count(count, "item")));
+    notifications_.publish(ui::ToastSeverity::Success,
+                           std::format("Cut {}", noun_with_count(count, "item")));
 }
 
 void ExplorerMutationController::discardYank() {
@@ -356,7 +386,8 @@ void ExplorerMutationController::copySelectedPath(bool absolute) {
             auto result = co_await clipboard->copyText(text);
             runtime->postToUi([this, success_message, result = std::move(result)]() mutable {
                 if (!result) {
-                    notifications_.publish(severity_for_error(result.error()), result.error().message());
+                    notifications_.publish(severity_for_error(result.error()),
+                                           result.error().message());
                     return;
                 }
                 notifications_.publish(ui::ToastSeverity::Info, success_message);
@@ -369,7 +400,8 @@ void ExplorerMutationController::copyCurrentDirectoryPath(bool absolute) {
     const auto text = explorer_->currentDirectoryClipboardText(absolute);
     const auto runtime = explorer_->services().runtime;
     const auto clipboard = explorer_->services().clipboard;
-    const std::string success_message = absolute ? "Copied absolute directory path" : "Copied relative directory path";
+    const std::string success_message =
+        absolute ? "Copied absolute directory path" : "Copied relative directory path";
 
     asio::co_spawn(
         runtime->ioExecutor(),
@@ -377,7 +409,8 @@ void ExplorerMutationController::copyCurrentDirectoryPath(bool absolute) {
             auto result = co_await clipboard->copyText(text);
             runtime->postToUi([this, success_message, result = std::move(result)]() mutable {
                 if (!result) {
-                    notifications_.publish(severity_for_error(result.error()), result.error().message());
+                    notifications_.publish(severity_for_error(result.error()),
+                                           result.error().message());
                     return;
                 }
                 notifications_.publish(ui::ToastSeverity::Info, success_message);
@@ -402,7 +435,8 @@ void ExplorerMutationController::copySelectedFileName() {
             auto result = co_await clipboard->copyText(text);
             runtime->postToUi([this, result = std::move(result)]() mutable {
                 if (!result) {
-                    notifications_.publish(severity_for_error(result.error()), result.error().message());
+                    notifications_.publish(severity_for_error(result.error()),
+                                           result.error().message());
                     return;
                 }
                 notifications_.publish(ui::ToastSeverity::Info, "Copied file name");
@@ -427,7 +461,8 @@ void ExplorerMutationController::copySelectedStem() {
             auto result = co_await clipboard->copyText(text);
             runtime->postToUi([this, result = std::move(result)]() mutable {
                 if (!result) {
-                    notifications_.publish(severity_for_error(result.error()), result.error().message());
+                    notifications_.publish(severity_for_error(result.error()),
+                                           result.error().message());
                     return;
                 }
                 notifications_.publish(ui::ToastSeverity::Info, "Copied name without extension");
@@ -436,13 +471,16 @@ void ExplorerMutationController::copySelectedStem() {
         asio::detached);
 }
 
-bool ExplorerMutationController::isSourceParentOfDestination(const fs::path& source, const fs::path& destination) {
+bool ExplorerMutationController::isSourceParentOfDestination(const fs::path& source,
+                                                             const fs::path& destination) {
     // Resolve any symlinks, dot-dots (..), and format path separators uniformly
     std::error_code source_ec;
     std::error_code destination_ec;
     const fs::path source_normalized = fs::weakly_canonical(source, source_ec).lexically_normal();
-    const fs::path destination_normalized = fs::weakly_canonical(destination, destination_ec).lexically_normal();
-    if (source_ec || destination_ec || source_normalized.empty() || destination_normalized.empty()) {
+    const fs::path destination_normalized =
+        fs::weakly_canonical(destination, destination_ec).lexically_normal();
+    if (source_ec || destination_ec || source_normalized.empty() ||
+        destination_normalized.empty()) {
         return false;
     }
     // Compare path components iteratively

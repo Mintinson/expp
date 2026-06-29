@@ -11,10 +11,10 @@
 #ifndef EXPP_EXPLORER_RENDER_COMPOSER_HPP
 #define EXPP_EXPLORER_RENDER_COMPOSER_HPP
 
-#include "expp/app/explorer.hpp"
+// #include "expp/app/explorer.hpp"
 #include "expp/app/explorer_presenter.hpp"  // for ExplorerScreenModel
-#include "expp/ui/components.hpp"
-#include "expp/ui/theme.hpp"
+// #include "expp/ui/theme.hpp"
+#include "expp/app/preview_model.hpp"
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/dom/elements.hpp>
@@ -22,7 +22,24 @@
 #include <memory>
 #include <optional>
 
+namespace expp::ui {
+class Theme;
+class FileListComponent;
+class PanelComponent;
+class PreviewComponent;
+class StatusBarComponent;
+class ToastComponent;
+class HelpMenuComponent;
+class DialogComponent;
+
+struct ToastInfo;
+}  // namespace expp::ui
+
+// TODO: this should put to ui or app?
 namespace expp::app {
+struct ExplorerState;
+
+// struct ExplorerScreenModel;
 
 /**
  * @brief Composes the explorer screen from prepared render models.

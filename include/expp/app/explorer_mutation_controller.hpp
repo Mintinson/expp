@@ -1,15 +1,18 @@
 #ifndef EXPP_APP_EXPLORER_MUTATION_CONTROLLER_HPP
 #define EXPP_APP_EXPLORER_MUTATION_CONTROLLER_HPP
 
-#include "expp/app/explorer.hpp"
-#include "expp/app/explorer_directory_controller.hpp"
-#include "expp/app/notification_center.hpp"
+// #include "expp/app/explorer.hpp"
+// #include "expp/app/explorer_directory_controller.hpp"
+// #include "expp/app/notification_center.hpp"
 
 #include <filesystem>
 #include <memory>
 #include <string>
 
 namespace expp::app {
+class NotificationCenter;
+class Explorer;
+class ExplorerDirectoryController;
 
 /**
  * @brief Async coordinator for mutating filesystem state and handling clipboard/yank operations.
@@ -65,7 +68,8 @@ public:
     void yankSelected();
 
     /**
-     * @brief Marks the selected item(s) for a move operation in the internal clipboard (Vim-style Cut).
+     * @brief Marks the selected item(s) for a move operation in the internal clipboard (Vim-style
+     * Cut).
      */
     void cutSelected();
 
@@ -86,12 +90,14 @@ public:
     void copyCurrentDirectoryPath(bool absolute);
 
     /**
-     * @brief Asynchronously pushes the selected file's full name (including extension) to the OS clipboard.
+     * @brief Asynchronously pushes the selected file's full name (including extension) to the OS
+     * clipboard.
      */
     void copySelectedFileName();
 
     /**
-     * @brief Asynchronously pushes the selected file's stem (name without extension) to the OS clipboard.
+     * @brief Asynchronously pushes the selected file's stem (name without extension) to the OS
+     * clipboard.
      */
     void copySelectedStem();
 
