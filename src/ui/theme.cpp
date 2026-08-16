@@ -1,5 +1,6 @@
 #include "expp/ui/theme.hpp"
 
+#include "expp/app/preview_model.hpp"
 #include "expp/core/config.hpp"
 #include "expp/core/filesystem.hpp"
 #include "expp/core/version_control.hpp"
@@ -73,6 +74,26 @@ ftxui::Color Theme::getVersionStatusColor(core::VersionStatus status) const noex
     }
 }
 
+ftxui::Color Theme::getPreviewTextColor(app::PreviewTextRole role) const noexcept {
+    switch (role) {
+        case app::PreviewTextRole::Keyword:
+            return syntaxKeywordColor_;
+        case app::PreviewTextRole::String:
+            return syntaxStringColor_;
+        case app::PreviewTextRole::Comment:
+            return syntaxCommentColor_;
+        case app::PreviewTextRole::Number:
+            return syntaxNumberColor_;
+        case app::PreviewTextRole::Type:
+            return syntaxTypeColor_;
+        case app::PreviewTextRole::Diagnostic:
+            return syntaxDiagnosticColor_;
+        case app::PreviewTextRole::Normal:
+        default:
+            return syntaxNormalColor_;
+    }
+}
+
 std::string_view Theme::getFileTypeIcon(const core::filesystem::FileEntry& entry) const noexcept {
     return core::resolve_icon(*iconConfig_, entry);
 }
@@ -95,6 +116,19 @@ void Theme::reload(const core::ColorTheme& config) {
     borderColor_ = hex_to_color(config.border);
     statusBarColor_ = hex_to_color(config.statusBar);
     searchHighlightColor_ = hex_to_color(config.searchHighlight);
+
+    const auto resolve_syntax_color = [&](std::optional<uint32_t> role_color,
+                                          uint32_t semantic_color) {
+        return hex_to_color(
+            role_color.or_else([&] { return config.syntax.base; }).value_or(semantic_color));
+    };
+    syntaxNormalColor_ = resolve_syntax_color(config.syntax.normal, config.foreground);
+    syntaxKeywordColor_ = resolve_syntax_color(config.syntax.keyword, config.sourceCode);
+    syntaxStringColor_ = resolve_syntax_color(config.syntax.string, config.added);
+    syntaxCommentColor_ = resolve_syntax_color(config.syntax.comment, config.hidden);
+    syntaxNumberColor_ = resolve_syntax_color(config.syntax.number, config.searchHighlight);
+    syntaxTypeColor_ = resolve_syntax_color(config.syntax.type, config.config);
+    syntaxDiagnosticColor_ = resolve_syntax_color(config.syntax.diagnostic, config.conflicted);
 
     modifiedColor_ = hex_to_color(config.modified);
     addedColor_ = hex_to_color(config.added);

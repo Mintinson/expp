@@ -18,7 +18,6 @@
 #include <span>
 #include <string_view>
 
-
 namespace expp::app {
 class Explorer;
 /**
@@ -74,6 +73,8 @@ enum class ExplorerCommand : ui::CommandId {
     SortNaturalDesc,
     SortSize,
     SortSizeDesc,
+    PreviewScrollDown,
+    PreviewScrollUp,
     OpenHelp,
     Quit,
 };
@@ -140,7 +141,8 @@ concept CommandSpecCnc = requires(const Spec& spec) {
  * @brief Finds a command-like spec in a catalog.
  */
 template <CommandSpecCnc Spec>
-[[nodiscard]] constexpr const Spec* find_command_spec(std::span<const Spec> specs, ExplorerCommand command) noexcept {
+[[nodiscard]] constexpr const Spec* find_command_spec(std::span<const Spec> specs,
+                                                      ExplorerCommand command) noexcept {
     for (const auto& spec : specs) {
         if (spec.command == command) {
             return &spec;

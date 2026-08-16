@@ -49,7 +49,13 @@ public:
      * @param force_refresh When true, reloads even if target did not change.
      */
     void sync(const std::optional<std::filesystem::path>& current_target,
-              bool force_refresh = false);
+              bool force_refresh = false,
+              app::PreviewViewport viewport = {});
+
+    /**
+     * @brief Scrolls the active preview independently of the file list.
+     */
+    void scroll(int line_delta);
 
 private:
     /// Explorer facade used to access preview and filesystem services.
@@ -63,6 +69,10 @@ private:
     app::PreviewModel previewModel_{app::PreviewIdleState{}};
     /// Last preview target used to suppress redundant reloads.
     std::optional<std::filesystem::path> previewTarget_;
+    /// Preview offset used for chunked, on-demand loading.
+    app::PreviewOffset previewOffset_{};
+    /// Last measured preview viewport.
+    app::PreviewViewport previewViewport_{};
 };
 
 }  // namespace expp::app

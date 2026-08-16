@@ -200,6 +200,7 @@ public:
 
     expp::core::Task<expp::core::Result<expp::app::PreviewPayload>> loadPreview(
         const expp::app::PreviewRequest& request) const override {
+        ++requestCount_;
         co_await expp::core::switch_to(runtime_->cpuExecutor());
         std::this_thread::sleep_for(request.target.filename() == fs::path{"slow.txt"} ? 40ms : 5ms);
         co_return expp::app::PreviewPayload{
@@ -209,8 +210,11 @@ public:
         };
     }
 
+    [[nodiscard]] int requestCount() const noexcept { return requestCount_.load(); }
+
 private:
     std::shared_ptr<expp::core::AsioRuntime> runtime_;
+    mutable std::atomic<int> requestCount_{0};
 };
 
 [[nodiscard]] expp::app::ExplorerServices make_test_services(
@@ -268,9 +272,9 @@ private:
 
 TEST_CASE("ExplorerPreviewController ignores stale preview completions", "[app][async][preview]") {
     auto runtime = std::make_shared<expp::core::AsioRuntime>(1, 1);
+    auto preview_service = std::make_shared<DelayedPreviewService>(runtime);
     auto services = make_test_services(runtime, std::make_shared<StubFileSystemService>(),
-                                       std::make_shared<DelayedPreviewService>(runtime),
-                                       std::make_shared<RecordingMimeService>());
+                                       preview_service, std::make_shared<RecordingMimeService>());
 
     auto explorer_result =
         expp::app::Explorer::create(fs::path{"preview-root"}, std::move(services));
@@ -278,6 +282,7 @@ TEST_CASE("ExplorerPreviewController ignores stale preview completions", "[app][
 
     expp::app::ExplorerPreviewController preview_controller(*explorer_result);
     preview_controller.sync(fs::path{"slow.txt"}, true);
+    CHECK(std::holds_alternative<expp::app::PreviewLoadingState>(preview_controller.model()));
     preview_controller.sync(fs::path{"fast.txt"}, true);
 
     for (int attempt = 0; attempt < 40; ++attempt) {
@@ -290,6 +295,7 @@ TEST_CASE("ExplorerPreviewController ignores stale preview completions", "[app][
     CHECK(ready->target == fs::path{"fast.txt"});
     REQUIRE(ready->lines.size() == 1);
     CHECK(ready->lines.front() == "fast.txt");
+    CHECK(preview_service->requestCount() == 1);
 }
 
 TEST_CASE("ExplorerDirectoryController applies cached ignored status asynchronously",

@@ -38,6 +38,17 @@ TEST_CASE("UiMailbox drains posted closures", "[core][async]") {
     CHECK_FALSE(mailbox.drain());
 }
 
+TEST_CASE("Cancellation tokens retain their generation across source reset", "[core][async]") {
+    expp::core::CancellationSource source;
+    const auto stale_token = source.token();
+
+    source.cancel();
+    source.reset();
+
+    CHECK(stale_token.isCancellationRequested());
+    CHECK_FALSE(source.token().isCancellationRequested());
+}
+
 TEST_CASE("AsioRuntime scheduleAfter posts through the UI mailbox", "[core][async]") {
     auto runtime = std::make_shared<expp::core::AsioRuntime>(1, 1);
     std::atomic_bool fired = false;

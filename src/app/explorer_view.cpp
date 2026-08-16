@@ -127,7 +127,6 @@ public:
 
 private:
     void handleAsyncCommand(ExplorerCommand command, const ui::ActionContext& ctx) {
-        (void)ctx;
         switch (command) {
             case ExplorerCommand::GoParent:
                 directoryController_.goParent();
@@ -200,6 +199,12 @@ private:
                 break;
             case ExplorerCommand::ToggleGitEnabled:
                 directoryController_.toggleGitEnabled();
+                break;
+            case ExplorerCommand::PreviewScrollDown:
+                previewController_.scroll(ctx.count);
+                break;
+            case ExplorerCommand::PreviewScrollUp:
+                previewController_.scroll(-ctx.count);
                 break;
             default:
                 break;
@@ -280,7 +285,12 @@ private:
             explorer_->setViewportRows(measured_rows);
         }
 
-        previewController_.sync(currentPreviewTarget(), force_preview);
+        const auto config = core::global_config().config();
+        const int preview_width =
+            config.layout.showPreviewPanel ? std::max(1, config.layout.previewPanelWidth - 2) : 1;
+        const int preview_height = std::max(1, screen_rows - 4);
+        previewController_.sync(currentPreviewTarget(), force_preview,
+                                PreviewViewport{.width = preview_width, .height = preview_height});
         directoryController_.updateViewportInterest();
 
         if (auto* help = std::get_if<HelpOverlayState>(&overlayController_->state())) {

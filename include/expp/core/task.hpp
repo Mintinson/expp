@@ -73,15 +73,14 @@ public:
      * @brief Returns whether the associated task should stop work.
      */
     [[nodiscard]] bool isCancellationRequested() const noexcept {
-        const auto state = state_.lock();
-        return state != nullptr && state->load(std::memory_order_relaxed);
+        return state_ != nullptr && state_->load(std::memory_order_relaxed);
     }
 
 private:
-    explicit CancellationToken(std::weak_ptr<std::atomic_bool> state) noexcept
+    explicit CancellationToken(std::shared_ptr<std::atomic_bool> state) noexcept
         : state_(std::move(state)) {}
 
-    std::weak_ptr<std::atomic_bool> state_;
+    std::shared_ptr<std::atomic_bool> state_;
 
     friend class CancellationSource;
 };

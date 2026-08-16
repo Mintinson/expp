@@ -336,6 +336,8 @@ private:
  * @brief Preview rendering configuration.
  */
 struct PreviewRenderConfig {
+    /// Theme used to resolve syntax and diagnostic colors.
+    const Theme* theme{nullptr};
     /// Maximum number of preview lines to display.
     int maxRenderLines{};
     /// Message rendered when no preview is available.

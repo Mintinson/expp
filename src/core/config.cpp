@@ -81,11 +81,17 @@ void insert_int_fields(toml::table& tbl,
 constexpr auto kPreviewBoolFields = std::array{
     ScalarFieldSpec<PreviewConfig, bool>{"enabled",          &PreviewConfig::enabled        },
     ScalarFieldSpec<PreviewConfig, bool>{"syntax_highlight", &PreviewConfig::syntaxHighlight},
+    ScalarFieldSpec<PreviewConfig, bool>{"inline_images",    &PreviewConfig::inlineImages   },
 };
 
 constexpr auto kPreviewIntFields = std::array{
-    ScalarFieldSpec<PreviewConfig, int>{"max_lines",       &PreviewConfig::maxLines     },
-    ScalarFieldSpec<PreviewConfig, int>{"max_line_length", &PreviewConfig::maxLineLength},
+    ScalarFieldSpec<PreviewConfig, int>{"max_lines",           &PreviewConfig::maxLines         },
+    ScalarFieldSpec<PreviewConfig, int>{"max_line_length",     &PreviewConfig::maxLineLength    },
+    ScalarFieldSpec<PreviewConfig, int>{"debounce_ms",         &PreviewConfig::debounceMs       },
+    ScalarFieldSpec<PreviewConfig, int>{"header_bytes",        &PreviewConfig::headerBytes      },
+    ScalarFieldSpec<PreviewConfig, int>{"chunk_lines",         &PreviewConfig::chunkLines       },
+    ScalarFieldSpec<PreviewConfig, int>{"max_text_bytes",      &PreviewConfig::maxTextBytes     },
+    ScalarFieldSpec<PreviewConfig, int>{"max_archive_entries", &PreviewConfig::maxArchiveEntries},
 };
 
 constexpr auto kLayoutBoolFields = std::array{
@@ -303,6 +309,24 @@ void load_color_theme(const toml::table& tbl, ColorTheme& theme) {
         try_color("search_highlight", theme.searchHighlight);
     }
 
+    if (const auto* syntax = tbl["syntax_colors"].as_table()) {
+        auto try_color = [&](std::string_view key, std::optional<uint32_t>& target) {
+            if (auto value = (*syntax)[key].value<std::string>()) {
+                if (auto parsed = parse_hex_color(*value)) {
+                    target = *parsed;
+                }
+            }
+        };
+        try_color("base", theme.syntax.base);
+        try_color("normal", theme.syntax.normal);
+        try_color("keyword", theme.syntax.keyword);
+        try_color("string", theme.syntax.string);
+        try_color("comment", theme.syntax.comment);
+        try_color("number", theme.syntax.number);
+        try_color("type", theme.syntax.type);
+        try_color("diagnostic", theme.syntax.diagnostic);
+    }
+
     if (const auto* vc = tbl["version_control_colors"].as_table()) {
         auto try_color = [&](std::string_view key, uint32_t& target) {
             if (auto v = (*vc)[key].value<std::string>()) {
@@ -451,6 +475,24 @@ toml::table serialize_color_theme(const ColorTheme& theme) {
     ui.insert("status_bar", format_hex_color(theme.statusBar));
     ui.insert("search_highlight", format_hex_color(theme.searchHighlight));
     tbl.insert("ui_colors", std::move(ui));
+
+    toml::table syntax;
+    auto insert_optional_color = [&](std::string_view key, std::optional<uint32_t> value) {
+        if (value.has_value()) {
+            syntax.insert(key, format_hex_color(*value));
+        }
+    };
+    insert_optional_color("base", theme.syntax.base);
+    insert_optional_color("normal", theme.syntax.normal);
+    insert_optional_color("keyword", theme.syntax.keyword);
+    insert_optional_color("string", theme.syntax.string);
+    insert_optional_color("comment", theme.syntax.comment);
+    insert_optional_color("number", theme.syntax.number);
+    insert_optional_color("type", theme.syntax.type);
+    insert_optional_color("diagnostic", theme.syntax.diagnostic);
+    if (!syntax.empty()) {
+        tbl.insert("syntax_colors", std::move(syntax));
+    }
 
     toml::table vc;
     vc.insert("modified", format_hex_color(theme.modified));

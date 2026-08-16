@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <ranges>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -145,6 +146,21 @@ TEST_CASE("Command catalog resolves every default binding", "[ui][keymap][catalo
         REQUIRE(command.has_value());
         CHECK(expp::app::command_name(*command) == expp::app::command_spec(binding.command).name);
     }
+}
+
+TEST_CASE("Alt preview bindings map from terminal events", "[ui][keymap][preview]") {
+    const auto alt_j = expp::ui::event_to_key(ftxui::Event::AltJ);
+    const auto alt_k = expp::ui::event_to_key(ftxui::Event::AltK);
+
+    REQUIRE(alt_j.has_value());
+    REQUIRE(alt_k.has_value());
+    CHECK(*alt_j == expp::ui::Key::fromChar('j', expp::ui::Modifier::Alt));
+    CHECK(*alt_k == expp::ui::Key::fromChar('k', expp::ui::Modifier::Alt));
+
+    const auto down = std::ranges::find(expp::app::default_bindings(), "M-j",
+                                        &expp::app::BindingSpec::keys);
+    REQUIRE(down != expp::app::default_bindings().end());
+    CHECK(down->command == expp::app::ExplorerCommand::PreviewScrollDown);
 }
 
 TEST_CASE("KeyHandler executes numeric prefixes and multi-key sequences", "[ui][key_handler]") {

@@ -145,6 +145,14 @@ std::optional<Key> event_to_key(const ftxui::Event& event) {
     EXPP_SPECIAL_KEYS(X)
 #undef X
 
+
+    if (event == ftxui::Event::AltJ) {
+        return Key::fromChar('j', Modifier::Alt);
+    }
+    if (event == ftxui::Event::AltK) {
+        return Key::fromChar('k', Modifier::Alt);
+    }
+
     if (event.is_character()) {
         const std::string& s = event.character();
         if (!s.empty()) {

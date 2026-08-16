@@ -83,7 +83,8 @@ private:
 [[nodiscard]] expp::core::filesystem::FileEntry make_entry(std::string name,
                                                            expp::core::filesystem::FileType type,
                                                            bool hidden = false) {
-    return expp::core::filesystem::FileEntry{.path = fs::path{std::move(name)}, .type = type, .isHidden = hidden};
+    return expp::core::filesystem::FileEntry{
+        .path = fs::path{std::move(name)}, .type = type, .isHidden = hidden};
 }
 
 }  // namespace
@@ -116,6 +117,8 @@ TEST_CASE("Notification config defaults are stable", "[core][config]") {
     CHECK(defaults.notifications.durationMs == 2500);
     CHECK(defaults.notifications.showSuccess);
     CHECK(defaults.notifications.showInfo);
+    CHECK(defaults.preview.syntaxHighlight);
+    CHECK(defaults.layout.previewPanelWidth == 60);
     CHECK_FALSE(defaults.versionControl.enabled);
     CHECK(defaults.versionControl.showIgnoredFiles);
     CHECK(defaults.versionControl.statusDetail == expp::core::VersionControlStatusDetail::Summary);
@@ -135,6 +138,15 @@ TEST_CASE("Config scalar sections save and load round-trip", "[core][config]") {
     config.preview.enabled = false;
     config.preview.maxLines = 18;
     config.preview.maxLineLength = 120;
+    config.preview.syntaxHighlight = false;
+    config.preview.debounceMs = 75;
+    config.preview.headerBytes = 192;
+    config.preview.chunkLines = 44;
+    config.preview.maxTextBytes = 32768;
+    config.preview.maxArchiveEntries = 333;
+    config.preview.inlineImages = false;
+    config.theme.syntax.base = 0x123456;
+    config.theme.syntax.comment = 0x654321;
     config.layout.parentPanelWidth = 31;
     config.layout.previewPanelWidth = 52;
     config.layout.showStatusBar = false;
@@ -159,6 +171,15 @@ TEST_CASE("Config scalar sections save and load round-trip", "[core][config]") {
     CHECK_FALSE(reloaded.config().preview.enabled);
     CHECK(reloaded.config().preview.maxLines == 18);
     CHECK(reloaded.config().preview.maxLineLength == 120);
+    CHECK_FALSE(reloaded.config().preview.syntaxHighlight);
+    CHECK(reloaded.config().preview.debounceMs == 75);
+    CHECK(reloaded.config().preview.headerBytes == 192);
+    CHECK(reloaded.config().preview.chunkLines == 44);
+    CHECK(reloaded.config().preview.maxTextBytes == 32768);
+    CHECK(reloaded.config().preview.maxArchiveEntries == 333);
+    CHECK_FALSE(reloaded.config().preview.inlineImages);
+    CHECK(reloaded.config().theme.syntax.base == 0x123456);
+    CHECK(reloaded.config().theme.syntax.comment == 0x654321);
     CHECK(reloaded.config().layout.parentPanelWidth == 31);
     CHECK(reloaded.config().layout.previewPanelWidth == 52);
     CHECK_FALSE(reloaded.config().layout.showStatusBar);
@@ -170,7 +191,8 @@ TEST_CASE("Config scalar sections save and load round-trip", "[core][config]") {
     CHECK(reloaded.config().notifications.showInfo);
     CHECK(reloaded.config().versionControl.enabled);
     CHECK_FALSE(reloaded.config().versionControl.showIgnoredFiles);
-    CHECK(reloaded.config().versionControl.statusDetail == expp::core::VersionControlStatusDetail::Full);
+    CHECK(reloaded.config().versionControl.statusDetail ==
+          expp::core::VersionControlStatusDetail::Full);
 }
 
 TEST_CASE("Version control config loads from TOML", "[core][config]") {
@@ -192,7 +214,8 @@ status_detail = "compact"
     REQUIRE(result.has_value());
     CHECK(manager.config().versionControl.enabled);
     CHECK_FALSE(manager.config().versionControl.showIgnoredFiles);
-    CHECK(manager.config().versionControl.statusDetail == expp::core::VersionControlStatusDetail::Compact);
+    CHECK(manager.config().versionControl.statusDetail ==
+          expp::core::VersionControlStatusDetail::Compact);
 }
 
 TEST_CASE("Icon resolver applies priority rules", "[core][config][icons]") {
@@ -217,36 +240,46 @@ TEST_CASE("Icon resolver applies priority rules", "[core][config][icons]") {
     config.hiddenIconId = "test_hidden";
     config.folderFallbackIconId = "test_folder";
 
-    CHECK(expp::core::resolve_icon(config, make_entry("CMakeLists.txt", expp::core::filesystem::FileType::RegularFile))
-          == "EXACT");
-    CHECK(expp::core::resolve_icon(config, make_entry("main.CPP", expp::core::filesystem::FileType::RegularFile))
-          == "CPP");
-    CHECK(expp::core::resolve_icon(config, make_entry("unit.cxx", expp::core::filesystem::FileType::RegularFile))
-          == "CPP");
-    CHECK(expp::core::resolve_icon(config, make_entry("legacy.cc", expp::core::filesystem::FileType::RegularFile))
-          == "CPP");
-    CHECK(expp::core::resolve_icon(config, make_entry("tool", expp::core::filesystem::FileType::Executable)) == "EXEC");
-    CHECK(expp::core::resolve_icon(config, make_entry("link", expp::core::filesystem::FileType::Symlink)) == "LINK");
-    CHECK(expp::core::resolve_icon(config,
-                                   make_entry(".env", expp::core::filesystem::FileType::RegularFile, true))
-          == "HIDDEN");
-    CHECK(expp::core::resolve_icon(config, make_entry("build", expp::core::filesystem::FileType::Directory))
-          == "BUILD");
-    CHECK(expp::core::resolve_icon(config, make_entry("src", expp::core::filesystem::FileType::Directory)) == "FOLDER");
+    CHECK(expp::core::resolve_icon(
+              config, make_entry("CMakeLists.txt",
+                                 expp::core::filesystem::FileType::RegularFile)) == "EXACT");
+    CHECK(expp::core::resolve_icon(
+              config, make_entry("main.CPP", expp::core::filesystem::FileType::RegularFile)) ==
+          "CPP");
+    CHECK(expp::core::resolve_icon(
+              config, make_entry("unit.cxx", expp::core::filesystem::FileType::RegularFile)) ==
+          "CPP");
+    CHECK(expp::core::resolve_icon(
+              config, make_entry("legacy.cc", expp::core::filesystem::FileType::RegularFile)) ==
+          "CPP");
+    CHECK(expp::core::resolve_icon(
+              config, make_entry("tool", expp::core::filesystem::FileType::Executable)) == "EXEC");
+    CHECK(expp::core::resolve_icon(
+              config, make_entry("link", expp::core::filesystem::FileType::Symlink)) == "LINK");
+    CHECK(expp::core::resolve_icon(
+              config, make_entry(".env", expp::core::filesystem::FileType::RegularFile, true)) ==
+          "HIDDEN");
+    CHECK(expp::core::resolve_icon(
+              config, make_entry("build", expp::core::filesystem::FileType::Directory)) == "BUILD");
+    CHECK(expp::core::resolve_icon(
+              config, make_entry("src", expp::core::filesystem::FileType::Directory)) == "FOLDER");
 }
 
-TEST_CASE("Icon resolver falls back when configured icon IDs are missing", "[core][config][icons]") {
+TEST_CASE("Icon resolver falls back when configured icon IDs are missing",
+          "[core][config][icons]") {
     auto config = expp::core::ConfigManager::defaults().icons;
     config.rules.exactFiles["unknown.icon"] = "missing_icon";
     config.fileFallbackIconId = "file_default";
     config.folderFallbackIconId = "folder_default";
 
-    CHECK(expp::core::resolve_icon(config, make_entry("unknown.icon", expp::core::filesystem::FileType::RegularFile))
-          == config.iconTheme.at("file_default"));
+    CHECK(expp::core::resolve_icon(
+              config, make_entry("unknown.icon", expp::core::filesystem::FileType::RegularFile)) ==
+          config.iconTheme.at("file_default"));
 
     config.rules.exactFolders["missing-folder"] = "missing_folder_icon";
-    CHECK(expp::core::resolve_icon(config, make_entry("missing-folder", expp::core::filesystem::FileType::Directory))
-          == config.iconTheme.at("folder_default"));
+    CHECK(expp::core::resolve_icon(
+              config, make_entry("missing-folder", expp::core::filesystem::FileType::Directory)) ==
+          config.iconTheme.at("folder_default"));
 }
 
 // TEST_CASE("Icon config accepts legacy icons section", "[core][config][icons]") {
@@ -269,15 +302,20 @@ TEST_CASE("Icon resolver falls back when configured icon IDs are missing", "[cor
 
 //     REQUIRE(result.has_value());
 //     const auto& icons = manager.config().icons;
-//     CHECK(expp::core::resolve_icon(icons, make_entry("main.cpp", expp::core::filesystem::FileType::RegularFile))
+//     CHECK(expp::core::resolve_icon(icons, make_entry("main.cpp",
+//     expp::core::filesystem::FileType::RegularFile))
 //           == "LEGACY_CPP");
-//     CHECK(expp::core::resolve_icon(icons, make_entry("folder", expp::core::filesystem::FileType::Directory))
+//     CHECK(expp::core::resolve_icon(icons, make_entry("folder",
+//     expp::core::filesystem::FileType::Directory))
 //           == "LEGACY_FOLDER");
-//     CHECK(expp::core::resolve_icon(icons, make_entry("tool", expp::core::filesystem::FileType::Executable))
+//     CHECK(expp::core::resolve_icon(icons, make_entry("tool",
+//     expp::core::filesystem::FileType::Executable))
 //           == "LEGACY_EXEC");
-//     CHECK(expp::core::resolve_icon(icons, make_entry("target", expp::core::filesystem::FileType::Symlink))
+//     CHECK(expp::core::resolve_icon(icons, make_entry("target",
+//     expp::core::filesystem::FileType::Symlink))
 //           == "LEGACY_LINK");
-//     CHECK(expp::core::resolve_icon(icons, make_entry("unknown", expp::core::filesystem::FileType::RegularFile))
+//     CHECK(expp::core::resolve_icon(icons, make_entry("unknown",
+//     expp::core::filesystem::FileType::RegularFile))
 //           == "LEGACY_DEFAULT");
 // }
 
@@ -313,16 +351,21 @@ build = "folder_build"
 
     REQUIRE(result.has_value());
     const auto& icons = manager.config().icons;
-    CHECK(expp::core::resolve_icon(icons, make_entry("main.cpp", expp::core::filesystem::FileType::RegularFile))
-          == "USER_CPP");
-    CHECK(expp::core::resolve_icon(icons, make_entry("readme.txt", expp::core::filesystem::FileType::RegularFile))
-          == "DOC");
-    CHECK(expp::core::resolve_icon(icons, make_entry("module.cxx", expp::core::filesystem::FileType::RegularFile))
-          == "USER_CPP");
-    CHECK(expp::core::resolve_icon(icons, make_entry("build", expp::core::filesystem::FileType::Directory))
-          == "USER_BUILD");
-    CHECK(expp::core::resolve_icon(icons, make_entry("script.py", expp::core::filesystem::FileType::RegularFile))
-          == icons.iconTheme.at("file_python"));
+    CHECK(expp::core::resolve_icon(
+              icons, make_entry("main.cpp", expp::core::filesystem::FileType::RegularFile)) ==
+          "USER_CPP");
+    CHECK(expp::core::resolve_icon(
+              icons, make_entry("readme.txt", expp::core::filesystem::FileType::RegularFile)) ==
+          "DOC");
+    CHECK(expp::core::resolve_icon(
+              icons, make_entry("module.cxx", expp::core::filesystem::FileType::RegularFile)) ==
+          "USER_CPP");
+    CHECK(expp::core::resolve_icon(
+              icons, make_entry("build", expp::core::filesystem::FileType::Directory)) ==
+          "USER_BUILD");
+    CHECK(expp::core::resolve_icon(
+              icons, make_entry("script.py", expp::core::filesystem::FileType::RegularFile)) ==
+          icons.iconTheme.at("file_python"));
 }
 
 TEST_CASE("Invalid user icons.toml reports a config error", "[core][config][icons]") {
@@ -369,16 +412,16 @@ TEST_CASE("onConfigChange delivers a stable snapshot to subscribers", "[core][co
     expp::core::ConfigManager manager;
     expp::core::Config captured_at_notification;
 
-    const auto id = manager.onConfigChange([&](const expp::core::Config& cfg) {
-        captured_at_notification = cfg;
-    });
+    const auto id = manager.onConfigChange(
+        [&](const expp::core::Config& cfg) { captured_at_notification = cfg; });
 
     auto next = manager.config();
     next.behavior.confirmDelete = !next.behavior.confirmDelete;
     manager.setConfig(std::move(next));
 
     // The snapshot delivered to the callback must match the post-update state.
-    CHECK(captured_at_notification.behavior.confirmDelete == manager.config().behavior.confirmDelete);
+    CHECK(captured_at_notification.behavior.confirmDelete ==
+          manager.config().behavior.confirmDelete);
 
     manager.removeConfigChangeCallback(id);
 }

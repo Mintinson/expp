@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 
 namespace expp::core {
@@ -171,6 +172,18 @@ struct IconConfig {
 /**
  * @brief Color theme configuration
  */
+struct SyntaxHighlightColors {
+    /// Optional color applied to every syntax role unless that role is overridden.
+    std::optional<uint32_t> base;
+    std::optional<uint32_t> normal;
+    std::optional<uint32_t> keyword;
+    std::optional<uint32_t> string;
+    std::optional<uint32_t> comment;
+    std::optional<uint32_t> number;
+    std::optional<uint32_t> type;
+    std::optional<uint32_t> diagnostic;
+};
+
 struct ColorTheme {
     // NOLINTBEGIN
     std::string name{"default"};
@@ -195,6 +208,9 @@ struct ColorTheme {
     uint32_t statusBar{0x333333};
     uint32_t searchHighlight{0xFFFF00};
 
+    // Syntax colors. Unset values follow the semantic colors of this theme.
+    SyntaxHighlightColors syntax;
+
     // Git status colors
     uint32_t modified{0xFFA500};    // Orange
     uint32_t added{0x00FF00};       // Green
@@ -215,7 +231,13 @@ struct PreviewConfig {
     bool enabled{true};
     int maxLines{50};
     int maxLineLength{80};
-    bool syntaxHighlight{false};  // EXTENSION POINT: future syntax highlighting
+    bool syntaxHighlight{true};
+    int debounceMs{50};
+    int headerBytes{256};
+    int chunkLines{200};
+    int maxTextBytes{65536};
+    int maxArchiveEntries{1000};
+    bool inlineImages{true};
 };
 
 /**
@@ -223,7 +245,7 @@ struct PreviewConfig {
  */
 struct LayoutConfig {
     int parentPanelWidth{25};
-    int previewPanelWidth{40};
+    int previewPanelWidth{60};
     bool showPreviewPanel{true};
     bool showParentPanel{true};
     bool showStatusBar{true};

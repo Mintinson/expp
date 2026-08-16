@@ -24,6 +24,7 @@ ExplorerRenderComposer::ExplorerRenderComposer(const ui::Theme* theme) : theme_(
     // state into these primitives each frame.
     fileList_ = std::make_unique<ui::FileListComponent>(ui::FileListConfig{.theme = theme_});
     preview_ = std::make_unique<ui::PreviewComponent>(ui::PreviewRenderConfig{
+        .theme = theme_,
         .maxRenderLines = cfg.preview.maxLines,
     });
     statusBar_ = std::make_unique<ui::StatusBarComponent>(theme_);

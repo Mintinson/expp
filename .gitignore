@@ -18,3 +18,5 @@ samples/
 *.md
 
 !README.md
+!TODOs/syntax_highlighting.md
+doxygen-1.17.0.windows.x64.bin/

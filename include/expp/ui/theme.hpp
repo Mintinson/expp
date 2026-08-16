@@ -23,6 +23,10 @@ struct FileEntry;
 }  // namespace filesystem
 }  // namespace expp::core
 
+namespace expp::app {
+enum class PreviewTextRole : std::uint8_t;
+}  // namespace expp::app
+
 namespace expp::ui {
 /**
  * @brief Converts hex color to ftxui::Color
@@ -81,6 +85,9 @@ public:
         return searchHighlightColor_;
     }
 
+    /// Returns the active, fully resolved color for a preview syntax role.
+    [[nodiscard]] ftxui::Color getPreviewTextColor(app::PreviewTextRole role) const noexcept;
+
     [[nodiscard]] ftxui::Color getVersionStatusColor(core::VersionStatus status) const noexcept;
 
     /**
@@ -115,6 +122,15 @@ private:
     ftxui::Color borderColor_;
     ftxui::Color statusBarColor_;
     ftxui::Color searchHighlightColor_;
+
+    // Preview syntax colors
+    ftxui::Color syntaxNormalColor_;
+    ftxui::Color syntaxKeywordColor_;
+    ftxui::Color syntaxStringColor_;
+    ftxui::Color syntaxCommentColor_;
+    ftxui::Color syntaxNumberColor_;
+    ftxui::Color syntaxTypeColor_;
+    ftxui::Color syntaxDiagnosticColor_;
 
     // Version control status colors
     ftxui::Color modifiedColor_;

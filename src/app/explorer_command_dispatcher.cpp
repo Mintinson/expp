@@ -43,6 +43,8 @@ namespace {
         case ExplorerCommand::ToggleHidden:
         case ExplorerCommand::ToggleGitIgnored:
         case ExplorerCommand::ToggleGitEnabled:
+        case ExplorerCommand::PreviewScrollDown:
+        case ExplorerCommand::PreviewScrollUp:
             return true;
         default:
             return false;

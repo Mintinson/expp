@@ -10,12 +10,14 @@
  * be replaced by background workers later without re-shaping the higher layers.
  */
 
+#include "expp/app/preview_model.hpp"
 #include "expp/core/async_runtime.hpp"
 #include "expp/core/error.hpp"
 #include "expp/core/filesystem.hpp"
 #include "expp/core/task.hpp"
 #include "expp/core/version_control.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string_view>
@@ -74,6 +76,11 @@ struct PreviewRequest {
     /// value as `core::PreviewConfig::maxLineLength` so callers that omit it
     /// still get sensible truncation.
     int maxLineLength{80};
+    std::size_t maxBytes{65536};
+    int chunkLines{200};
+    std::size_t headerBytes{256};
+    PreviewViewport viewport{};
+    PreviewOffset offset{};
     core::CancellationToken cancellation;
 };
 
@@ -84,6 +91,11 @@ struct PreviewPayload {
     std::vector<std::string> lines;
     std::string mimeType;
     bool previewable{false};
+    PreviewContent content{PlainTextPreview{}};
+    bool truncated{false};
+    bool canScrollUp{false};
+    bool canScrollDown{false};
+    std::string diagnostic;
 };
 
 /**
@@ -91,6 +103,7 @@ struct PreviewPayload {
  */
 struct MimeRequest {
     fs::path target;
+    std::size_t headerBytes{256};
     core::CancellationToken cancellation;
 };
 
@@ -100,8 +113,10 @@ struct MimeRequest {
 struct MimePayload {
     /// The detected MIME type string (e.g., "text/plain", "image/png").
     std::string mimeType;
+    std::string description;
     /// Indicates whether the file's content is considered safe/suitable for UI preview.
     bool previewable{false};
+    bool binary{false};
 };
 
 /**
@@ -153,23 +168,27 @@ public:
     virtual ~ExplorerFileSystemService() = default;
 
     /// Progressively scans a directory and emits chunks in discovery order.
-    [[nodiscard]] virtual core::Task<core::Result<void>> streamDirectory(const DirectoryListRequest& request,
-                                                                         DirectoryChunkHandler on_chunk) const = 0;
+    [[nodiscard]] virtual core::Task<core::Result<void>> streamDirectory(
+        const DirectoryListRequest& request, DirectoryChunkHandler on_chunk) const = 0;
     /// Lists the requested directory, optionally returning only a slice.
     [[nodiscard]] virtual core::Task<core::Result<DirectoryListResult>> listDirectory(
         const DirectoryListRequest& request) const = 0;
     /// Canonicalizes a path for navigation and identity checks.
-    [[nodiscard]] virtual core::Task<core::Result<fs::path>> canonicalize(const fs::path& path) const = 0;
+    [[nodiscard]] virtual core::Task<core::Result<fs::path>> canonicalize(
+        const fs::path& path) const = 0;
     /// Normalizes a path without requiring it to exist.
     [[nodiscard]] virtual fs::path normalize(const fs::path& path) const = 0;
-    [[nodiscard]] virtual core::Task<core::VoidResult> createDirectory(const fs::path& path) const = 0;
+    [[nodiscard]] virtual core::Task<core::VoidResult> createDirectory(
+        const fs::path& path) const = 0;
     [[nodiscard]] virtual core::Task<core::VoidResult> createFile(const fs::path& path) const = 0;
     [[nodiscard]] virtual core::Task<core::VoidResult> rename(const fs::path& old_path,
                                                               const fs::path& new_path) const = 0;
     [[nodiscard]] virtual core::Task<core::VoidResult> removeFile(const fs::path& path) const = 0;
-    [[nodiscard]] virtual core::Task<core::VoidResult> removeDirectory(const fs::path& path) const = 0;
+    [[nodiscard]] virtual core::Task<core::VoidResult> removeDirectory(
+        const fs::path& path) const = 0;
     [[nodiscard]] virtual core::Task<core::VoidResult> moveToTrash(const fs::path& path) const = 0;
-    [[nodiscard]] virtual core::Task<core::VoidResult> openWithDefault(const fs::path& path) const = 0;
+    [[nodiscard]] virtual core::Task<core::VoidResult> openWithDefault(
+        const fs::path& path) const = 0;
     [[nodiscard]] virtual core::Task<core::VoidResult> copy(const fs::path& source,
                                                             const fs::path& destination,
                                                             bool overwrite) const = 0;
@@ -182,7 +201,8 @@ class ExplorerPreviewService {
 public:
     virtual ~ExplorerPreviewService() = default;
 
-    [[nodiscard]] virtual core::Task<core::Result<PreviewPayload>> loadPreview(const PreviewRequest& request) const = 0;
+    [[nodiscard]] virtual core::Task<core::Result<PreviewPayload>> loadPreview(
+        const PreviewRequest& request) const = 0;
 };
 
 /**
@@ -192,7 +212,8 @@ class ExplorerMimeService {
 public:
     virtual ~ExplorerMimeService() = default;
 
-    [[nodiscard]] virtual core::Task<core::Result<MimePayload>> detectMime(const MimeRequest& request) const = 0;
+    [[nodiscard]] virtual core::Task<core::Result<MimePayload>> detectMime(
+        const MimeRequest& request) const = 0;
 };
 
 /**
@@ -213,7 +234,8 @@ class ExplorerImageService {
 public:
     virtual ~ExplorerImageService() = default;
 
-    [[nodiscard]] virtual core::Task<core::Result<ImageInfo>> inspect(const ImageRequest& request) const = 0;
+    [[nodiscard]] virtual core::Task<core::Result<ImageInfo>> inspect(
+        const ImageRequest& request) const = 0;
 };
 
 /**
@@ -254,7 +276,8 @@ struct ExplorerServices {
 /**
  * @brief Creates the default synchronous service bundle.
  */
-[[nodiscard]] ExplorerServices make_default_explorer_services(std::shared_ptr<core::AsioRuntime> runtime = {});
+[[nodiscard]] ExplorerServices make_default_explorer_services(
+    std::shared_ptr<core::AsioRuntime> runtime = {});
 
 }  // namespace expp::app
 

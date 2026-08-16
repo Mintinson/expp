@@ -15,10 +15,12 @@ add_executable(expp_tests
     core/test_version_control.cpp
     ui/test_key_handler.cpp
     ui/test_help_menu.cpp
+    ui/test_preview_component.cpp
     app/test_explorer_scrolling.cpp
     app/test_async_behavior.cpp
     app/test_navigation_utils.cpp
     app/test_notification_center.cpp
+    app/test_preview.cpp
     app/test_cli.cpp
 )
 
@@ -46,6 +48,7 @@ target_include_directories(expp_tests
 
 target_compile_definitions(expp_tests PRIVATE
     SOURCE_PATH="${CMAKE_CURRENT_SOURCE_DIR}"
+    EXPP_HAS_TREE_SITTER=${EXPP_TREE_SITTER_COMPILED_IN}
 )
 
 # Discover tests for CTest
