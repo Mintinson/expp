@@ -67,6 +67,8 @@ struct ImagePreview {
     std::string escapeStream;
     int width{0};
     int height{0};
+    int displayColumns{1};
+    int displayRows{1};
     bool renderedInline{false};
 };
 

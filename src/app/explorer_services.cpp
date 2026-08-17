@@ -681,6 +681,111 @@ private:
     return encoded;
 }
 
+[[nodiscard]] std::string make_kitty_image_stream(std::string_view encoded, int columns, int rows) {
+    constexpr std::size_t kChunkSize = 4096;
+    std::string stream{"\x1b_Ga=d,d=I,i=1,q=2\x1b\\"};
+    stream.reserve(stream.size() + encoded.size() + ((encoded.size() / kChunkSize) + 1) * 24);
+
+    for (std::size_t offset = 0; offset < encoded.size(); offset += kChunkSize) {
+        const auto size = std::min(kChunkSize, encoded.size() - offset);
+        const int more = offset + size < encoded.size() ? 1 : 0;
+        if (offset == 0) {
+            stream +=
+                std::format("\x1b_Ga=T,f=100,i=1,p=1,q=2,c={},r={},C=1,m={};", columns, rows, more);
+        } else {
+            stream += std::format("\x1b_Gm={};", more);
+        }
+        stream.append(encoded.substr(offset, size));
+        stream += "\x1b\\";
+    }
+    return stream;
+}
+
+[[nodiscard]] std::string make_iterm2_image_stream(std::string_view encoded,
+                                                   int columns,
+                                                   int rows) {
+    constexpr std::size_t kChunkSize = 900U * 1024U;
+    if (encoded.size() > kChunkSize) {
+        std::string stream = std::format(
+            "\x1b]1337;MultipartFile=inline=1;width={};height={};preserveAspectRatio=1\a", columns,
+            rows);
+        stream.reserve(stream.size() + encoded.size() + ((encoded.size() / kChunkSize) + 1) * 20);
+        for (std::size_t offset = 0; offset < encoded.size(); offset += kChunkSize) {
+            const auto size = std::min(kChunkSize, encoded.size() - offset);
+            stream += "\x1b]1337;FilePart=";
+            stream.append(encoded.substr(offset, size));
+            stream += "\a";
+        }
+        return stream + "\x1b]1337;FileEnd\a";
+    }
+    return std::format("\x1b]1337;File=inline=1;width={};height={};preserveAspectRatio=1:{}\a",
+                       columns, rows, encoded);
+}
+
+constexpr std::size_t kMaxInlineImageBytes = 4U * 1024U * 1024U;
+
+#if !defined(_WIN32)
+[[nodiscard]] std::string shell_quote(std::string_view value) {
+    std::string quoted{"'"};
+    for (const char character : value) {
+        if (character == '\'') {
+            quoted += R"('\"'\"')";
+        } else {
+            quoted += character;
+        }
+    }
+    quoted += '\'';
+    return quoted;
+}
+
+[[nodiscard]] std::vector<unsigned char> convert_image(const fs::path& path,
+                                                       std::string_view format,
+                                                       int max_width = 1920,
+                                                       int max_height = 1080) {
+    const auto command = std::format("magick {} -resize '{}x{}>' {}:- 2>/dev/null",
+                                     shell_quote(path.string()), max_width, max_height, format);
+    using Pipe = std::unique_ptr<FILE, int (*)(FILE*)>;
+    Pipe pipe{popen(command.c_str(), "r"), &pclose};
+    if (!pipe) {
+        return {};
+    }
+
+    std::vector<unsigned char> output;
+    std::array<unsigned char, 8192> chunk{};
+    while (output.size() < kMaxInlineImageBytes) {
+        const auto remaining = kMaxInlineImageBytes - output.size();
+        const auto count =
+            std::fread(chunk.data(), 1, std::min(chunk.size(), remaining), pipe.get());
+        output.insert(output.end(), chunk.begin(),
+                      chunk.begin() + static_cast<std::ptrdiff_t>(count));
+        if (count < chunk.size()) {
+            break;
+        }
+    }
+    return output;
+}
+#else
+[[nodiscard]] std::vector<unsigned char> convert_image(const fs::path&,
+                                                       std::string_view,
+                                                       int = 1920,
+                                                       int = 1080) {
+    return {};
+}
+#endif
+
+[[nodiscard]] std::vector<unsigned char> read_inline_image(const fs::path& path) {
+    std::error_code ec;
+    const auto size = fs::file_size(path, ec);
+    if (ec || size > kMaxInlineImageBytes) {
+        return {};
+    }
+
+    std::vector<unsigned char> image;
+    return read_file_chunk(path, 0, static_cast<std::size_t>(size), image)
+               ? image
+               : std::vector<unsigned char>{};
+}
+
 [[nodiscard]] std::optional<ImageInfo> detect_image_dimensions(
     std::span<const unsigned char> header, std::string_view mime_type) {
     if (mime_type == "image/png" && header.size() >= 24) {
@@ -700,7 +805,63 @@ private:
             .height = static_cast<int>(read_le16(header, 8)),
         };
     }
+    if (mime_type == "image/jpeg" && header.size() >= 9) {
+        for (std::size_t index = 2; index + 8 < header.size();) {
+            if (header[index] != 0xFF) {
+                ++index;
+                continue;
+            }
+            while (index < header.size() && header[index] == 0xFF) {
+                ++index;
+            }
+            if (index >= header.size()) {
+                break;
+            }
+
+            const auto marker = header[index++];
+            if (marker == 0xD8 || marker == 0xD9 || (marker >= 0xD0 && marker <= 0xD7)) {
+                continue;
+            }
+            if (index + 1 >= header.size()) {
+                break;
+            }
+            const auto length = static_cast<std::size_t>(header[index] << 8U) | header[index + 1];
+            if (length < 7 || index + length > header.size()) {
+                break;
+            }
+            const bool is_frame = marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 &&
+                                  marker != 0xC8 && marker != 0xCC;
+            if (is_frame) {
+                const auto height = static_cast<int>((header[index + 3] << 8U) | header[index + 4]);
+                const auto width = static_cast<int>((header[index + 5] << 8U) | header[index + 6]);
+                return ImageInfo{.width = width, .height = height};
+            }
+            index += length;
+        }
+    }
     return std::nullopt;
+}
+
+[[nodiscard]] ImageInfo fit_image_to_viewport(ImageInfo image, PreviewViewport viewport) noexcept {
+    const int max_columns = std::max(1, viewport.width * 4 / 5);
+    const int max_rows = std::max(1, viewport.height * 3 / 4);
+    if (image.width <= 0 || image.height <= 0) {
+        return ImageInfo{.width = max_columns, .height = max_rows};
+    }
+
+    const auto rounded_divide = [](std::int64_t numerator, std::int64_t denominator) {
+        return static_cast<int>((numerator + denominator / 2) / denominator);
+    };
+
+    // A terminal cell is typically about half as wide as it is tall.
+    const int columns_at_max_rows = rounded_divide(2LL * image.width * max_rows, image.height);
+    if (columns_at_max_rows <= max_columns) {
+        return ImageInfo{.width = std::max(1, columns_at_max_rows), .height = max_rows};
+    }
+    return ImageInfo{
+        .width = max_columns,
+        .height = std::max(1, rounded_divide(1LL * max_columns * image.height, 2LL * image.width)),
+    };
 }
 
 [[nodiscard]] std::optional<std::string> environment_value(const char* name) {
@@ -723,14 +884,19 @@ private:
 
 [[nodiscard]] std::string terminal_image_protocol() {
 #if EXPP_HAS_TERMINAL_IMAGES
-    if (environment_value("KITTY_WINDOW_ID").has_value()) {
+    const auto term = environment_value("TERM");
+    const auto program = environment_value("TERM_PROGRAM");
+    if (environment_value("KITTY_WINDOW_ID").has_value() ||
+        (term.has_value() && (term->find("kitty") != std::string::npos ||
+                              term->find("ghostty") != std::string::npos)) ||
+        (program.has_value() &&
+         (*program == "Ghostty" || *program == "ghostty" || *program == "WezTerm"))) {
         return "kitty";
     }
-    if (const auto program = environment_value("TERM_PROGRAM"); program == "iTerm.app") {
+    if (program == "iTerm.app") {
         return "iterm2";
     }
-    if (const auto term = environment_value("TERM");
-        term.has_value() && term->find("sixel") != std::string::npos) {
+    if (term.has_value() && term->find("sixel") != std::string::npos) {
         return "sixel";
     }
 #endif
@@ -1594,6 +1760,8 @@ public:
             std::string protocol;
             std::string stream;
             bool inline_rendered = false;
+            int display_columns = 1;
+            int display_rows = 1;
             const auto cfg = core::global_config().config();
 
             if (cfg.preview.inlineImages) {
@@ -1602,25 +1770,36 @@ public:
 
 #if EXPP_HAS_TERMINAL_IMAGES
             if (!protocol.empty()) {
-                std::error_code ec;
-                const auto size = fs::file_size(request.target, ec);
-                if (!ec && size <= request.maxBytes) {
-                    std::vector<unsigned char> image_data;
-                    if (read_file_chunk(request.target, 0, static_cast<std::size_t>(size),
-                                        image_data)) {
-                        const auto encoded = base64_encode(image_data);
-                        if (protocol == "kitty") {
-                            stream = std::format("\x1b_Gf=100,a=T,c={},r={};{}\x1b\\",
-                                                 std::max(1, request.viewport.width),
-                                                 std::max(1, request.viewport.height), encoded);
-                            inline_rendered = true;
-                        } else if (protocol == "iterm2") {
-                            stream = std::format("\x1b]1337;File=inline=1;width={}px;height={}px;"
-                                                 "preserveAspectRatio=1:{}\a",
-                                                 std::max(1, request.viewport.width),
-                                                 std::max(1, request.viewport.height), encoded);
-                            inline_rendered = true;
-                        }
+                const auto display_size = fit_image_to_viewport(dimensions, request.viewport);
+                const int columns = display_size.width;
+                const int rows = display_size.height;
+                display_columns = columns;
+                display_rows = rows;
+                if (protocol == "kitty") {
+                    auto image_data = mime.mimeType == "image/png"
+                                          ? read_inline_image(request.target)
+                                          : convert_image(request.target, "png");
+                    if (image_data.empty() && mime.mimeType == "image/png") {
+                        image_data = convert_image(request.target, "png");
+                    }
+                    if (!image_data.empty()) {
+                        stream = make_kitty_image_stream(base64_encode(image_data), columns, rows);
+                        inline_rendered = true;
+                    }
+                } else if (protocol == "iterm2") {
+                    const auto image_data = read_inline_image(request.target);
+                    if (!image_data.empty()) {
+                        stream = make_iterm2_image_stream(base64_encode(image_data), columns, rows);
+                        inline_rendered = true;
+                    }
+                } else if (protocol == "sixel") {
+                    const auto image_data =
+                        convert_image(request.target, "sixel", std::min(1920, columns * 8),
+                                      std::min(1080, rows * 16));
+                    if (!image_data.empty()) {
+                        stream.assign(reinterpret_cast<const char*>(image_data.data()),
+                                      image_data.size());
+                        inline_rendered = true;
                     }
                 }
             }
@@ -1631,6 +1810,10 @@ public:
                 "MIME: " + mime.mimeType,
                 std::format("Dimensions: {}x{}", dimensions.width, dimensions.height),
             };
+            std::error_code size_error;
+            if (const auto size = fs::file_size(request.target, size_error); !size_error) {
+                lines.push_back("Size: " + core::filesystem::format_file_size(size));
+            }
             if (!inline_rendered) {
                 lines.emplace_back("Inline preview: unavailable");
             }
@@ -1645,11 +1828,14 @@ public:
                                  .escapeStream = std::move(stream),
                                  .width = dimensions.width,
                                  .height = dimensions.height,
+                                 .displayColumns = display_columns,
+                                 .displayRows = display_rows,
                                  .renderedInline = inline_rendered,
                                  },
-                .diagnostic =
-                    inline_rendered ? std::string{}
-                    : "terminal image protocol unavailable",
+                .diagnostic = inline_rendered
+                                  ? std::string{}
+                                  : (protocol.empty() ? "terminal image protocol unavailable"
+                                                      : "inline image conversion unavailable"),
             });
         });
     }

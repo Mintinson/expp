@@ -4,9 +4,11 @@
 
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <string>
@@ -79,6 +81,36 @@ public:
 
 private:
     expp::core::Config oldConfig_;
+};
+
+class ScopedEnvironment {
+public:
+    ScopedEnvironment(std::string name, std::string value) : name_(std::move(name)) {
+        if (const char* previous = std::getenv(name_.c_str())) {
+            previous_ = previous;
+        }
+#ifdef _WIN32
+        (void)_putenv_s(name_.c_str(), value.c_str());
+#else
+        (void)setenv(name_.c_str(), value.c_str(), 1);
+#endif
+    }
+
+    ~ScopedEnvironment() {
+#ifdef _WIN32
+        (void)_putenv_s(name_.c_str(), previous_.value_or("").c_str());
+#else
+        if (previous_) {
+            (void)setenv(name_.c_str(), previous_->c_str(), 1);
+        } else {
+            (void)unsetenv(name_.c_str());
+        }
+#endif
+    }
+
+private:
+    std::string name_;
+    std::optional<std::string> previous_;
 };
 
 [[nodiscard]] bool has_role(const expp::app::RichTextPreview& preview,
@@ -239,6 +271,50 @@ TEST_CASE("Text preview highlights common source and config files", "[app][previ
                    expp::app::PreviewTextRole::String));
     CHECK(has_role(std::get<expp::app::RichTextPreview>(config->content),
                    expp::app::PreviewTextRole::Type));
+}
+
+TEST_CASE("Image preview uses Kitty graphics in Ghostty", "[app][preview][image]") {
+    const ScopedEnvironment terminal{"TERM", "xterm-ghostty"};
+    const ScopedPreviewConfig scoped{expp::core::ConfigManager::defaults().preview};
+
+    auto services = expp::app::make_default_explorer_services();
+    const auto result = services.runtime->blockOn(services.preview->loadPreview({
+        .target = fs::path{SOURCE_PATH}
+          / "resource" / "image.png",
+        .maxBytes = 65536,
+        .chunkLines = 20,
+        .viewport = {.width = 40, .height = 12},
+    }));
+
+    REQUIRE(result.has_value());
+    REQUIRE(std::holds_alternative<expp::app::ImagePreview>(result->content));
+    const auto& image = std::get<expp::app::ImagePreview>(result->content);
+    CHECK(image.protocol == "kitty");
+    CHECK(image.renderedInline);
+    CHECK(image.displayColumns == 23);
+    CHECK(image.displayRows == 9);
+    CHECK(image.escapeStream.starts_with("\x1b_Ga=d,d=I,i=1,q=2\x1b\\\x1b_Ga=T,f=100,i=1,p=1,q=2"));
+    REQUIRE(result->lines.size() == 4);
+    CHECK(result->lines.back().starts_with("Size: "));
+}
+
+TEST_CASE("Image preview fits its terminal viewport", "[app][preview][image]") {
+    const ScopedEnvironment terminal{"TERM", "xterm-ghostty"};
+    const ScopedPreviewConfig scoped{expp::core::ConfigManager::defaults().preview};
+
+    auto services = expp::app::make_default_explorer_services();
+    const auto result = services.runtime->blockOn(services.preview->loadPreview({
+        .target = fs::path{SOURCE_PATH}
+          / "resource" / "image.png",
+        .maxBytes = 65536,
+        .chunkLines = 20,
+        .viewport = {.width = 60, .height = 40},
+    }));
+
+    REQUIRE(result.has_value());
+    REQUIRE(std::holds_alternative<expp::app::ImagePreview>(result->content));
+    const auto& image = std::get<expp::app::ImagePreview>(result->content);
+    CHECK(image.escapeStream.find("\x1b_Ga=T,f=100,i=1,p=1,q=2,c=48,r=19,") != std::string::npos);
 }
 
 #if EXPP_HAS_TREE_SITTER

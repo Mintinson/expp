@@ -21,6 +21,13 @@ namespace {
     return screen.ToString();
 }
 
+[[nodiscard]] std::string render_preview(expp::ui::PreviewComponent& component,
+                                         const expp::app::PreviewModel& model) {
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(60), ftxui::Dimension::Fixed(8));
+    ftxui::Render(screen, component.render(model));
+    return screen.ToString();
+}
+
 [[nodiscard]] bool has_visible_output(const std::string& output) {
     return output.find_first_not_of(" \r\n") != std::string::npos;
 }
@@ -38,6 +45,7 @@ namespace {
         .lines = {"x"},
         .content = expp::app::RichTextPreview{.lines = {{{.text = "x", .role = role}}}},
         .mimeType = "text/plain",
+        .diagnostic = {},
     };
     auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(1), ftxui::Dimension::Fixed(1));
     ftxui::Render(screen, component.render(model));
@@ -61,7 +69,8 @@ TEST_CASE("Preview component renders every typed content variant", "[ui][preview
     contents.emplace_back(expp::app::PlainTextPreview{.lines = {"plain text"}});
     contents.emplace_back(expp::app::RichTextPreview{
         .lines = {{{.text = "keyword", .role = expp::app::PreviewTextRole::Keyword}}}});
-    contents.emplace_back(expp::app::ImagePreview{.protocol = "kitty", .renderedInline = false});
+    contents.emplace_back(
+        expp::app::ImagePreview{.protocol = "kitty", .escapeStream = {}, .renderedInline = false});
     contents.emplace_back(expp::app::ListingPreview{.entries = {"[F] entry.txt"}});
     contents.emplace_back(
         expp::app::HexDumpPreview{.lines = {"00000000  41 |A|"}, .baseOffset = 0});
@@ -73,9 +82,79 @@ TEST_CASE("Preview component renders every typed content variant", "[ui][preview
             .lines = {"image metadata fallback"},
             .content = std::move(content),
             .mimeType = "application/octet-stream",
+            .diagnostic = {},
         });
         CHECK(has_visible_output(output));
     }
+}
+
+TEST_CASE("Preview component emits an inline image stream", "[ui][preview][image]") {
+    constexpr std::string_view image_stream{"\x1b_Ga=T,f=100;AQ==\x1b\\"};
+    const expp::app::PreviewModel model = expp::app::PreviewReadyState{
+        .target = std::filesystem::path{"sample.png"},
+        .lines = {},
+        .content =
+            expp::app::ImagePreview{
+                                        .protocol = "kitty",
+                                        .escapeStream = std::string{image_stream},
+                                        .renderedInline = true,
+                                        },
+        .mimeType = "image/png",
+        .diagnostic = {},
+    };
+
+    CHECK(render_preview(model).find(image_stream) != std::string::npos);
+}
+
+TEST_CASE("Preview component emits Kitty images only on change", "[ui][preview][image]") {
+    constexpr std::string_view image_stream{"\x1b_Ga=T,f=100;AQ==\x1b\\"};
+    constexpr std::string_view delete_stream{"\x1b_Ga=d,d=I,i=1,q=2\x1b\\"};
+    const expp::app::PreviewModel image = expp::app::PreviewReadyState{
+        .target = std::filesystem::path{"sample.png"},
+        .lines = {"[Image]"},
+        .content = expp::app::ImagePreview{.protocol = "kitty",
+                                        .escapeStream = std::string{image_stream},
+                                        .renderedInline = true},
+        .mimeType = "image/png",
+        .diagnostic = {},
+    };
+    const expp::app::PreviewModel text = expp::app::PreviewReadyState{
+        .target = std::filesystem::path{"sample.txt"},
+        .lines = {"plain text"},
+        .content = expp::app::PlainTextPreview{.lines = {"plain text"}},
+        .mimeType = "text/plain",
+        .diagnostic = {},
+    };
+    expp::ui::PreviewComponent component{expp::ui::PreviewRenderConfig{.maxRenderLines = 8}};
+
+    CHECK(render_preview(component, image).find(image_stream) != std::string::npos);
+    CHECK(render_preview(component, image).find(image_stream) == std::string::npos);
+    CHECK(render_preview(component, text).find(delete_stream) != std::string::npos);
+    CHECK(render_preview(component, text).find(delete_stream) == std::string::npos);
+}
+
+TEST_CASE("Preview component renders image details above an inline image", "[ui][preview][image]") {
+    constexpr std::string_view image_stream{"\x1b_Ga=T,f=100;AQ==\x1b\\"};
+    const expp::app::PreviewModel model = expp::app::PreviewReadyState{
+        .target = std::filesystem::path{"sample.png"},
+        .lines = {"[Image]", "MIME: image/png", "Dimensions: 899x707", "Size: 24.7 KiB"},
+        .content =
+            expp::app::ImagePreview{
+                                        .protocol = "kitty",
+                                        .escapeStream = std::string{image_stream},
+                                        .displayColumns = 20,
+                                        .displayRows = 2,
+                                        .renderedInline = true,
+                                        },
+        .mimeType = "image/png",
+        .diagnostic = {},
+    };
+
+    const auto output = render_preview(model);
+    CHECK(output.find("MIME: image/png") != std::string::npos);
+    CHECK(output.find("Size: 24.7 KiB") != std::string::npos);
+    CHECK(output.find(image_stream) != std::string::npos);
+    CHECK(output.find(std::string{image_stream} + "\x1b[6;21H") != std::string::npos);
 }
 
 TEST_CASE("Preview syntax colors follow theme defaults and overrides", "[ui][preview][theme]") {

@@ -123,22 +123,25 @@ public:
                 }
                 promise.set_value(std::move(result));
             });
-#if !_HAS_EXCEPTIONS
+#if !defined(__cpp_exceptions)
         return future.get();
 #else
         try {
             return future.get();
         } catch (const std::exception& error) {
-            if constexpr (requires { T{make_error(ErrorCategory::System, std::string{})}; }) {
-                return T{make_error(ErrorCategory::System,
-                                    std::format("blocking async task failed: {}", error.what()))};
+            if constexpr (requires {
+                              T{std::unexpected{make_error(ErrorCategory::System, std::string{})}};
+                          }) {
+                return T{std::unexpected{
+                    make_error(ErrorCategory::System,
+                               std::format("blocking async task failed: {}", error.what()))}};
             } else {
                 throw;
             }
         }
 #endif
     }
-#if _HAS_EXCEPTIONS
+#if defined(__cpp_exceptions)
     /**
      * @brief Spawns a coroutine and reports exceptional failures through the UI mailbox.
      */

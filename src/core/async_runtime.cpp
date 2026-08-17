@@ -21,6 +21,17 @@ template <typename Exception>
     std::terminate();
 }
 
+// Keep the no-exceptions handler available to all translation units. Without
+// explicit instantiation GCC may internalize a specialization used by Asio in
+// this file, leaving other static-library objects with an unresolved symbol.
+template void throw_exception<asio::execution::bad_executor>(
+    const asio::execution::bad_executor& e ASIO_SOURCE_LOCATION_PARAM);
+template void throw_exception<std::bad_alloc>(const std::bad_alloc& e ASIO_SOURCE_LOCATION_PARAM);
+template void throw_exception<std::out_of_range>(
+    const std::out_of_range& e ASIO_SOURCE_LOCATION_PARAM);
+template void throw_exception<std::system_error>(
+    const std::system_error& e ASIO_SOURCE_LOCATION_PARAM);
+
 }  // namespace asio::detail
 
 #endif
@@ -116,7 +127,7 @@ UiMailbox& AsioRuntime::mailbox() noexcept {
 const UiMailbox& AsioRuntime::mailbox() const noexcept {
     return mailbox_;
 }
-#if _HAS_EXCEPTIONS
+#if defined(__cpp_exceptions)
 void AsioRuntime::spawnDetached(IoExecutor executor,
                                 Task<void> task,
                                 std::string_view name,
