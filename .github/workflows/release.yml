@@ -63,9 +63,7 @@ jobs:
           [[ "$(g++ -dumpfullversion)" == 16.* ]]
 
       - name: Configure (Release preset)
-        run: >-
-          cmake --preset ${{ matrix.preset }}
-          -DCI_VERSION=${{ github.ref_name }}
+        run: cmake --preset ${{ matrix.preset }} "-DCI_VERSION=${{ github.ref_name }}"
 
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} --parallel
